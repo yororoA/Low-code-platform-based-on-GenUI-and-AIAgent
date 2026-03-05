@@ -1,3 +1,7 @@
 export default function StudioPage() {
-  return <div>StudioPage</div>
+  return (
+    <div>
+      StudioPage
+    </div>
+  )
 }
