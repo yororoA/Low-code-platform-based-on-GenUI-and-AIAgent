@@ -1,8 +1,27 @@
 "use client"
 
 import { useEffect, useState } from "react"
-// import { CalendarSingle } from "@/components/calendar/calendarSingle"
 import { useChat } from "@ai-sdk/react"
+// import { CalendarSingle } from "@/components/calendar/calendarSingle"
+import { Avatar4uProps, Avatar4u } from "@/components/avtar/avatar4u";
+
+
+
+const demoAvatarProps: Avatar4uProps = {
+  singleAvatars: [
+    {
+      src: "/placeholder-user.jpg",
+      alt: "User",
+      fallback: "U",
+      size: "lg",
+      hasBadge: true,
+      badge: {
+        icon: <span className="text-xs text-white">3</span>,
+        // className: ""
+      }
+    }
+  ]
+};
 
 export default function TestPage() {
   const { messages, sendMessage } = useChat();
@@ -49,7 +68,7 @@ export default function TestPage() {
 
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-white">
+    <div className="flex-col min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-white">
       {/* <h1>Test Page</h1> */}
       <p>{text}</p>
       <form action="" onSubmit={(e) => {
@@ -61,7 +80,17 @@ export default function TestPage() {
         <input className="bg-blue-500 text-white placeholder:text-blue-300" type="text" name="input" id="" value={sv} onChange={(e) => setSv(e.target.value)} />
         <button>{'Send'}</button>
       </form>
+
+      <br />
+      <line className="w-full border-t border-gray-300 dark:border-gray-600" />
       {/* <CalendarSingle className="rounded-lg border" captionLayout="dropdown-months" /> */}
+      <Avatar4u {...demoAvatarProps} />
+
+
+
+
+
+
     </div>
   )
 }
