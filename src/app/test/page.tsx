@@ -1,96 +1,238 @@
 "use client"
 
-import { useEffect, useState } from "react"
-import { useChat } from "@ai-sdk/react"
-// import { CalendarSingle } from "@/components/calendar/calendarSingle"
-import { Avatar4uProps, Avatar4u } from "@/components/avtar/avatar4u";
+import { useState } from "react"
+import {
+  BellIcon,
+  CreditCardIcon,
+  LogOutIcon,
+  MailIcon,
+  MessageSquareIcon,
+  PencilIcon,
+  ShareIcon,
+  TrashIcon,
+  UserIcon,
+} from "lucide-react"
 
-
-
-const demoAvatarProps: Avatar4uProps = {
-  singleAvatars: [
-    {
-      src: "/placeholder-user.jpg",
-      alt: "User",
-      fallback: "U",
-      size: "lg",
-      hasBadge: true,
-      badge: {
-        icon: <span className="text-xs text-white">3</span>,
-        // className: ""
-      }
-    }
-  ]
-};
+import Accordion4u from "@/components/accordion/accordion4u"
+import { Avatar4u } from "@/components/avtar/avatar4u"
+import { Card4u } from "@/components/card/card4u"
+import { Carousel4u } from "@/components/carousel/carousel4u"
+import { Chart4u } from "@/components/chart/chart4u"
+import { Checkbox4u } from "@/components/checkbox/checkbox"
+import { Dropdown4u, type Dropdown4uGroup } from "@/components/dropdown/dropdown4u"
+import { Table4u } from "@/components/table/table4u"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import { Button } from "@/components/ui/button"
 
 export default function TestPage() {
-  const { messages, sendMessage } = useChat();
-  const [text, setText] = useState("");
-  const [sv, setSv] = useState("");
+  const [showEmail, setShowEmail] = useState(true)
+  const [showSms, setShowSms] = useState(false)
+  const [position, setPosition] = useState("bottom")
 
-  useEffect(() => {
-    const assistantMessage = [...messages].reverse().find(msg => msg.role === "assistant");
+  const dropdownGroups: Dropdown4uGroup[] = [
+    {
+      label: "Actions",
+      items: [
+        { type: "item", label: "Profile", icon: <UserIcon />, shortcut: "⌘+P" },
+        { type: "item", label: "Edit", icon: <PencilIcon /> },
+        { type: "item", label: "Share", icon: <ShareIcon /> },
+      ],
+      separator: true,
+    },
+    {
+      label: "Preferences",
+      items: [
+        {
+          type: "checkbox",
+          label: "Email notifications",
+          icon: <MailIcon />,
+          checked: showEmail,
+          onCheckedChange: (checked) => setShowEmail(checked === true),
+        },
+        {
+          type: "checkbox",
+          label: "SMS notifications",
+          icon: <MessageSquareIcon />,
+          checked: showSms,
+          onCheckedChange: (checked) => setShowSms(checked === true),
+        },
+        { type: "separator" },
+        {
+          type: "sub",
+          trigger: "More",
+          items: [
+            {
+              type: "radio-group",
+              value: position,
+              onValueChange: setPosition,
+              items: [
+                { value: "top", label: "Top" },
+                { value: "bottom", label: "Bottom" },
+                { value: "right", label: "Right" },
+              ],
+            },
+            { type: "separator" },
+            { type: "item", label: "Delete", icon: <TrashIcon />, variant: "destructive" },
+          ],
+        },
+      ],
+    },
+  ]
 
-    // console.log("All messages:", messages);
+  const avatarDropdownGroups: Dropdown4uGroup[] = [
+    {
+      items: [
+        { type: "item", label: "Account", icon: <UserIcon /> },
+        { type: "item", label: "Billing", icon: <CreditCardIcon /> },
+        { type: "item", label: "Notifications", icon: <BellIcon /> },
+      ],
+      separator: true,
+    },
+    {
+      items: [{ type: "item", label: "Sign Out", icon: <LogOutIcon />, variant: "destructive" }],
+    },
+  ]
 
-    if (assistantMessage) {
-      const textParts: string = assistantMessage.parts.find(part => part.type === "text")?.text as string;
-
-      if (textParts) {
-        try {
-          // 1. 尝试完整解析 JSON（适用于流式输出结束时的完整字符串）
-          const parsed = JSON.parse(textParts);
-          setText(parsed.text || "");
-        } catch (e) {
-          // 2. 如果 JSON 还不完整（在流式输出中），使用正则安全提取 "text" 字段
-          // 这个正则会匹配 "text": " 然后一直获取内容，直到碰到下一个未转义的双引号
-          const match = textParts.match(/"text"\s*:\s*"((?:[^"\\]|\\.)*)/);
-
-          if (match) {
-            const extracted = match[1];
-            try {
-              // 用双引号包裹起来当作 JSON 解析，这样能完美还原模型输出的 \n 和 \" 等转义字符
-              setText(JSON.parse(`"${extracted}"`));
-            } catch {
-              // 极端边缘情况：正好截断在转义符上(比如最后只有一个 "\")，做个简单的降级替换
-              setText(extracted.replace(/\\"/g, '"').replace(/\\n/g, '\n'));
-            }
-          } else {
-            // "text" 字段还没开始输出（比如模型正在先输出 toolCalled）
-            setText("Loading...");
-          }
-        }
-      }
-    }
-  }, [messages]);
-
-
-
+  const chartData = [
+    { month: "Jan", desktop: 186, mobile: 80 },
+    { month: "Feb", desktop: 305, mobile: 200 },
+    { month: "Mar", desktop: 237, mobile: 120 },
+    { month: "Apr", desktop: 173, mobile: 190 },
+  ]
 
   return (
-    <div className="flex-col min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-white">
-      {/* <h1>Test Page</h1> */}
-      <p>{text}</p>
-      <form action="" onSubmit={(e) => {
-        e.preventDefault();
-        setText("");
-        sendMessage({ text: sv });
-        setSv("");
-      }}>
-        <input className="bg-blue-500 text-white placeholder:text-blue-300" type="text" name="input" id="" value={sv} onChange={(e) => setSv(e.target.value)} />
-        <button>{'Send'}</button>
-      </form>
+    <div className="min-h-screen bg-zinc-50 p-8 font-sans dark:bg-black">
+      <div className="mx-auto grid max-w-6xl grid-cols-1 gap-6 md:grid-cols-2">
+        <Card4u
+          title="Card4u + 嵌套组件"
+          description="通过参数把 Avatar4u 与 Dropdown4u 嵌套到 Card4u 内容区域"
+          content={
+            <div className="space-y-4">
+              <Avatar4u
+                singleAvatars={[
+                  {
+                    src: "/placeholder-user.jpg",
+                    alt: "User",
+                    fallback: "U",
+                    size: "lg",
+                    hasBadge: true,
+                    badge: { icon: <span className="text-[10px] text-white">3</span> },
+                  },
+                ]}
+              />
+              <Dropdown4u triggerText="Open Menu" groups={dropdownGroups} />
+            </div>
+          }
+          actionLabel="Confirm"
+        />
 
-      <br />
-      <line className="w-full border-t border-gray-300 dark:border-gray-600" />
-      {/* <CalendarSingle className="rounded-lg border" captionLayout="dropdown-months" /> */}
-      <Avatar4u {...demoAvatarProps} />
+        <Card4u
+          title="Avatar Trigger Dropdown"
+          description="测试 avatar 作为 trigger + align=end"
+          content={
+            <Dropdown4u
+              triggerAsChild
+              trigger={
+                <Button variant="ghost" size="icon" className="rounded-full">
+                  <Avatar>
+                    <AvatarImage src="https://github.com/shadcn.png" alt="shadcn" />
+                    <AvatarFallback>CN</AvatarFallback>
+                  </Avatar>
+                </Button>
+              }
+              contentProps={{ align: "end" }}
+              contentClassName="w-48"
+              groups={avatarDropdownGroups}
+            />
+          }
+          showDefaultFooterButton={false}
+        />
 
+        <Card4u
+          title="Accordion4u"
+          content={
+            <Accordion4u
+              type="single"
+              collapsible
+              defaultValue="a"
+              items={[
+                { value: "a", trigger: "Is it accessible?", content: "Yes. It adheres to WAI-ARIA design pattern." },
+                { value: "b", trigger: "Is it styled?", content: "Yes. It comes with default styles." },
+              ]}
+            />
+          }
+          showDefaultFooterButton={false}
+        />
 
+        <Card4u
+          title="Carousel4u"
+          content={
+            <Carousel4u
+              rootClassName="w-full max-w-sm mx-auto"
+              slides={[
+                <div key="slide-1" className="rounded-md border p-8 text-center">Slide 1</div>,
+                <div key="slide-2" className="rounded-md border p-8 text-center">Slide 2</div>,
+                <div key="slide-3" className="rounded-md border p-8 text-center">Slide 3</div>,
+              ]}
+            />
+          }
+          showDefaultFooterButton={false}
+        />
 
+        <Card4u
+          title="Checkbox4u"
+          content={
+            <Checkbox4u
+              legend={{ content: "Display options", description: "Toggle options below." }}
+              items={[
+                { content: "Status Bar", defaultChecked: true },
+                { content: "Activity Bar", disabled: true },
+                { content: "Panel", orientation: "horizontal" },
+              ]}
+            />
+          }
+          showDefaultFooterButton={false}
+        />
 
+        <Card4u
+          title="Table4u"
+          content={
+            <Table4u
+              captionTitle="A list of recent invoices"
+              headers={[
+                { description: "Invoice" },
+                { description: "Status" },
+                { description: "Amount", className: "text-right" },
+              ]}
+              rows={[
+                { cells: [{ content: "INV001" }, { content: "Paid" }, { content: "$250.00", className: "text-right" }] },
+                { cells: [{ content: "INV002" }, { content: "Pending" }, { content: "$150.00", className: "text-right" }] },
+              ]}
+              footer={{ cells: [{ content: "Total", className: "font-medium" }, { content: "" }, { content: "$400.00", className: "text-right" }] }}
+            />
+          }
+          showDefaultFooterButton={false}
+        />
 
-
+        <Card4u
+          title="Chart4u"
+          content={
+            <Chart4u
+              data={chartData}
+              xAxisDataKey="month"
+              config={{
+                desktop: { label: "Desktop", color: "hsl(var(--chart-1))" },
+                mobile: { label: "Mobile", color: "hsl(var(--chart-2))" },
+              }}
+              series={[
+                { type: "bar", dataKey: "desktop" },
+                { type: "line", dataKey: "mobile" },
+              ]}
+            />
+          }
+          showDefaultFooterButton={false}
+        />
+      </div>
     </div>
   )
 }

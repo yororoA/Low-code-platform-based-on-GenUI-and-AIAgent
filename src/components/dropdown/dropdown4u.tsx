@@ -45,6 +45,7 @@ type Dropdown4uCheckboxNode = {
   shortcut?: React.ReactNode
 }
 
+/** 单个单选项节点配置。 */
 export interface Dropdown4uRadioItemNode {
   key?: string
   value: string
@@ -76,6 +77,7 @@ export type Dropdown4uNode =
   | Dropdown4uSeparatorNode
   | Dropdown4uSubNode
 
+/** 分组配置：每组可包含标签、节点列表与末尾分隔线。 */
 export interface Dropdown4uGroup {
   key?: string
   label?: React.ReactNode
@@ -83,6 +85,7 @@ export interface Dropdown4uGroup {
   separator?: boolean
 }
 
+/** Dropdown4u 组件整体参数。 */
 export interface Dropdown4uProps {
   variant?: React.ComponentProps<typeof Button>["variant"] // "outline" | "default" | "destructive" | "ghost" | "link" | "secondary"
   triggerText?: React.ReactNode

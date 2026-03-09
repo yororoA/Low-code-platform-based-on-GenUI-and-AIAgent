@@ -11,17 +11,20 @@ type Accordion4uItem = {
   content: string
 }
 
+/** 手风琴组件的通用基础参数。 */
 interface Accordion4uBaseProps {
   items: Accordion4uItem[]
   className?: string
 }
 
+/** 单开模式参数。 */
 interface Accordion4uSingleProps extends Accordion4uBaseProps {
   type: "single"
   collapsible?: boolean
   defaultValue?: string
 }
 
+/** 多开模式参数。 */
 interface Accordion4uMultipleProps extends Accordion4uBaseProps {
   type: "multiple"
   defaultValue?: string[]

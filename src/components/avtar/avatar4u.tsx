@@ -19,6 +19,7 @@ type AvatarBadgeProps =
     icon: React.ReactNode
   }
 
+/** 单个头像项参数。 */
 interface AvatarCommonProps {
   id?: string,
   src: string,
@@ -44,6 +45,7 @@ type AvatarGroupCountProps =
     icon: React.ReactNode,
   }
 
+/** Avatar4u 组件参数：支持单头像和头像组两种模式。 */
 export interface Avatar4uProps {
   className?: string,
   singleAvatars?: AvatarCommonProps[],
@@ -97,7 +99,7 @@ export function Avatar4u(props: Avatar4uProps) {
             </Avatar>
           );
         })}
-        {(props.groupAvatars.count || props.groupAvatars.icon) && <AvatarGroupCount>
+        {(props.groupAvatars.count !== undefined || props.groupAvatars.icon) && <AvatarGroupCount>
           {props.groupAvatars.icon ? props.groupAvatars.icon : `+${props.groupAvatars.count}`}
         </AvatarGroupCount>}
       </AvatarGroup>}
