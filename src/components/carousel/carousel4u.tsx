@@ -8,6 +8,7 @@ import {
 } from "@/components/ui/carousel"
 import { cn } from "@/lib/utils"
 
+/** Carousel4u 组件参数：支持 slide 内容与各子组件透传参数。 */
 interface Carousel4uProps {
   rootClassName?: string
   slides?: React.ReactNode[]

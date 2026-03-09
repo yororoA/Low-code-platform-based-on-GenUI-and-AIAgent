@@ -20,14 +20,17 @@ interface CalendarCommonProps {
 
 type CalendarCommonPropKeys = keyof CalendarCommonProps | "mode"
 
+/** `single` 模式参数：通用展示参数 + DayPicker 单选能力。 */
 export interface CalendarSingleProps
   extends CalendarCommonProps,
   Omit<PropsSingle, CalendarCommonPropKeys> { }
 
+/** `range` 模式参数：通用展示参数 + DayPicker 区间能力。 */
 export interface CalendarRangeProps
   extends CalendarCommonProps,
   Omit<PropsRange, CalendarCommonPropKeys> { }
 
+/** `multiple` 模式参数：通用展示参数 + DayPicker 多选能力。 */
 export interface CalendarMultipleProps
   extends CalendarCommonProps,
   Omit<PropsMulti, CalendarCommonPropKeys> { }

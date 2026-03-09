@@ -8,54 +8,62 @@ import {
   FieldLegend,
   FieldSet,
 } from "@/components/ui/field"
-import React, { useState } from "react"
-// import { z } from "zod"
+import React from "react"
 
-interface ChartItem {
-  oriantation?: "horizontal" | "vertical",
-  content: string,
-  description?: string,
-  defaultChecked?: boolean,
-  disabled?: boolean,
+type CheckedState = boolean | "indeterminate"
+
+/** 单个复选项参数。 */
+interface Checkbox4uItem {
+  id?: string
+  orientation?: "horizontal" | "vertical"
+  content: React.ReactNode
+  description?: React.ReactNode
+  checked?: CheckedState
+  defaultChecked?: boolean
+  onCheckedChange?: (checked: CheckedState) => void
+  disabled?: boolean
 }
 
-interface Chart4uProps {
-  legand?: {
-    content: string,
-    description?: string,
-    // variant
-  },
-  className?: string,
-  items: ChartItem[]
+/** Checkbox4u 组件参数。 */
+interface Checkbox4uProps {
+  legend?: {
+    content: React.ReactNode
+    description?: React.ReactNode
+  }
+  className?: string
+  groupClassName?: string
+  items: Checkbox4uItem[]
 }
 
-export function Chart4u(props: Chart4uProps) {
-  // const [checked, setChecked] = useState(false);
-
+export function Checkbox4u(props: Checkbox4uProps) {
   return (
     <FieldSet className={props.className}>
-      {props.legand && (
+      {props.legend && (
         <>
-          <FieldLegend>{props.legand.content}</FieldLegend>
-          {props.legand.description && (
+          <FieldLegend>{props.legend.content}</FieldLegend>
+          {props.legend.description && (
             <FieldDescription>
-              {props.legand.description}
+              {props.legend.description}
             </FieldDescription>
           )}
         </>
       )}
-      <FieldGroup className={props.className ?? "mx-auto w-72"}>
+      <FieldGroup className={props.groupClassName ?? "mx-auto w-72"}>
         {props.items.map((item, index) => {
+          const itemId = item.id ?? `checkbox-${index}`
+
           return (
-            <Field key={index} orientation={item.oriantation ?? "horizontal"}>
+            <Field key={itemId} orientation={item.orientation ?? "horizontal"}>
               <Checkbox
-                id={`checkbox-${index}-${item.content}`}
-                name={`checkbox-${index}-${item.content}`}
+                id={itemId}
+                name={itemId}
+                checked={item.checked}
                 defaultChecked={item.defaultChecked}
+                onCheckedChange={item.onCheckedChange}
                 disabled={item.disabled}
               />
               <FieldContent>
-                <FieldLabel htmlFor={`checkbox-${index}`}>
+                <FieldLabel htmlFor={itemId}>
                   {item.content}
                 </FieldLabel>
                 {item.description && (
@@ -65,9 +73,11 @@ export function Chart4u(props: Chart4uProps) {
                 )}
               </FieldContent>
             </Field>
-          ) as React.ReactNode;
+          ) as React.ReactNode
         })}
       </FieldGroup>
     </FieldSet>
-  );
+  )
 }
+
+export { Checkbox4u as Chart4u }
