@@ -2,7 +2,7 @@ import { wrapLanguageModel, UIMessage, ToolLoopAgent, stepCountIs, createAgentUI
 import { deepseek } from "@ai-sdk/deepseek";
 import { devToolsMiddleware } from '@ai-sdk/devtools';
 import { chatTools } from './tools';
-import { chatInstructions } from './prompt';
+import { chatInstructions, textAgentInstructions } from './prompt';
 import { chatOutput } from './schema';
 
 
@@ -15,6 +15,13 @@ export async function POST(req: Request) {
       devToolsMiddleware(),
     ]
   });
+
+  // 顶层文本回复agent, 并向下调用工具agent
+  const textAgent = new ToolLoopAgent({
+    model,
+    instructions: textAgentInstructions,
+  });
+
   const agent = new ToolLoopAgent({
     model,
     instructions: chatInstructions,
