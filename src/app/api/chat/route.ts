@@ -4,6 +4,7 @@ import { devToolsMiddleware } from '@ai-sdk/devtools';
 import { chatTools } from './tools';
 import { chatInstructions, textAgentInstructions } from './prompt';
 import { chatOutput } from './schema';
+import { searchTool, extractTool } from '@parallel-web/ai-sdk-tools';
 
 
 export async function POST(req: Request) {
@@ -27,7 +28,23 @@ export async function POST(req: Request) {
     instructions: chatInstructions,
     stopWhen: stepCountIs(20),
     output: chatOutput,
-    tools: chatTools,
+    tools: {
+      ...chatTools,
+      'web-search': searchTool,
+      'web-extract': extractTool,
+    },
+    toolChoice: "auto",
+    prepareStep: ({ stepNumber }) => {
+      if (stepNumber === 0) {
+        return {
+          toolChoice: {
+            type: "tool",
+            toolName: "web-search",
+          }
+        };
+      }
+      return {};
+    }
   });
 
   return createAgentUIStreamResponse({
