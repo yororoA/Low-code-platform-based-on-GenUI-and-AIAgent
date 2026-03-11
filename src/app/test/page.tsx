@@ -3,6 +3,7 @@
 import { useState } from "react"
 import {
   BellIcon,
+  CircleAlertIcon,
   CreditCardIcon,
   LogOutIcon,
   MailIcon,
@@ -14,6 +15,8 @@ import {
 } from "lucide-react"
 
 import Accordion4u from "@/components/accordion/accordion4u"
+import { Alert4u } from "@/components/alert/alert4u"
+import { AlertDialog4u } from "@/components/alertDialog/alertDialog4u"
 import { Avatar4u } from "@/components/avtar/avatar4u"
 import { Card4u } from "@/components/card/card4u"
 import { Carousel4u } from "@/components/carousel/carousel4u"
@@ -292,6 +295,39 @@ export default function TestPage() {
                   fieldProps: { orientation: "horizontal" },
                 },
               ]}
+            />
+          }
+          showDefaultFooterButton={false}
+        />
+
+        <Card4u
+          title="Alert4u"
+          content={
+            <div className="space-y-3">
+              <Alert4u icon={<CircleAlertIcon className="size-4" />} />
+              <Alert4u
+                icon={<CircleAlertIcon className="size-4" />}
+                alertProps={{ variant: "destructive" }}
+                title="Error"
+                description="Your session has expired. Please sign in again."
+              />
+            </div>
+          }
+          showDefaultFooterButton={false}
+        />
+
+        <Card4u
+          title="AlertDialog4u"
+          content={
+            <AlertDialog4u
+              triggerText="Delete Project"
+              media={<CircleAlertIcon className="size-8 text-destructive" />}
+              title="Delete this project?"
+              description="This action cannot be undone and will remove all related resources."
+              cancelText="Keep"
+              actionText="Delete"
+              actionProps={{ variant: "destructive" }}
+              contentProps={{ size: "sm" }}
             />
           }
           showDefaultFooterButton={false}
