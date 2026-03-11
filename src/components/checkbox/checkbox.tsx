@@ -80,4 +80,3 @@ export function Checkbox4u(props: Checkbox4uProps) {
   )
 }
 
-export { Checkbox4u as Chart4u }

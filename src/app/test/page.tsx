@@ -20,9 +20,14 @@ import { Carousel4u } from "@/components/carousel/carousel4u"
 import { Chart4u } from "@/components/chart/chart4u"
 import { Checkbox4u } from "@/components/checkbox/checkbox"
 import { Dropdown4u, type Dropdown4uGroup } from "@/components/dropdown/dropdown4u"
+import { Button4u } from "@/components/button/button4u"
+import { Field4u } from "@/components/field/field4u"
+import { Label4u } from "@/components/label/label4u"
+import { Separator4u } from "@/components/separator/separator4u"
 import { Table4u } from "@/components/table/table4u"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 
 export default function TestPage() {
   const [showEmail, setShowEmail] = useState(true)
@@ -227,6 +232,65 @@ export default function TestPage() {
               series={[
                 { type: "bar", dataKey: "desktop" },
                 { type: "line", dataKey: "mobile" },
+              ]}
+            />
+          }
+          showDefaultFooterButton={false}
+        />
+
+        <Card4u
+          title="Button4u"
+          content={
+            <div className="flex flex-wrap gap-3">
+              <Button4u label="Primary" />
+              <Button4u buttonProps={{ variant: "outline" }} label="Outline" />
+              <Button4u
+                buttonProps={{ variant: "secondary" }}
+                leftIcon={<BellIcon className="size-4" />}
+                label="Notify"
+              />
+            </div>
+          }
+          showDefaultFooterButton={false}
+        />
+
+        <Card4u
+          title="Label4u + Separator4u"
+          content={
+            <div className="space-y-3">
+              <Label4u text="Project Name" required labelProps={{ htmlFor: "project-name" }} />
+              <input
+                id="project-name"
+                className="w-full rounded-md border px-3 py-2 text-sm"
+                placeholder="Low-code Studio"
+              />
+              <Separator4u />
+              <Separator4u label="OR" />
+            </div>
+          }
+          showDefaultFooterButton={false}
+        />
+
+        <Card4u
+          title="Field4u"
+          content={
+            <Field4u
+              legend="Notification Preferences"
+              items={[
+                {
+                  id: "field-email",
+                  control: <Checkbox id="field-email" defaultChecked />,
+                  label: "Email alerts",
+                  description: "Receive weekly activity updates.",
+                  fieldProps: { orientation: "horizontal" },
+                },
+                {
+                  id: "field-sms",
+                  control: <Checkbox id="field-sms" />,
+                  label: "SMS alerts",
+                  description: "Only high-priority notifications.",
+                  fieldProps: { orientation: "horizontal" },
+                },
               ]}
             />
           }
