@@ -35,6 +35,8 @@ The easiest way to deploy your Next.js app is to use the [Vercel Platform](https
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
 
+## Files Structure Tree
+
 ```Text
 src/
 ├── app/                 # 1. 路由与页面 (只有页面文件)
@@ -65,3 +67,9 @@ src/
 │
 └── styles/              # 7. 额外的样式 (如果 globals.css 太大)
 ```
+
+## Motions
+
+1. UI 查询:
+  - 方法一: 通过 Router Agent 筛选 UI 数组 (待实现)
+  - 方法二: LLM 规划 + RAG 检索 (挂起)
