@@ -9,6 +9,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import * as React from "react"
+import { cn } from "@/lib/utils"
 
 /** 表头列配置。 */
 interface Table4uHeader {
@@ -31,6 +32,7 @@ interface Table4uRow {
 
 /** Table4u 组件参数。 */
 interface Table4uProps {
+  className?: string
   captionTitle?: React.ReactNode
   headers: Table4uHeader[]
   rows?: Table4uRow[]
@@ -40,7 +42,7 @@ interface Table4uProps {
 
 export function Table4u(props: Table4uProps) {
   return (
-    <Table {...props.tableProps}>
+    <Table {...props.tableProps} className={cn(props.className, props.tableProps?.className)}>
       {props.captionTitle && <TableCaption>{props.captionTitle}</TableCaption>}
       <TableHeader>
         <TableRow>

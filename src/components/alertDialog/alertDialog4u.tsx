@@ -13,9 +13,11 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
+import { cn } from "@/lib/utils"
 
 /** AlertDialog4u 组件参数：支持默认结构与自定义 children 两种渲染方式。 */
 export interface AlertDialog4uProps {
+  contentClassName?: string
   trigger?: React.ReactNode
   triggerText?: React.ReactNode
   media?: React.ReactNode
@@ -37,6 +39,7 @@ export interface AlertDialog4uProps {
 }
 
 export function AlertDialog4u({
+  contentClassName,
   trigger,
   triggerText = "Open",
   media,
@@ -64,7 +67,10 @@ export function AlertDialog4u({
         {trigger ?? defaultTrigger}
       </AlertDialogTrigger>
 
-      <AlertDialogContent {...contentProps}>
+      <AlertDialogContent
+        {...contentProps}
+        className={cn(contentClassName, contentProps?.className)}
+      >
         {children ?? (
           <>
             <AlertDialogHeader {...headerProps}>

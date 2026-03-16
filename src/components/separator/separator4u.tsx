@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils"
 
 /** Separator4u 组件参数：支持纯分割线与带文案分割线。 */
 export interface Separator4uProps {
+  className?: string
   rootClassName?: string
   label?: React.ReactNode
   labelClassName?: string
@@ -14,6 +15,7 @@ export interface Separator4uProps {
 }
 
 export function Separator4u({
+  className,
   rootClassName,
   label,
   labelClassName,
@@ -25,13 +27,13 @@ export function Separator4u({
     return (
       <Separator
         {...separatorProps}
-        className={cn(rootClassName, separatorProps?.className)}
+        className={cn(className, rootClassName, separatorProps?.className)}
       />
     )
   }
 
   return (
-    <div className={cn("flex items-center gap-2", rootClassName)}>
+    <div className={cn("flex items-center gap-2", className, rootClassName)}>
       <Separator
         {...leftSeparatorProps}
         orientation={leftSeparatorProps?.orientation ?? "horizontal"}

@@ -26,6 +26,7 @@ interface AvatarCommonProps {
   alt: string,
   className?: string,
   imageClassName?: string,
+  fallbackClassName?: string,
   size?: "sm" | "default" | "lg",
   fallback: string,
   hasBadge?: boolean,
@@ -51,6 +52,7 @@ export interface Avatar4uProps {
   singleAvatars?: AvatarCommonProps[],
   groupAvatars?: AvatarGroupCountProps & {
     className?: string,
+    countClassName?: string,
     avatars: AvatarCommonProps[],
   }
 }
@@ -72,7 +74,7 @@ export function Avatar4u(props: Avatar4uProps) {
               alt={avatar.alt}
               className={avatar.imageClassName}
             />
-            <AvatarFallback>{avatar.fallback}</AvatarFallback>
+            <AvatarFallback className={avatar.fallbackClassName}>{avatar.fallback}</AvatarFallback>
             {avatar.hasBadge && <AvatarBadge className={avatar?.badge?.className ?? ""}>
               {avatar?.badge?.icon}
             </AvatarBadge>}
@@ -92,14 +94,14 @@ export function Avatar4u(props: Avatar4uProps) {
                 alt={avatar.alt}
                 className={avatar.imageClassName}
               />
-              <AvatarFallback>{avatar.fallback}</AvatarFallback>
+              <AvatarFallback className={avatar.fallbackClassName}>{avatar.fallback}</AvatarFallback>
               {avatar.hasBadge && <AvatarBadge className={avatar?.badge?.className ?? "bg-green-600 dark:bg-green-800"}>
                 {avatar?.badge?.icon}
               </AvatarBadge>}
             </Avatar>
           );
         })}
-        {(props.groupAvatars.count !== undefined || props.groupAvatars.icon) && <AvatarGroupCount>
+        {(props.groupAvatars.count !== undefined || props.groupAvatars.icon) && <AvatarGroupCount className={props.groupAvatars.countClassName}>
           {props.groupAvatars.icon ? props.groupAvatars.icon : `+${props.groupAvatars.count}`}
         </AvatarGroupCount>}
       </AvatarGroup>}

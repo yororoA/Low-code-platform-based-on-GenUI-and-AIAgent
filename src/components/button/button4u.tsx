@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils"
 
 /** Button4u 组件参数：支持默认文本渲染与 children 自定义内容。 */
 export interface Button4uProps {
+  className?: string
   rootClassName?: string
   children?: React.ReactNode
   label?: React.ReactNode
@@ -14,6 +15,7 @@ export interface Button4uProps {
 }
 
 export function Button4u({
+  className,
   rootClassName,
   children,
   label = "Button",
@@ -22,7 +24,7 @@ export function Button4u({
   buttonProps,
 }: Button4uProps) {
   return (
-    <Button {...buttonProps} className={cn(rootClassName, buttonProps?.className)}>
+    <Button {...buttonProps} className={cn(className, rootClassName, buttonProps?.className)}>
       {children ?? (
         <>
           {leftIcon}

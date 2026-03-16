@@ -4,17 +4,24 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion"
+import { cn } from "@/lib/utils"
 
 type Accordion4uItem = {
   value: string
   trigger: string
   content: string
+  className?: string
+  triggerClassName?: string
+  contentClassName?: string
 }
 
 /** 手风琴组件的通用基础参数。 */
 interface Accordion4uBaseProps {
   items: Accordion4uItem[]
   className?: string
+  itemClassName?: string
+  triggerClassName?: string
+  contentClassName?: string
 }
 
 /** 单开模式参数。 */
@@ -36,9 +43,17 @@ export default function Accordion4u(props: Accordion4uProps) {
   const className = props.className ?? "max-w-lg"
 
   const items = props.items.map((item) => (
-    <AccordionItem key={item.value} value={item.value}>
-      <AccordionTrigger>{item.trigger}</AccordionTrigger>
-      <AccordionContent>{item.content}</AccordionContent>
+    <AccordionItem
+      key={item.value}
+      value={item.value}
+      className={cn(props.itemClassName, item.className)}
+    >
+      <AccordionTrigger className={cn(props.triggerClassName, item.triggerClassName)}>
+        {item.trigger}
+      </AccordionTrigger>
+      <AccordionContent className={cn(props.contentClassName, item.contentClassName)}>
+        {item.content}
+      </AccordionContent>
     </AccordionItem>
   ))
 

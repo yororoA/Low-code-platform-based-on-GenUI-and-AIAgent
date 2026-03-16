@@ -17,10 +17,12 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { cn } from "@/lib/utils"
 
 type Dropdown4uSeparatorNode = {
   type: "separator"
   key?: string
+  className?: string
 }
 
 type Dropdown4uItemNode = {
@@ -28,6 +30,7 @@ type Dropdown4uItemNode = {
   key?: string
   label: React.ReactNode
   icon?: React.ReactNode
+  className?: string
   disabled?: boolean
   variant?: React.ComponentProps<typeof DropdownMenuItem>["variant"]
   shortcut?: React.ReactNode
@@ -39,6 +42,7 @@ type Dropdown4uCheckboxNode = {
   key?: string
   label: React.ReactNode
   icon?: React.ReactNode
+  className?: string
   checked: React.ComponentProps<typeof DropdownMenuCheckboxItem>["checked"]
   onCheckedChange?: React.ComponentProps<typeof DropdownMenuCheckboxItem>["onCheckedChange"]
   disabled?: boolean
@@ -51,12 +55,14 @@ export interface Dropdown4uRadioItemNode {
   value: string
   label: React.ReactNode
   icon?: React.ReactNode
+  className?: string
   disabled?: boolean
 }
 
 type Dropdown4uRadioGroupNode = {
   type: "radio-group"
   key?: string
+  className?: string
   value: string
   onValueChange?: React.ComponentProps<typeof DropdownMenuRadioGroup>["onValueChange"]
   items: Dropdown4uRadioItemNode[]
@@ -66,6 +72,8 @@ type Dropdown4uSubNode = {
   type: "sub"
   key?: string
   trigger: React.ReactNode
+  triggerClassName?: string
+  contentClassName?: string
   disabled?: boolean
   items: Dropdown4uNode[]
 }
@@ -81,6 +89,8 @@ export type Dropdown4uNode =
 export interface Dropdown4uGroup {
   key?: string
   label?: React.ReactNode
+  className?: string
+  labelClassName?: string
   items: Dropdown4uNode[]
   separator?: boolean
 }
@@ -93,6 +103,15 @@ export interface Dropdown4uProps {
   triggerAsChild?: boolean
   contentProps?: Omit<React.ComponentProps<typeof DropdownMenuContent>, "children" | "className">
   contentClassName?: string
+  groupClassName?: string
+  labelClassName?: string
+  itemClassName?: string
+  checkboxItemClassName?: string
+  radioGroupClassName?: string
+  radioItemClassName?: string
+  separatorClassName?: string
+  subTriggerClassName?: string
+  subContentClassName?: string
   groups: Dropdown4uGroup[]
 }
 
@@ -108,15 +127,20 @@ export function Dropdown4u(props: Dropdown4uProps) {
       const nodeKey = node.key ?? `${keyPrefix}-${index}`
 
       if (node.type === "separator") {
-        return <DropdownMenuSeparator key={nodeKey} />
+        return <DropdownMenuSeparator key={nodeKey} className={cn(props.separatorClassName, node.className)} />
       }
 
       if (node.type === "sub") {
         return (
           <DropdownMenuSub key={nodeKey}>
-            <DropdownMenuSubTrigger disabled={node.disabled ?? false}>{node.trigger}</DropdownMenuSubTrigger>
+            <DropdownMenuSubTrigger
+              disabled={node.disabled ?? false}
+              className={cn(props.subTriggerClassName, node.triggerClassName)}
+            >
+              {node.trigger}
+            </DropdownMenuSubTrigger>
             <DropdownMenuPortal>
-              <DropdownMenuSubContent>
+              <DropdownMenuSubContent className={cn(props.subContentClassName, node.contentClassName)}>
                 {renderNodes(node.items, `${nodeKey}-sub`)}
               </DropdownMenuSubContent>
             </DropdownMenuPortal>
@@ -131,6 +155,7 @@ export function Dropdown4u(props: Dropdown4uProps) {
             checked={node.checked}
             onCheckedChange={node.onCheckedChange}
             disabled={node.disabled ?? false}
+            className={cn(props.checkboxItemClassName, node.className)}
           >
             {node.icon}
             {node.label}
@@ -145,6 +170,7 @@ export function Dropdown4u(props: Dropdown4uProps) {
             key={nodeKey}
             value={node.value}
             onValueChange={node.onValueChange}
+            className={cn(props.radioGroupClassName, node.className)}
           >
             {node.items.map((radioItem, radioIndex) => {
               const radioKey = radioItem.key ?? `${nodeKey}-radio-${radioIndex}`
@@ -153,6 +179,7 @@ export function Dropdown4u(props: Dropdown4uProps) {
                   key={radioKey}
                   value={radioItem.value}
                   disabled={radioItem.disabled ?? false}
+                  className={cn(props.radioItemClassName, radioItem.className)}
                 >
                   {radioItem.icon}
                   {radioItem.label}
@@ -169,6 +196,7 @@ export function Dropdown4u(props: Dropdown4uProps) {
           disabled={node.disabled ?? false}
           variant={node.variant ?? "default"}
           onSelect={node.onSelect}
+          className={cn(props.itemClassName, node.className)}
         >
           {node.icon}
           {node.label}
@@ -184,11 +212,11 @@ export function Dropdown4u(props: Dropdown4uProps) {
 
       return (
         <React.Fragment key={groupKey}>
-          <DropdownMenuGroup>
-            {group.label && <DropdownMenuLabel>{group.label}</DropdownMenuLabel>}
+          <DropdownMenuGroup className={cn(props.groupClassName, group.className)}>
+            {group.label && <DropdownMenuLabel className={cn(props.labelClassName, group.labelClassName)}>{group.label}</DropdownMenuLabel>}
             {renderNodes(group.items, groupKey)}
           </DropdownMenuGroup>
-          {group.separator && <DropdownMenuSeparator />}
+          {group.separator && <DropdownMenuSeparator className={props.separatorClassName} />}
         </React.Fragment>
       )
     })

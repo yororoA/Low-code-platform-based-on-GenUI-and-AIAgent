@@ -13,6 +13,7 @@ import { cn } from "@/lib/utils"
 
 /** Card4u 组件参数：支持默认结构与自定义 children 两种渲染方式。 */
 interface Card4uProps {
+  className?: string
   size?: "default" | "sm"
   rootClassName?: string
   children?: React.ReactNode
@@ -34,6 +35,7 @@ interface Card4uProps {
 }
 
 export function Card4u({
+  className,
   size,
   rootClassName,
   children,
@@ -62,7 +64,7 @@ export function Card4u({
     <Card
       {...cardProps}
       size={cardProps?.size ?? size}
-      className={cn(rootClassName, cardProps?.className)}
+      className={cn(className, rootClassName, cardProps?.className)}
     >
       {children ? (
         children
