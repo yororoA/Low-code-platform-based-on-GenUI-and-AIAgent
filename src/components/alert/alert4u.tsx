@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils"
 
 /** Alert4u 组件参数：支持默认结构与自定义 children 两种渲染方式。 */
 export interface Alert4uProps {
+  className?: string
   rootClassName?: string
   children?: React.ReactNode
   icon?: React.ReactNode
@@ -16,6 +17,7 @@ export interface Alert4uProps {
 }
 
 export function Alert4u({
+  className,
   rootClassName,
   children,
   icon,
@@ -26,7 +28,7 @@ export function Alert4u({
   descriptionProps,
 }: Alert4uProps) {
   return (
-    <Alert {...alertProps} className={cn(rootClassName, alertProps?.className)}>
+    <Alert {...alertProps} className={cn(className, rootClassName, alertProps?.className)}>
       {children ?? (
         <>
           {icon}

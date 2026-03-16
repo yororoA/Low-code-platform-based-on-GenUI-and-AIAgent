@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils"
 
 /** Carousel4u 组件参数：支持 slide 内容与各子组件透传参数。 */
 interface Carousel4uProps {
+  className?: string
   rootClassName?: string
   slides?: React.ReactNode[]
   carouselProps?: React.ComponentProps<typeof Carousel>
@@ -20,6 +21,7 @@ interface Carousel4uProps {
 }
 
 export function Carousel4u({
+  className,
   rootClassName,
   slides = ["...", "...", "..."],
   carouselProps,
@@ -29,7 +31,7 @@ export function Carousel4u({
   nextProps,
 }: Carousel4uProps) {
   return (
-    <Carousel {...carouselProps} className={cn(rootClassName, carouselProps?.className)}>
+    <Carousel {...carouselProps} className={cn(className, rootClassName, carouselProps?.className)}>
       <CarouselContent {...contentProps}>
         {slides.map((slide, index) => (
           <CarouselItem key={index} {...itemProps}>

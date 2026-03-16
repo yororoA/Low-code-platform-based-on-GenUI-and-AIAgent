@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils"
 
 /** Label4u 组件参数：支持默认文本、必填标识与 props 透传。 */
 export interface Label4uProps {
+  className?: string
   rootClassName?: string
   children?: React.ReactNode
   text?: React.ReactNode
@@ -14,6 +15,7 @@ export interface Label4uProps {
 }
 
 export function Label4u({
+  className,
   rootClassName,
   children,
   text = "Label",
@@ -22,7 +24,7 @@ export function Label4u({
   labelProps,
 }: Label4uProps) {
   return (
-    <Label {...labelProps} className={cn(rootClassName, labelProps?.className)}>
+    <Label {...labelProps} className={cn(className, rootClassName, labelProps?.className)}>
       {children ?? (
         <>
           {text}
