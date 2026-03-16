@@ -2,8 +2,8 @@ import { wrapLanguageModel, ToolLoopAgent, tool } from 'ai';
 import { deepseek } from "@ai-sdk/deepseek";
 import { devToolsMiddleware } from '@ai-sdk/devtools';
 import * as z from 'zod';
-import { chatTools } from './tools';
-import { interfaceStructureDesignAgentInstructions, textAgentInstructions } from './prompt';
+import { chatTools, callStructureAgent } from './tools';
+import { interfaceStructureDesignAgentInstructions, textAgentInstructions, interfaceStylingAgentInstructions } from './prompt';
 import { outputSchemas } from './schema';
 
 
@@ -14,71 +14,50 @@ const model = wrapLanguageModel({
   ]
 });
 
-// options for agents
-const callOptions = z.object({
-  agentLevel: z.enum(["admin", "structure", "worker"])
-    .describe("The level of the agent in the hierarchy."),
-  tools: z.record(z.string(), z.any())
-    .optional().describe("A record of tools that the agent can use, which can be dynamically passed in based on the context.")
-  // instructions: z.string().describe("Instructions for the agent."),
-});
+// admin agent
+export const adminAgent = new ToolLoopAgent({
+  model,
+  instructions: textAgentInstructions,
+  output: outputSchemas.admin,
+  tools: {
+    ...chatTools,
+    'call-structure-agent': callStructureAgent,
+  },
+  toolChoice: 'required'
+})
 
 // structure agent
 export const structureAgent = new ToolLoopAgent({
   model,
-  tools: chatTools,
-  callOptionsSchema: callOptions,
-  prepareCall: ({ ...settings }) => ({
+  output: outputSchemas.structure,
+  callOptionsSchema: z.object({
+    uiProvided: z.array(z.string()).describe('A list of UI components that are provided.')
+  }),
+  prepareCall: ({ options, ...settings }) => ({
     ...settings,
-    instructions: interfaceStructureDesignAgentInstructions,
-    tools: chatTools,
+    instructions: `
+      ${interfaceStructureDesignAgentInstructions}\n
+
+      - The UI you can use:
+      ${options.uiProvided?.join(", ") || "None"}
+    `,
   }),
 });
 
-// agents classifier
-export const agents = new ToolLoopAgent({
+// style agent
+export const styleAgent = new ToolLoopAgent({
   model,
-  tools: chatTools,
-  callOptionsSchema: callOptions,
-  prepareCall: ({ options, ...settings }) => {
-    const level = options.agentLevel;
-    const dynamicSettings = (() => {
-      switch (level) {
-        case "admin":
-          return {
-            instructions: textAgentInstructions,
-            output: outputSchemas.textAgentOutput,
-            tools: options.tools ?
-              {
-                ...chatTools,
-                // 'call-structure-agent': callStructureAgent,
-              } : { ...options.tools },
-            toolChoice: options.tools ? 'auto':'required',
-          }
-        case "structure":
-          return {
-            instructions: interfaceStructureDesignAgentInstructions,
-            // output:,
-            tools: chatTools
-          }
-        case "worker":
-          return {
-            instructions: "You are the worker agent. Execute concrete implementation tasks accurately.",
-            tools: chatTools
-          }
-        default:
-          return {
-            instructions: "You are a helpful agent.",
-            // output:,
-            tools: chatTools
-          }
-      }
-    })();
+  output: outputSchemas.style,
+  callOptionsSchema: z.object({
+    uiTree: z.string().describe("The UI tree provided.")
+  }),
+  prepareCall: ({ options, ...settings }) => ({
+    ...settings,
+    instructions: `
+      ${interfaceStylingAgentInstructions}\n
 
-
-    return {
-      ...settings,
-      ...dynamicSettings,
-    }
-  },
+      - The UI tree provided:
+      ${options.uiTree || "None"}
+    `,
+  }),
 });

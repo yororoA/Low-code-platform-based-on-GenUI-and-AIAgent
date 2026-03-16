@@ -12,12 +12,12 @@ export const callStructureAgent = tool({
     uiNeeds: z.array(z.string())
       .describe("A list of UI components that are needed, which can guide the structure agent's design."),
   }),
-  execute: async ({ textDescription }) => {
+  execute: async ({ textDescription, uiNeeds }) => {
     const response = await structureAgent.generate({
       prompt: textDescription,
       options: {
-        agentLevel: "structure",
-      },
+        uiProvided: uiNeeds,
+      }
     });
 
     return `Structure agent response: ${JSON.stringify(response.output ?? response.text ?? "")}`;
