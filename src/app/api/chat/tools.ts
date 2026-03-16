@@ -1,5 +1,30 @@
 import { tool } from "ai";
 import { z } from "zod";
+import {structureAgent} from "./model"
+
+
+// tool for admin to call structure agent
+export const callStructureAgent = tool({
+  description: "Calls the structure agent to design the interface structure and component layout.",
+  inputSchema: z.object({
+    textDescription: z.string()
+      .describe("The text description based on which the structure agent will design the interface."),
+    uiNeeds: z.array(z.string())
+      .describe("A list of UI components that are needed, which can guide the structure agent's design."),
+  }),
+  execute: async ({ textDescription }) => {
+    const response = await structureAgent.generate({
+      prompt: textDescription,
+      options: {
+        agentLevel: "structure",
+      },
+    });
+
+    return `Structure agent response: ${JSON.stringify(response.output ?? response.text ?? "")}`;
+  },
+});
+
+
 
 export const chatTools = {
   print: tool({

@@ -4,7 +4,7 @@ import { devToolsMiddleware } from '@ai-sdk/devtools';
 import * as z from 'zod';
 import { chatTools } from './tools';
 import { interfaceStructureDesignAgentInstructions, textAgentInstructions } from './prompt';
-
+import { outputSchemas } from './schema';
 
 
 const model = wrapLanguageModel({
@@ -14,12 +14,17 @@ const model = wrapLanguageModel({
   ]
 });
 
+// options for agents
 const callOptions = z.object({
-  agentLevel: z.enum(["admin", "structure", "worker"]).describe("The level of the agent in the hierarchy."),
+  agentLevel: z.enum(["admin", "structure", "worker"])
+    .describe("The level of the agent in the hierarchy."),
+  tools: z.record(z.string(), z.any())
+    .optional().describe("A record of tools that the agent can use, which can be dynamically passed in based on the context.")
   // instructions: z.string().describe("Instructions for the agent."),
 });
 
-const structureAgent = new ToolLoopAgent({
+// structure agent
+export const structureAgent = new ToolLoopAgent({
   model,
   tools: chatTools,
   callOptionsSchema: callOptions,
@@ -30,25 +35,7 @@ const structureAgent = new ToolLoopAgent({
   }),
 });
 
-const callStructureAgent = tool({
-  description: "Calls the structure agent to design the interface structure and component layout.",
-  inputSchema: z.object({
-    textDescription: z
-      .string()
-      .describe("The text description based on which the structure agent will design the interface."),
-  }),
-  execute: async ({ textDescription }) => {
-    const response = await structureAgent.generate({
-      prompt: textDescription,
-      options: {
-        agentLevel: "structure",
-      },
-    });
-
-    return `Structure agent response: ${JSON.stringify(response.output ?? response.text ?? "")}`;
-  },
-});
-
+// agents classifier
 export const agents = new ToolLoopAgent({
   model,
   tools: chatTools,
@@ -60,14 +47,18 @@ export const agents = new ToolLoopAgent({
         case "admin":
           return {
             instructions: textAgentInstructions,
-            tools: {
-              ...chatTools,
-              'call-structure-agent': callStructureAgent,
-            }
+            output: outputSchemas.textAgentOutput,
+            tools: options.tools ?
+              {
+                ...chatTools,
+                // 'call-structure-agent': callStructureAgent,
+              } : { ...options.tools },
+            toolChoice: options.tools ? 'auto':'required',
           }
         case "structure":
           return {
             instructions: interfaceStructureDesignAgentInstructions,
+            // output:,
             tools: chatTools
           }
         case "worker":
@@ -78,6 +69,7 @@ export const agents = new ToolLoopAgent({
         default:
           return {
             instructions: "You are a helpful agent.",
+            // output:,
             tools: chatTools
           }
       }
