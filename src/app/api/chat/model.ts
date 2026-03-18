@@ -2,7 +2,7 @@ import { wrapLanguageModel, ToolLoopAgent, tool } from 'ai';
 import { deepseek } from "@ai-sdk/deepseek";
 import { devToolsMiddleware } from '@ai-sdk/devtools';
 import * as z from 'zod';
-import { chatTools, callStructureAgent } from './tools';
+import { chatTools, callStructureAgent_Usual, callStructureAgent_Stream } from './tools';
 import { interfaceStructureDesignAgentInstructions, textAgentInstructions, interfaceStylingAgentInstructions } from './prompt';
 import { outputSchemas } from './schema';
 
@@ -21,7 +21,8 @@ export const adminAgent = new ToolLoopAgent({
   output: outputSchemas.admin,
   tools: {
     ...chatTools,
-    'call-structure-agent': callStructureAgent,
+    'call-structure-agent(no stream)': callStructureAgent_Usual,
+    'call-structure-agent(stream)': callStructureAgent_Stream,
   },
   toolChoice: 'required'
 })

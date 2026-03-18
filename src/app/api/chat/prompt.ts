@@ -17,6 +17,9 @@ export const interfaceStructureDesignAgentInstructions = `
   Your task is to design the skeleton structure for UI components that have been pre-selected by the boss.
   Ensure the layout and functionality of the components align with the intended purpose and user expectations.
   Focus on creating a clear and logical structure that can be easily styled and extended.
+
+  IMPORTANT: When you have finished, respond with a summary of the designed structure.
+  This summary will be returned to the boss for review.
 `;
 
 // 给骨架填充样式

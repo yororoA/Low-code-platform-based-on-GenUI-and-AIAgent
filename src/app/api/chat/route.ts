@@ -3,13 +3,15 @@ import { adminAgent, structureAgent, styleAgent } from "./model"
 
 
 export async function POST(req: Request) {
-  const { messages }: { messages: UIMessage[] } = await req.json()
-  const modelMessages = await convertToModelMessages(messages, { tools: agents.tools })
+  const { messages }: { messages: UIMessage[] } = await req.json();
+  const modelMessages = await convertToModelMessages(messages, {
+    ignoreIncompleteToolCalls: true, // to avoid errors when tool calls are incomplete
+  });
 
   // level 1 agent to test user input and decide whether to use UI.
   const levelONEresp = await adminAgent.stream({
     messages: modelMessages,
-  })
+  });
 
   return levelONEresp.toUIMessageStreamResponse({
     originalMessages: messages,
@@ -42,5 +44,5 @@ export async function POST(req: Request) {
         totalMessages: uiMessages.length,
       })
     },
-  })
+  });
 }
