@@ -1,10 +1,10 @@
-import { wrapLanguageModel, ToolLoopAgent, tool } from 'ai';
+import { wrapLanguageModel, ToolLoopAgent, tool, InferAgentUIMessage } from 'ai';
 import { deepseek } from "@ai-sdk/deepseek";
 import { devToolsMiddleware } from '@ai-sdk/devtools';
 import * as z from 'zod';
-import { chatTools } from './tools';
-import { interfaceStructureDesignAgentInstructions, textAgentInstructions } from './prompt';
-
+import { chatTools, callStructureAgent_Usual, callStructureAgent_Stream } from './tools';
+import { interfaceStructureDesignAgentInstructions, textAgentInstructions, interfaceStylingAgentInstructions } from './prompt';
+import { outputSchemas } from './schema';
 
 
 const model = wrapLanguageModel({
@@ -14,79 +14,52 @@ const model = wrapLanguageModel({
   ]
 });
 
-const callOptions = z.object({
-  agentLevel: z.enum(["admin", "structure", "worker"]).describe("The level of the agent in the hierarchy."),
-  // instructions: z.string().describe("Instructions for the agent."),
-});
-
-const structureAgent = new ToolLoopAgent({
+// admin agent
+export const adminAgent = new ToolLoopAgent({
   model,
-  tools: chatTools,
-  callOptionsSchema: callOptions,
-  prepareCall: ({ ...settings }) => ({
+  instructions: textAgentInstructions,
+  output: outputSchemas.admin,
+  tools: {
+    ...chatTools,
+    'call-structure-agent(no stream)': callStructureAgent_Usual,
+    'call-structure-agent(stream)': callStructureAgent_Stream,
+  },
+  toolChoice: 'required'
+});
+export type AdminAgentMessage = InferAgentUIMessage<typeof adminAgent>;
+
+// structure agent
+export const structureAgent = new ToolLoopAgent({
+  model,
+  output: outputSchemas.structure,
+  callOptionsSchema: z.object({
+    uiProvided: z.array(z.string()).describe('A list of UI components that are provided.')
+  }),
+  prepareCall: ({ options, ...settings }) => ({
     ...settings,
-    instructions: interfaceStructureDesignAgentInstructions,
-    tools: chatTools,
+    instructions: `
+      ${interfaceStructureDesignAgentInstructions}\n
+
+      - The UI you can use:
+      ${options.uiProvided?.join(", ") || "None"}
+    `,
   }),
 });
 
-const callStructureAgent = tool({
-  description: "Calls the structure agent to design the interface structure and component layout.",
-  inputSchema: z.object({
-    textDescription: z
-      .string()
-      .describe("The text description based on which the structure agent will design the interface."),
-  }),
-  execute: async ({ textDescription }) => {
-    const response = await structureAgent.generate({
-      prompt: textDescription,
-      options: {
-        agentLevel: "structure",
-      },
-    });
-
-    return `Structure agent response: ${JSON.stringify(response.output ?? response.text ?? "")}`;
-  },
-});
-
-export const agents = new ToolLoopAgent({
+// style agent
+export const styleAgent = new ToolLoopAgent({
   model,
-  tools: chatTools,
-  callOptionsSchema: callOptions,
-  prepareCall: ({ options, ...settings }) => {
-    const level = options.agentLevel;
-    const dynamicSettings = (() => {
-      switch (level) {
-        case "admin":
-          return {
-            instructions: textAgentInstructions,
-            tools: {
-              ...chatTools,
-              'call-structure-agent': callStructureAgent,
-            }
-          }
-        case "structure":
-          return {
-            instructions: interfaceStructureDesignAgentInstructions,
-            tools: chatTools
-          }
-        case "worker":
-          return {
-            instructions: "You are the worker agent. Execute concrete implementation tasks accurately.",
-            tools: chatTools
-          }
-        default:
-          return {
-            instructions: "You are a helpful agent.",
-            tools: chatTools
-          }
-      }
-    })();
+  output: outputSchemas.style,
+  callOptionsSchema: z.object({
+    uiTree: z.string().describe("The UI tree provided.")
+  }),
+  prepareCall: ({ options, ...settings }) => ({
+    ...settings,
+    instructions: `
+      ${interfaceStylingAgentInstructions}\n
 
-
-    return {
-      ...settings,
-      ...dynamicSettings,
-    }
-  },
+      - The UI tree provided:
+      ${options.uiTree || "None"}
+    `,
+  }),
 });
