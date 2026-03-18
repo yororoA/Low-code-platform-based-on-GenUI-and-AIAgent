@@ -5,6 +5,7 @@ import * as z from 'zod';
 import { chatTools, callStructureAgent_Usual, callStructureAgent_Stream } from './tools';
 import { interfaceStructureDesignAgentInstructions, textAgentInstructions, interfaceStylingAgentInstructions } from './prompt';
 import { outputSchemas } from './schema';
+import { componentsMeta } from './components-meta';
 
 
 const model = wrapLanguageModel({
@@ -42,7 +43,12 @@ export const structureAgent = new ToolLoopAgent({
 
       - The UI you can use:
       ${options.uiProvided?.join(", ") || "None"}
-    `,
+
+      - The schema of each UI component you should follow when designing the UI structure:
+      ${Object.entries(componentsMeta).map(([name, { description, propsSchema, dslExample }]) => `- ${name}: ${description}\nSchema:\n${propsSchema}\nExample:\n${dslExample}\n`).join("\n\n")}
+
+      - For each UI component you choose to use, if the UI could be further enhanced with styles, please specify the UI with a unique id.
+      `,
   }),
 });
 
@@ -50,6 +56,7 @@ export const structureAgent = new ToolLoopAgent({
 export const styleAgent = new ToolLoopAgent({
   model,
   output: outputSchemas.style,
+  instructions: "Check the UI tree provided to you, then using TailwindCss to design the styles those are exposed by className or classNames in the UI tree.",
   callOptionsSchema: z.object({
     uiTree: z.string().describe("The UI tree provided.")
   }),
@@ -60,6 +67,8 @@ export const styleAgent = new ToolLoopAgent({
 
       - The UI tree provided:
       ${options.uiTree || "None"}
+
+      IMPORTATN: ${settings.instructions}
     `,
   }),
 });

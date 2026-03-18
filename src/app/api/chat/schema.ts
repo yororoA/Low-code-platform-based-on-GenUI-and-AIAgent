@@ -18,6 +18,14 @@ export const outputSchemas = {
   style: Output.object({
     schema: z.object({
       temp: z.string(),
+      styles: z.array(
+        z.object({
+          id: z.string()
+            .describe('The id of the component that the style is for. It should match the id in the UI tree.'),
+          className: z.string()
+            .describe("The Tailwind CSS class names to be applied to the component. It can be a combination of multiple classes. For example: 'bg-blue-500 text-white p-4 rounded'."),
+        })
+      )
     })
   }),
 }

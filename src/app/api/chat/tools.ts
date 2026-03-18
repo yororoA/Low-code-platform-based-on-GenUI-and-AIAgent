@@ -1,11 +1,11 @@
 import { readUIMessageStream, tool } from "ai";
 import { z } from "zod";
-import { structureAgent } from "./model"
+import { structureAgent, styleAgent } from "./model"
 
 
 // ======================= tool for admin to call structure agent ======================
 // desc of the tool
-const desc = {
+const struDesc = {
   description: "Calls the structure agent to design the interface structure and component layout.",
   inputSchema: z.object({
     textDescription: z.string()
@@ -18,7 +18,7 @@ const desc = {
 
 // just generate
 export const callStructureAgent_Usual = tool({
-  ...desc,
+  ...struDesc,
   execute: async ({ textDescription, uiNeeds }, { abortSignal }) => {
     // abortSignal used for cancellation while user canceled the request
     const response = await structureAgent.generate({
@@ -37,7 +37,7 @@ export const callStructureAgent_Usual = tool({
 
 // with stream
 export const callStructureAgent_Stream = tool({
-  ...desc,
+  ...struDesc,
   execute: async function* ({ textDescription, uiNeeds }, { abortSignal }) {
     // abortSignal used for cancellation while user canceled the request
     const resp = await structureAgent.stream({
@@ -58,10 +58,34 @@ export const callStructureAgent_Stream = tool({
       type: 'text',
       value: lastTextPart?.text ?? "Task completed",  // null or completed
     }
-  }
+  },
 });
 // =====================================================================================
 
+
+// =========================== tool used for call style agent ==================
+// desc of the tool
+const styDesc = {
+  description: "Calls the style agent to design the interface style based on the provided UI tree.",
+  inputSchema: z.object({
+    uiTree: z.string().describe("The UI tree provided, which can guide the style agent's design."),
+  }),
+}
+
+export const callStyleAgent = tool({
+  ...styDesc,
+  execute: async ({ uiTree }, { abortSignal }) => {
+    const resp = await styleAgent.generate({
+      prompt: "",
+      abortSignal,
+      options:{
+        uiTree,
+      }
+    });
+
+    return `Style agent response: ${JSON.stringify(resp.output ?? resp.text ?? "")}`;
+  }
+});
 
 export const chatTools = {
   print: tool({
