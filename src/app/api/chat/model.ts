@@ -1,4 +1,4 @@
-import { wrapLanguageModel, ToolLoopAgent, tool } from 'ai';
+import { wrapLanguageModel, ToolLoopAgent, tool, InferAgentUIMessage } from 'ai';
 import { deepseek } from "@ai-sdk/deepseek";
 import { devToolsMiddleware } from '@ai-sdk/devtools';
 import * as z from 'zod';
@@ -25,7 +25,8 @@ export const adminAgent = new ToolLoopAgent({
     'call-structure-agent(stream)': callStructureAgent_Stream,
   },
   toolChoice: 'required'
-})
+});
+export type AdminAgentMessage = InferAgentUIMessage<typeof adminAgent>;
 
 // structure agent
 export const structureAgent = new ToolLoopAgent({
