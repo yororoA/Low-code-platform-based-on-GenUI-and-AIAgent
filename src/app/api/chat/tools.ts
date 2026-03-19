@@ -1,11 +1,11 @@
-import { readUIMessageStream, tool } from "ai";
+import { tool } from "ai";
 import { z } from "zod";
-import { structureAgent } from "./model"
+import { structureAgent, styleAgent } from "./model"
 
 
 // ======================= tool for admin to call structure agent ======================
 // desc of the tool
-const desc = {
+const struDesc = {
   description: "Calls the structure agent to design the interface structure and component layout.",
   inputSchema: z.object({
     textDescription: z.string()
@@ -18,7 +18,7 @@ const desc = {
 
 // just generate
 export const callStructureAgent_Usual = tool({
-  ...desc,
+  ...struDesc,
   execute: async ({ textDescription, uiNeeds }, { abortSignal }) => {
     // abortSignal used for cancellation while user canceled the request
     const response = await structureAgent.generate({
@@ -36,8 +36,21 @@ export const callStructureAgent_Usual = tool({
 
 
 // with stream
-export const callStructureAgent_Stream = tool({
-  ...desc,
+export async function callStructureAgent_Stream(params: z.infer<typeof struDesc.inputSchema>) {
+  const resp = await structureAgent.stream({
+    prompt: params.textDescription,
+    options: {
+      uiProvided: params.uiNeeds,
+    }
+  });
+
+  return {
+    resp,
+    stream: () => resp.toUIMessageStream(),
+  }
+}
+/* tool({
+  ...struDesc,
   execute: async function* ({ textDescription, uiNeeds }, { abortSignal }) {
     // abortSignal used for cancellation while user canceled the request
     const resp = await structureAgent.stream({
@@ -58,10 +71,27 @@ export const callStructureAgent_Stream = tool({
       type: 'text',
       value: lastTextPart?.text ?? "Task completed",  // null or completed
     }
-  }
-});
+  },
+}); */
 // =====================================================================================
 
+
+// =========================== tool used for call style agent ==================
+// Calls the style agent to design the interface style based on the provided UI tree.
+export async function callStyleAgent(uiTree: string) {
+  const resp = await styleAgent.stream({
+    prompt: 'Design the interface style based on the provided UI tree.',
+    options: {
+      uiTree,
+    }
+  });
+
+  return {
+    resp,
+    stream: () => resp.toUIMessageStream(),
+  };
+}
+// ======================================================================
 
 export const chatTools = {
   print: tool({
