@@ -23,7 +23,7 @@ export const adminAgent = new ToolLoopAgent({
   tools: {
     ...chatTools,
     'call-structure-agent(no stream)': callStructureAgent_Usual,
-    'call-structure-agent(stream)': callStructureAgent_Stream,
+    // 'call-structure-agent(stream)': callStructureAgent_Stream,
   },
   toolChoice: 'required'
 });
