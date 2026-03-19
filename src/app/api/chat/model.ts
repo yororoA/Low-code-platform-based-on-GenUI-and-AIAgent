@@ -25,7 +25,7 @@ export const adminAgent = new ToolLoopAgent({
     // 'call-structure-agent(no stream)': callStructureAgent_Usual,
     // 'call-structure-agent(stream)': callStructureAgent_Stream,
   },
-  toolChoice: 'required'
+  toolChoice: 'auto'
 });
 export type AdminAgentMessage = InferAgentUIMessage<typeof adminAgent>;
 
