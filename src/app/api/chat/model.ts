@@ -1,8 +1,8 @@
-import { wrapLanguageModel, ToolLoopAgent, tool, InferAgentUIMessage } from 'ai';
+import { wrapLanguageModel, ToolLoopAgent, InferAgentUIMessage } from 'ai';
 import { deepseek } from "@ai-sdk/deepseek";
 import { devToolsMiddleware } from '@ai-sdk/devtools';
 import * as z from 'zod';
-import { chatTools, callStructureAgent_Usual, callStructureAgent_Stream } from './tools';
+import { chatTools } from './tools';
 import { interfaceStructureDesignAgentInstructions, textAgentInstructions, interfaceStylingAgentInstructions } from './prompt';
 import { outputSchemas } from './schema';
 import { componentsMeta } from './components-meta';
@@ -22,7 +22,7 @@ export const adminAgent = new ToolLoopAgent({
   output: outputSchemas.admin,
   tools: {
     ...chatTools,
-    'call-structure-agent(no stream)': callStructureAgent_Usual,
+    // 'call-structure-agent(no stream)': callStructureAgent_Usual,
     // 'call-structure-agent(stream)': callStructureAgent_Stream,
   },
   toolChoice: 'required'

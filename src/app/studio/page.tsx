@@ -1,5 +1,6 @@
 "use client"
 
+import { ChangeEvent, FormEvent, useState } from "react"
 import { useChat } from "@ai-sdk/react"
 import { Card4u } from "@/components/card/card4u"
 import { Button4u } from "@/components/button/button4u"
@@ -9,8 +10,22 @@ import { Separator4u } from "@/components/separator/separator4u"
 import { AdminAgentMessage } from "../api/chat/model"
 
 export default function StudioPage() {
-  const { messages, input, handleInputChange, handleSubmit, status, stop } =
+  const [input, setInput] = useState("")
+  const { messages, sendMessage, status, stop } =
     useChat<AdminAgentMessage>();
+
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const text = input.trim()
+    if (!text) return
+
+    await sendMessage({ text })
+    setInput("")
+  }
+
+  const handleInputChange = (event: ChangeEvent<HTMLTextAreaElement>) => {
+    setInput(event.target.value)
+  }
 
   const lastMessage = messages.at(-1)
   const lastMessageText =
