@@ -48,6 +48,7 @@ export const structureAgent = new ToolLoopAgent({
       ${Object.entries(componentsMeta).map(([name, { description, propsSchema, dslExample }]) => `- ${name}: ${description}\nSchema:\n${propsSchema}\nExample:\n${dslExample}\n`).join("\n\n")}
 
       - For each UI component you choose to use, if the UI could be further enhanced with styles, please specify the UI with a unique id.
+      - After structuring the UI, please also provide a text summarty of the style design suggestions for the entire UI, which will be passed to the style agent for styling.
       `,
   }),
 });
@@ -58,7 +59,8 @@ export const styleAgent = new ToolLoopAgent({
   output: outputSchemas.style,
   instructions: "Check the UI tree provided to you, then using TailwindCss to design the styles those are exposed by className or classNames in the UI tree.",
   callOptionsSchema: z.object({
-    uiTree: z.string().describe("The UI tree provided.")
+    uiTree: z.string().describe("The UI tree provided."),
+    styleSummary: z.string().describe("A text summary of the style design suggestions for the entire UI."),
   }),
   prepareCall: ({ options, ...settings }) => ({
     ...settings,
@@ -67,6 +69,9 @@ export const styleAgent = new ToolLoopAgent({
 
       - The UI tree provided:
       ${options.uiTree || "None"}
+
+      - The style summary provided by the structure agent for your reference:
+      ${options.styleSummary || "None"}
 
       IMPORTATN: ${settings.instructions}
     `,

@@ -28,6 +28,8 @@ export const outputSchemas = {
         "- Keep props JSON-serializable.",
         "- children can be omitted or be an array of the same node shape.",
       ].join("\n")),
+      styleSummary: z.string()
+        .describe("A text summary of the style design suggestions for the entire UI, which will be passed to the style agent for styling."),
     })
   }),
   style: Output.object({

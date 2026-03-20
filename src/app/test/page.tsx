@@ -35,13 +35,7 @@ import { Table4u } from "@/components/table/table4u"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
-
-type UiTreeNode = {
-  type: string
-  id: string
-  props?: Record<string, unknown>
-  children?: UiTreeNode[]
-}
+import { ThreeOutputPreviewCard } from "./three-output-preview-card"
 
 const adminOutputMock = {
   text: "老板，我已经为您规划好了电商后台仪表盘的核心架构。该仪表盘将包含以下关键模块：\n\n1. **数据概览图表区**：使用Chart4u组件展示销售额、订单量、用户增长等核心指标的混合图表（支持柱状图、折线图、面积图）。\n2. **筛选控制区**：通过Dropdown4u组件提供时间范围、商品类别、地区等多维度筛选功能，配合Field4u和Label4u进行表单编排。\n3. **数据表格区**：使用Table4u组件展示详细的订单列表或商品数据，支持分页、排序和汇总统计。\n4. **辅助组件**：Alert4u用于关键指标预警，Card4u作为各模块的容器，Separator4u进行区域分割。\n\n这个仪表盘设计将帮助您实时监控电商业务运营状况，快速进行数据分析和决策。",
@@ -75,17 +69,6 @@ const styleOutputMock = {
     { id: "alert-1", className: "mb-3 p-3 bg-yellow-50 border border-yellow-200 rounded-md" },
     { id: "alert-2", className: "p-3 bg-red-50 border border-red-200 rounded-md" },
   ],
-}
-
-function collectIds(node: UiTreeNode): string[] {
-  const current = [node.id]
-  const children = node.children?.flatMap(collectIds) ?? []
-  return [...current, ...children]
-}
-
-function readStringProp(node: UiTreeNode, key: string): string | undefined {
-  const value = node.props?.[key]
-  return typeof value === "string" ? value : undefined
 }
 
 export default function TestPage() {
@@ -175,215 +158,14 @@ export default function TestPage() {
     { month: "Apr", desktop: 173, mobile: 190 },
   ]
 
-  let parsedTree: UiTreeNode | null = null
-  let treeIds: string[] = []
-  let missingStyleIds: string[] = []
-  let extraStyleIds: string[] = []
-
-  try {
-    parsedTree = JSON.parse(structureOutputMock.uiTree) as UiTreeNode
-    treeIds = collectIds(parsedTree)
-
-    const treeSet = new Set(treeIds)
-    const styleSet = new Set(styleOutputMock.styles.map((item) => item.id))
-
-    missingStyleIds = treeIds.filter((id) => !styleSet.has(id))
-    extraStyleIds = styleOutputMock.styles
-      .map((item) => item.id)
-      .filter((id) => !treeSet.has(id))
-  } catch {
-    parsedTree = null
-  }
-
-  const styleClassById = Object.fromEntries(
-    styleOutputMock.styles.map((item) => [item.id, item.className]),
-  )
-
-  const getMergedClassName = (node: UiTreeNode) => {
-    const fromTree = readStringProp(node, "className")
-    const fromStyle = styleClassById[node.id]
-    return [fromTree, fromStyle].filter(Boolean).join(" ")
-  }
-
-  const renderMockNode = (node: UiTreeNode): React.ReactNode => {
-    const className = getMergedClassName(node)
-    const children = node.children?.map((child) => renderMockNode(child))
-
-    switch (node.type) {
-      case "Card4u":
-        return (
-          <Card4u
-            key={node.id}
-            className={className}
-            title={readStringProp(node, "title") ?? node.id}
-            description={readStringProp(node, "description")}
-            content={<div className="space-y-3">{children}</div>}
-            showDefaultFooterButton={false}
-          />
-        )
-
-      case "Chart4u":
-        return (
-          <Chart4u
-            key={node.id}
-            className={className}
-            data={chartData}
-            xAxisDataKey="month"
-            config={{
-              desktop: { label: "Desktop", color: "hsl(var(--chart-1))" },
-              mobile: { label: "Mobile", color: "hsl(var(--chart-2))" },
-            }}
-            series={[
-              { type: "bar", dataKey: "desktop" },
-              { type: "line", dataKey: "mobile" },
-            ]}
-          />
-        )
-
-      case "Label4u":
-        return (
-          <Label4u
-            key={node.id}
-            className={className}
-            text={readStringProp(node, "text") ?? node.id}
-          />
-        )
-
-      case "Separator4u":
-        return (
-          <Separator4u
-            key={node.id}
-            className={className}
-            label={readStringProp(node, "text") || undefined}
-          />
-        )
-
-      case "Field4u":
-        return (
-          <Field4u
-            key={node.id}
-            className={className}
-            items={[
-              {
-                id: node.id,
-                label: readStringProp(node, "label") ?? "字段",
-                description: readStringProp(node, "description"),
-                control: (
-                  <input
-                    id={node.id}
-                    className="h-9 w-full rounded-md border bg-white px-3 text-sm"
-                    placeholder={readStringProp(node, "label") ?? "请输入"}
-                  />
-                ),
-              },
-            ]}
-          />
-        )
-
-      case "Dropdown4u":
-        return (
-          <Dropdown4u
-            key={node.id}
-            triggerText={readStringProp(node, "placeholder") ?? "更多筛选"}
-            contentClassName={className}
-            groups={[
-              {
-                label: "筛选项",
-                items: [
-                  { type: "item", label: "近7天" },
-                  { type: "item", label: "近30天" },
-                  { type: "item", label: "全部" },
-                ],
-              },
-            ]}
-          />
-        )
-
-      case "Table4u":
-        return (
-          <Table4u
-            key={node.id}
-            className={className}
-            captionTitle={readStringProp(node, "caption") ?? "数据表"}
-            headers={[
-              { description: "订单号" },
-              { description: "状态" },
-              { description: "金额", className: "text-right" },
-            ]}
-            rows={[
-              { cells: [{ content: "ORD-001" }, { content: "已支付" }, { content: "¥1200", className: "text-right" }] },
-              { cells: [{ content: "ORD-002" }, { content: "待支付" }, { content: "¥560", className: "text-right" }] },
-            ]}
-            footer={{
-              cells: [
-                { content: "汇总" },
-                { content: "" },
-                { content: readStringProp(node, "footer") ?? "总计", className: "text-right" },
-              ],
-            }}
-          />
-        )
-
-      case "Alert4u":
-        return (
-          <Alert4u
-            key={node.id}
-            className={className}
-            title={readStringProp(node, "title") ?? "预警"}
-            description={readStringProp(node, "description") ?? "请关注该项异常数据"}
-          />
-        )
-
-      default:
-        return (
-          <div key={node.id} className="rounded-md border border-dashed p-3 text-xs text-muted-foreground">
-            Unsupported node type: {node.type} ({node.id})
-            {children && children.length > 0 ? <div className="mt-2 space-y-2">{children}</div> : null}
-          </div>
-        )
-    }
-  }
-
   return (
     <div className="min-h-screen bg-zinc-50 p-8 font-sans dark:bg-black">
       <div className="mx-auto grid max-w-7xl grid-cols-1 gap-6 md:grid-cols-2">
-        <Card4u
-          className="border-slate-300 bg-slate-50 md:col-span-2"
-          title="Multi-Agent Mock Test（本页内测试）"
-          description="验证 admin/structure/style 三段输出是否可解析、可对齐。"
-          content={
-            <div className="space-y-4">
-              <div className="rounded-md border bg-white p-3">
-                <p className="text-sm font-medium text-slate-900">admin.necessary: {String(adminOutputMock.necessary)}</p>
-                <p className="mt-2 text-sm text-slate-700">uiNeeds: {adminOutputMock.uiNeeds.join(", ")}</p>
-                <p className="mt-2 text-sm text-slate-600 whitespace-pre-wrap">{adminOutputMock.uiDescription}</p>
-              </div>
-
-              <div className="rounded-md border bg-white p-3 space-y-2">
-                <p className="text-sm font-medium text-slate-900">structure.uiTree 解析结果</p>
-                <p className="text-sm text-slate-700">解析状态: {parsedTree ? "成功" : "失败"}</p>
-                <p className="text-sm text-slate-700">节点数: {treeIds.length}</p>
-                <p className="text-xs text-slate-600 break-all">IDs: {treeIds.join(", ") || "-"}</p>
-              </div>
-
-              <div className="rounded-md border bg-white p-3 space-y-2">
-                <p className="text-sm font-medium text-slate-900">style 覆盖检查</p>
-                <p className="text-sm text-slate-700">styles 条数: {styleOutputMock.styles.length}</p>
-                <p className="text-sm text-emerald-700">缺失样式 ID: {missingStyleIds.length ? missingStyleIds.join(", ") : "无"}</p>
-                <p className="text-sm text-amber-700">多余样式 ID: {extraStyleIds.length ? extraStyleIds.join(", ") : "无"}</p>
-              </div>
-
-              <div className="rounded-md border bg-white p-3 space-y-3">
-                <p className="text-sm font-medium text-slate-900">按 uiTree + styles 渲染预览</p>
-                {parsedTree ? (
-                  <div className="space-y-3">{renderMockNode(parsedTree)}</div>
-                ) : (
-                  <p className="text-sm text-red-600">uiTree 解析失败，无法渲染。</p>
-                )}
-              </div>
-            </div>
-          }
-          showDefaultFooterButton={false}
+        <ThreeOutputPreviewCard
+          adminOutput={adminOutputMock}
+          structureOutput={structureOutputMock}
+          styleOutput={styleOutputMock}
+          chartData={chartData}
         />
 
         <Card4u

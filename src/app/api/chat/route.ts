@@ -1,4 +1,4 @@
-import { convertToModelMessages, UIMessage, createUIMessageStreamResponse, createUIMessageStream } from "ai"
+import { convertToModelMessages, createUIMessageStreamResponse, createUIMessageStream, type UIMessage } from "ai"
 import { adminAgent } from "./model"
 import { callStructureAgent_Stream, callStyleAgent } from "./tools";
 
@@ -23,6 +23,14 @@ export async function POST(req: Request) {
         const levelONEoutput = await levelONEresp.output;
         // level 2 agent to design UI if necessary
         if(levelONEoutput.necessary && levelONEoutput.uiNeeds.length > 0) {
+          const adminInfoId = `admin-info-${Date.now()}`;
+          writer.write({ type: "text-start", id: adminInfoId });
+          writer.write({
+            type: "text-delta",
+            id: adminInfoId,
+            delta: `Admin agent determined that UI is necessary with needs: ${levelONEoutput.uiNeeds.join(", ")}`,
+          });
+          writer.write({ type: "text-end", id: adminInfoId });
           const structureResp = await callStructureAgent_Stream({
             textDescription: levelONEoutput.uiDescription,
             uiNeeds: levelONEoutput.uiNeeds
@@ -32,7 +40,7 @@ export async function POST(req: Request) {
 
           const levelTWOoutput = await structureResp.resp.output;
           // level 3 for style design
-          const styleResp = await callStyleAgent(levelTWOoutput.uiTree);
+          const styleResp = await callStyleAgent(levelTWOoutput.uiTree, levelTWOoutput.styleSummary);
           // level 3 merge to stream
           await writer.merge(styleResp.stream());
 

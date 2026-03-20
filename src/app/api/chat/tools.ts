@@ -3,7 +3,7 @@ import { z } from "zod";
 import { structureAgent, styleAgent } from "./model"
 
 
-// ======================= tool for admin to call structure agent ======================
+// ======================= tool for call structure agent ======================
 // desc of the tool
 const struDesc = {
   description: "Calls the structure agent to design the interface structure and component layout.",
@@ -78,11 +78,12 @@ export async function callStructureAgent_Stream(params: z.infer<typeof struDesc.
 
 // =========================== tool used for call style agent ==================
 // Calls the style agent to design the interface style based on the provided UI tree.
-export async function callStyleAgent(uiTree: string) {
+export async function callStyleAgent(uiTree: string, styleSummary: string) {
   const resp = await styleAgent.stream({
     prompt: 'Design the interface style based on the provided UI tree.',
     options: {
       uiTree,
+      styleSummary,
     }
   });
 

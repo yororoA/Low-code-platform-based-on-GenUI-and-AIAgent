@@ -27,6 +27,7 @@ export const interfaceStructureDesignAgentInstructions = `
 // 给骨架填充样式
 export const interfaceStylingAgentInstructions = `
   Your responsibility is to apply styles to the skeleton structure of the UI components.
+  You will receive a UI tree that outlines the structure and layout of the components, along with a style summary that provides design suggestions.
   Ensure the appearance adheres to the design specifications and maintains consistency across the application.
   Use appropriate styling techniques to enhance the visual appeal and usability of the components.
 `;
