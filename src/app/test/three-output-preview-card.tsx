@@ -46,6 +46,15 @@ type ThreeOutputPreviewCardProps = {
   chartData: ChartItem[]
 }
 
+function isUiTreeNode(value: unknown): value is UiTreeNode {
+  if (!value || typeof value !== "object") return false
+  const maybeNode = value as Partial<UiTreeNode>
+  if (typeof maybeNode.type !== "string" || typeof maybeNode.id !== "string") return false
+  if (maybeNode.children === undefined) return true
+  if (!Array.isArray(maybeNode.children)) return false
+  return maybeNode.children.every(isUiTreeNode)
+}
+
 function collectIds(node: UiTreeNode): string[] {
   const current = [node.id]
   const children = node.children?.flatMap(collectIds) ?? []
@@ -67,10 +76,18 @@ export function ThreeOutputPreviewCard({
   let treeIds: string[] = []
   let missingStyleIds: string[] = []
   let extraStyleIds: string[] = []
+  let duplicatedIds: string[] = []
 
   try {
-    parsedTree = JSON.parse(structureOutput.uiTree) as UiTreeNode
+    const rawTree = JSON.parse(structureOutput.uiTree) as unknown
+    parsedTree = isUiTreeNode(rawTree) ? rawTree : null
+
+    if (!parsedTree) {
+      throw new Error("Invalid uiTree shape")
+    }
+
     treeIds = collectIds(parsedTree)
+    duplicatedIds = [...new Set(treeIds.filter((id, index) => treeIds.indexOf(id) !== index))]
 
     const treeSet = new Set(treeIds)
     const styleSet = new Set(styleOutput.styles.map((item) => item.id))
@@ -250,6 +267,7 @@ export function ThreeOutputPreviewCard({
             <p className="text-sm text-slate-700">解析状态: {parsedTree ? "成功" : "失败"}</p>
             <p className="text-sm text-slate-700">节点数: {treeIds.length}</p>
             <p className="text-xs text-slate-600 break-all">IDs: {treeIds.join(", ") || "-"}</p>
+            <p className="text-sm text-rose-700">重复 ID: {duplicatedIds.length ? duplicatedIds.join(", ") : "无"}</p>
           </div>
 
           <div className="rounded-md border bg-white p-3 space-y-2">
