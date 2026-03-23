@@ -39,8 +39,12 @@ export const outputSchemas = {
         z.object({
           id: z.string()
             .describe('The id of the component that the style is for. It should match the id in the UI tree.'),
-          className: z.string()
-            .describe("The Tailwind CSS class names to be applied to the component. It can be a combination of multiple classes. For example: 'bg-blue-500 text-white p-4 rounded'."),
+          className: z.string().optional()
+            .describe("Optional root-level Tailwind CSS class names for the component. Example: 'bg-blue-500 text-white p-4 rounded'."),
+          classNames: z.record(z.string(), z.string()).optional()
+            .describe("Optional slot-level Tailwind class map for components that support classNames (e.g. DayPicker classNames)."),
+        }).refine((item) => Boolean(item.className) || Boolean(item.classNames && Object.keys(item.classNames).length > 0), {
+          message: "Each style item must provide at least one of className or classNames.",
         })
       )
     })

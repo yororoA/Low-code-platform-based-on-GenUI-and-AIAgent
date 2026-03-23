@@ -48,6 +48,7 @@ export const structureAgent = new ToolLoopAgent({
       ${componentsMeta.map(({ name, description, propsSchema, dslExample }) => `- ${name}: ${description}\nSchema:\n${JSON.stringify(propsSchema, null, 2)}\nExample:\n${JSON.stringify(dslExample, null, 2)}\n`).join("\n\n")}
 
       - For each UI component you choose to use, if the UI could be further enhanced with styles, please specify the UI with a unique id.
+      - Keep structure-stage classes minimal and layout-focused (spacing/layout/container only); leave visual polish (colors/gradients/shadows/state colors) to style stage.
       - After structuring the UI, please also provide a text summarty of the style design suggestions for the entire UI, which will be passed to the style agent for styling.
       `,
   }),

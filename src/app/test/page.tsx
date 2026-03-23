@@ -38,173 +38,101 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { ThreeOutputPreviewCard } from "./three-output-preview-card"
 
 const adminOutputMock = {
-  text: "好的，老板！我为您设计一个暖色调的个性化黄历日历。这个日历将采用柔和的暖色调（如橙色、黄色、米色），并整合黄历信息（如宜忌事项、吉凶时辰），以提升视觉吸引力和实用性。我会使用CalendarSingle组件作为基础，并搭配Card4u进行美化包装，确保界面既美观又易于使用。",
+  text: "好的，老板。我将为您创建一个暖色调、个性化的黄历日历。这个日历会采用温馨的配色方案（如橙色、黄色、米色等），并整合黄历信息（如宜忌事项、吉凶方位等）。我会先设计一个基本的日历界面，然后根据需要添加黄历数据展示。",
   necessary: true,
-  uiDescription: "一个暖色调的个性化黄历日历界面，包含日历视图和黄历信息展示区。日历部分支持日期选择，并高亮显示当前日期；黄历信息区显示选中日期的宜忌事项、吉凶时辰等。整体采用橙色、黄色、米色等暖色调配色方案，避免默认的黑白风格。",
-  uiNeeds: ["CalendarSingle", "Card4u"],
+  uiDescription: "一个暖色调的个性化黄历日历界面，包含日历视图和黄历信息面板。日历部分显示日期，黄历部分展示每日的宜忌事项、吉凶等。",
+  uiNeeds: ["CalendarSingle", "Card4u", "Table4u", "Alert4u"],
 }
 
 const almanacUiTree = {
-  type: "Card4u",
-  id: "root-card",
+  type: "div",
+  id: "root",
   props: {
-    className: "w-full max-w-4xl mx-auto p-6 bg-gradient-to-br from-amber-50 to-orange-50 rounded-2xl shadow-lg",
-    title: "个性化黄历日历",
-    description: "选择日期查看宜忌事项与吉凶时辰",
-    content: {
-      type: "div",
-      id: "content-wrapper",
-      props: { className: "flex flex-col md:flex-row gap-6" },
-      children: [
-        {
-          type: "CalendarSingle",
-          id: "calendar-view",
-          props: {
-            className: "flex-1 bg-white/80 backdrop-blur-sm rounded-xl p-4 shadow-md border border-amber-200",
-            classNames: {
-              day_selected: "bg-amber-500 text-white hover:bg-amber-600",
-              day_today: "bg-yellow-100 text-amber-800 font-bold border-2 border-amber-400",
-            },
-            showOutsideDays: true,
-            captionLayout: "buttons",
-            buttonVariant: "outline",
-          },
-        },
-        {
-          type: "Card4u",
-          id: "almanac-info",
-          props: {
-            className: "flex-1 bg-gradient-to-br from-amber-100 to-yellow-100 rounded-xl p-5 shadow-md border border-amber-300",
-            title: "黄历信息",
-            description: "选中日期的宜忌与时辰",
-            content: {
-              type: "div",
-              id: "info-content",
-              props: { className: "space-y-4" },
-              children: [
-                {
-                  type: "div",
-                  id: "date-display",
-                  props: { className: "text-lg font-semibold text-amber-800" },
-                  children: [
-                    { type: "text", id: "date-text", props: { content: "请选择日期" } },
-                  ],
-                },
-                {
-                  type: "div",
-                  id: "auspicious-section",
-                  props: { className: "space-y-2" },
-                  children: [
-                    {
-                      type: "div",
-                      id: "auspicious-header",
-                      props: { className: "flex items-center gap-2" },
-                      children: [
-                        {
-                          type: "div",
-                          id: "auspicious-icon",
-                          props: { className: "w-3 h-3 rounded-full bg-green-500" },
-                        },
-                        {
-                          type: "text",
-                          id: "auspicious-title",
-                          props: { content: "宜", className: "font-medium text-green-700" },
-                        },
-                      ],
-                    },
-                    {
-                      type: "div",
-                      id: "auspicious-items",
-                      props: { className: "pl-5 text-amber-900" },
-                      children: [
-                        {
-                          type: "text",
-                          id: "auspicious-placeholder",
-                          props: { content: "暂无数据" },
-                        },
-                      ],
-                    },
-                  ],
-                },
-                {
-                  type: "div",
-                  id: "inauspicious-section",
-                  props: { className: "space-y-2" },
-                  children: [
-                    {
-                      type: "div",
-                      id: "inauspicious-header",
-                      props: { className: "flex items-center gap-2" },
-                      children: [
-                        {
-                          type: "div",
-                          id: "inauspicious-icon",
-                          props: { className: "w-3 h-3 rounded-full bg-red-500" },
-                        },
-                        {
-                          type: "text",
-                          id: "inauspicious-title",
-                          props: { content: "忌", className: "font-medium text-red-700" },
-                        },
-                      ],
-                    },
-                    {
-                      type: "div",
-                      id: "inauspicious-items",
-                      props: { className: "pl-5 text-amber-900" },
-                      children: [
-                        {
-                          type: "text",
-                          id: "inauspicious-placeholder",
-                          props: { content: "暂无数据" },
-                        },
-                      ],
-                    },
-                  ],
-                },
-                {
-                  type: "div",
-                  id: "hours-section",
-                  props: { className: "space-y-2" },
-                  children: [
-                    {
-                      type: "div",
-                      id: "hours-header",
-                      props: { className: "flex items-center gap-2" },
-                      children: [
-                        {
-                          type: "div",
-                          id: "hours-icon",
-                          props: { className: "w-3 h-3 rounded-full bg-blue-500" },
-                        },
-                        {
-                          type: "text",
-                          id: "hours-title",
-                          props: { content: "吉凶时辰", className: "font-medium text-blue-700" },
-                        },
-                      ],
-                    },
-                    {
-                      type: "div",
-                      id: "hours-items",
-                      props: { className: "pl-5 text-amber-900" },
-                      children: [
-                        {
-                          type: "text",
-                          id: "hours-placeholder",
-                          props: { content: "暂无数据" },
-                        },
-                      ],
-                    },
-                  ],
-                },
-              ],
-            },
-          },
-        },
-      ],
-    },
+    className: "min-h-screen p-4 md:p-6 flex flex-col md:flex-row gap-6",
   },
+  children: [
+    {
+      type: "Card4u",
+      id: "calendar-card",
+      props: {
+        title: "黄历日历",
+        description: "查看每日宜忌吉凶",
+        className: "md:w-2/3",
+        content: {
+          type: "CalendarSingle",
+          id: "main-calendar",
+          props: {
+            className: "w-full",
+            captionLayout: "dropdown-months",
+            showOutsideDays: true,
+          },
+        },
+      },
+    },
+    {
+      type: "Card4u",
+      id: "almanac-panel",
+      props: {
+        title: "黄历信息",
+        description: "今日宜忌事项",
+        className: "md:w-1/3",
+        content: {
+          type: "div",
+          id: "almanac-content",
+          props: { className: "space-y-4" },
+          children: [
+            {
+              type: "Alert4u",
+              id: "auspicious-alert",
+              props: {
+                title: "宜",
+                description: "祭祀、祈福、开市、交易",
+              },
+            },
+            {
+              type: "Alert4u",
+              id: "inauspicious-alert",
+              props: {
+                title: "忌",
+                description: "嫁娶、动土、安葬",
+              },
+            },
+            {
+              type: "Table4u",
+              id: "details-table",
+              props: {
+                captionTitle: "详细吉凶",
+                headers: [
+                  { description: "事项" },
+                  { description: "吉凶" },
+                ],
+                rows: [
+                  {
+                    cells: [
+                      { content: "财神方位" },
+                      { content: "正东" },
+                    ],
+                  },
+                  {
+                    cells: [
+                      { content: "冲煞" },
+                      { content: "冲兔(乙卯)" },
+                    ],
+                  },
+                  {
+                    cells: [
+                      { content: "吉时" },
+                      { content: "巳时、午时" },
+                    ],
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      },
+    },
+  ],
 }
 
 const structureOutputMock = {
@@ -212,33 +140,60 @@ const structureOutputMock = {
 }
 
 const styleOutputMock = {
-  temp: "Designing a warm-toned personalized almanac calendar interface with orange, yellow, beige, and other soft warm colors, avoiding default black-and-white styles. The main container uses a gradient background from beige to light orange, with rounded corners and soft shadows. The calendar area features a semi-transparent white background with blur effects and a light amber border, highlighting selected dates in amber and emphasizing the current date with a light yellow background and amber border. The almanac info area uses a gradient from amber to yellow with a medium amber border, divided into sections for auspicious, inauspicious, and auspicious hours, marked with small green, red, and blue dots respectively, using deep amber or corresponding accent colors for text. The layout is responsive, displaying side-by-side on large screens and stacked vertically on small screens. Subtle textures or patterns (like fine lines or dots) enhance texture, with rounded icons and buttons, creating a warm, traditional atmosphere overall.",
+  temp: "Warm traditional Chinese almanac calendar interface with amber/orange/stone color palette and responsive design",
   styles: [
-    { id: "root-card", className: "w-full max-w-4xl mx-auto p-6 bg-gradient-to-br from-amber-50 to-orange-50 rounded-2xl shadow-lg border border-amber-100" },
-    { id: "content-wrapper", className: "flex flex-col md:flex-row gap-6" },
-    { id: "calendar-view", className: "flex-1 bg-white/80 backdrop-blur-sm rounded-xl p-4 shadow-md border border-amber-200" },
-    { id: "almanac-info", className: "flex-1 bg-gradient-to-br from-amber-100 to-yellow-100 rounded-xl p-5 shadow-md border border-amber-300" },
-    { id: "info-content", className: "space-y-4" },
-    { id: "date-display", className: "text-lg font-semibold text-amber-800" },
-    { id: "date-text", className: "text-amber-900" },
-    { id: "auspicious-section", className: "space-y-2" },
-    { id: "auspicious-header", className: "flex items-center gap-2" },
-    { id: "auspicious-icon", className: "w-3 h-3 rounded-full bg-green-500" },
-    { id: "auspicious-title", className: "font-medium text-green-700" },
-    { id: "auspicious-items", className: "pl-5 text-amber-900" },
-    { id: "auspicious-placeholder", className: "text-amber-700" },
-    { id: "inauspicious-section", className: "space-y-2" },
-    { id: "inauspicious-header", className: "flex items-center gap-2" },
-    { id: "inauspicious-icon", className: "w-3 h-3 rounded-full bg-red-500" },
-    { id: "inauspicious-title", className: "font-medium text-red-700" },
-    { id: "inauspicious-items", className: "pl-5 text-amber-900" },
-    { id: "inauspicious-placeholder", className: "text-amber-700" },
-    { id: "hours-section", className: "space-y-2" },
-    { id: "hours-header", className: "flex items-center gap-2" },
-    { id: "hours-icon", className: "w-3 h-3 rounded-full bg-blue-500" },
-    { id: "hours-title", className: "font-medium text-blue-700" },
-    { id: "hours-items", className: "pl-5 text-amber-900" },
-    { id: "hours-placeholder", className: "text-amber-700" },
+    {
+      id: "root",
+      className: "min-h-screen p-4 md:p-6 flex flex-col md:flex-row gap-6 bg-gradient-to-br from-amber-50 to-orange-50",
+    },
+    {
+      id: "calendar-card",
+      className: "md:w-2/3 bg-white/90 backdrop-blur-sm border border-amber-200 rounded-xl shadow-lg",
+    },
+    {
+      id: "main-calendar",
+      className: "w-full",
+      classNames: {
+        root: "p-4",
+        months: "space-y-4",
+        month: "space-y-4",
+        caption: "flex justify-center pt-1 relative items-center",
+        caption_label: "text-xl font-semibold text-amber-900",
+        nav: "space-x-1 flex items-center",
+        nav_button: "h-7 w-7 bg-transparent p-0 opacity-50 hover:opacity-100 text-amber-700 hover:text-amber-900",
+        nav_button_previous: "absolute left-1",
+        nav_button_next: "absolute right-1",
+        table: "w-full border-collapse space-y-1",
+        head_row: "flex",
+        head_cell: "text-amber-800 font-medium text-sm w-14 h-9 flex items-center justify-center",
+        row: "flex w-full mt-2",
+        cell: "h-14 w-14 text-center text-sm p-0 relative [&:has([aria-selected])]:bg-amber-100 first:[&:has([aria-selected])]:rounded-l-md last:[&:has([aria-selected])]:rounded-r-md focus-within:relative focus-within:z-20",
+        day: "h-14 w-14 p-0 font-normal aria-selected:opacity-100 hover:bg-amber-100 rounded-lg",
+        day_selected: "bg-amber-500 text-white hover:bg-amber-500 hover:text-white focus:bg-amber-500 focus:text-white font-semibold",
+        day_today: "bg-amber-100 text-amber-900 font-semibold",
+        day_outside: "text-amber-400 opacity-50",
+        day_disabled: "text-amber-300 opacity-50",
+        day_range_middle: "aria-selected:bg-amber-100 aria-selected:text-amber-900",
+        day_hidden: "invisible",
+      },
+    },
+    {
+      id: "almanac-panel",
+      className: "md:w-1/3 bg-white/90 backdrop-blur-sm border border-amber-200 rounded-xl shadow-lg",
+    },
+    { id: "almanac-content", className: "space-y-4 p-4" },
+    {
+      id: "auspicious-alert",
+      className: "bg-gradient-to-r from-amber-50 to-yellow-50 border border-amber-300 text-amber-900 rounded-lg",
+    },
+    {
+      id: "inauspicious-alert",
+      className: "bg-gradient-to-r from-stone-50 to-stone-100 border border-stone-300 text-stone-900 rounded-lg",
+    },
+    {
+      id: "details-table",
+      className: "bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-200 rounded-lg overflow-hidden",
+    },
   ],
 }
 

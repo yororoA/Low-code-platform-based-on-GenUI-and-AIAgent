@@ -31,6 +31,7 @@ type StyleOutput = {
   styles: Array<{
     id: string
     className: string
+    classNames?: Record<string, string>
   }>
 }
 
@@ -98,6 +99,7 @@ function readBooleanProp(node: UiTreeNode, key: string): boolean | undefined {
 
 function readCaptionLayoutProp(node: UiTreeNode): "label" | "dropdown" | "dropdown-months" | "dropdown-years" | undefined {
   const value = readStringProp(node, "captionLayout")
+  if (value === "buttons") return "label"
   return value === "label" || value === "dropdown" || value === "dropdown-months" || value === "dropdown-years"
     ? value
     : undefined
@@ -141,10 +143,30 @@ export function ThreeOutputPreviewCard({
     styleOutput.styles.map((item) => [item.id, item.className]),
   )
 
+  const styleClassNamesById = Object.fromEntries(
+    styleOutput.styles.map((item) => [item.id, item.classNames]),
+  )
+
   const getMergedClassName = (node: UiTreeNode) => {
     const fromTree = readStringProp(node, "className")
     const fromStyle = styleClassById[node.id]
-    return [fromTree, fromStyle].filter(Boolean).join(" ")
+    return fromStyle || fromTree || undefined
+  }
+
+  const getMergedCalendarClassNames = (node: UiTreeNode): NonNullable<React.ComponentProps<typeof CalendarSingle>["classNames"]> | undefined => {
+    const fromTree = typeof node.props?.classNames === "object" && node.props?.classNames
+      ? (node.props.classNames as NonNullable<React.ComponentProps<typeof CalendarSingle>["classNames"]>)
+      : undefined
+
+    const fromStyle = typeof styleClassNamesById[node.id] === "object" && styleClassNamesById[node.id]
+      ? (styleClassNamesById[node.id] as NonNullable<React.ComponentProps<typeof CalendarSingle>["classNames"]>)
+      : undefined
+
+    if (!fromTree && !fromStyle) return undefined
+    return {
+      ...(fromTree ?? {}),
+      ...(fromStyle ?? {}),
+    }
   }
 
   const findChildByType = (node: UiTreeNode, type: string) =>
@@ -154,6 +176,23 @@ export function ThreeOutputPreviewCard({
     node.children?.find((child) => child.id === id)
 
   const resolveTableHeaders = (node: UiTreeNode) => {
+    const headersFromProps = Array.isArray(node.props?.headers)
+      ? node.props.headers
+          .flatMap((item) => {
+            if (!item || typeof item !== "object") return []
+            const maybeHeader = item as { description?: unknown; className?: unknown }
+            if (typeof maybeHeader.description !== "string") return []
+            return [{
+              description: maybeHeader.description,
+              className: typeof maybeHeader.className === "string" ? maybeHeader.className : undefined,
+            }]
+          })
+      : []
+
+    if (headersFromProps.length > 0) {
+      return headersFromProps
+    }
+
     const thead = findChildByType(node, "thead") ?? findChildById(node, "table-header")
     const headerRow = thead?.children?.find((child) => child.type === "tr")
     const headerCells = headerRow?.children?.filter((child) => child.type === "th" || child.type === "td") ?? []
@@ -171,6 +210,37 @@ export function ThreeOutputPreviewCard({
   }
 
   const resolveTableRows = (node: UiTreeNode) => {
+    const rowsFromProps = Array.isArray(node.props?.rows)
+      ? node.props.rows
+          .flatMap((item, rowIndex) => {
+            if (!item || typeof item !== "object") return []
+            const maybeRow = item as { key?: unknown; className?: unknown; cells?: unknown }
+            if (!Array.isArray(maybeRow.cells)) return []
+
+            const cells = maybeRow.cells.flatMap((cell) => {
+              if (!cell || typeof cell !== "object") return []
+              const maybeCell = cell as { content?: unknown; className?: unknown }
+              if (typeof maybeCell.content !== "string") return []
+              return [{
+                content: maybeCell.content,
+                className: typeof maybeCell.className === "string" ? maybeCell.className : undefined,
+              }]
+            })
+
+            if (cells.length === 0) return []
+
+            return [{
+              key: typeof maybeRow.key === "string" ? maybeRow.key : `row-${rowIndex}`,
+              className: typeof maybeRow.className === "string" ? maybeRow.className : undefined,
+              cells,
+            }]
+          })
+      : []
+
+    if (rowsFromProps.length > 0) {
+      return rowsFromProps
+    }
+
     const tbody = findChildByType(node, "tbody") ?? findChildById(node, "table-body")
     const rowNodes = tbody?.children?.filter((child) => child.type === "tr") ?? []
     const rowClassName = tbody ? getMergedClassName(tbody) : undefined
@@ -220,6 +290,29 @@ export function ThreeOutputPreviewCard({
   }
 
   const resolveTableFooter = (node: UiTreeNode) => {
+    const footerFromProps = node.props?.footer
+    if (footerFromProps && typeof footerFromProps === "object") {
+      const maybeFooter = footerFromProps as { className?: unknown; cells?: unknown }
+      if (Array.isArray(maybeFooter.cells)) {
+        const cells = maybeFooter.cells.flatMap((cell) => {
+          if (!cell || typeof cell !== "object") return []
+          const maybeCell = cell as { content?: unknown; className?: unknown }
+          if (typeof maybeCell.content !== "string") return []
+          return [{
+            content: maybeCell.content,
+            className: typeof maybeCell.className === "string" ? maybeCell.className : undefined,
+          }]
+        })
+
+        if (cells.length > 0) {
+          return {
+            className: typeof maybeFooter.className === "string" ? maybeFooter.className : undefined,
+            cells,
+          }
+        }
+      }
+    }
+
     const footerText = readStringProp(node, "footer")
     const tfoot = findChildByType(node, "tfoot") ?? findChildById(node, "table-footer")
     const footerClassName = tfoot ? getMergedClassName(tfoot) : undefined
@@ -357,7 +450,7 @@ export function ThreeOutputPreviewCard({
           <Table4u
             key={node.id}
             className={className}
-            captionTitle={readStringProp(node, "caption") ?? "数据表"}
+            captionTitle={readStringProp(node, "captionTitle") ?? readStringProp(node, "caption") ?? "数据表"}
             headers={tableHeaders}
             rows={tableRows}
             footer={tableFooter}
@@ -373,7 +466,7 @@ export function ThreeOutputPreviewCard({
             showOutsideDays={readBooleanProp(node, "showOutsideDays")}
             captionLayout={readCaptionLayoutProp(node)}
             buttonVariant={readStringProp(node, "buttonVariant") as "default" | "outline" | "ghost" | undefined}
-            classNames={typeof node.props?.classNames === "object" ? (node.props?.classNames as NonNullable<React.ComponentProps<typeof CalendarSingle>["classNames"]>) : undefined}
+            classNames={getMergedCalendarClassNames(node)}
           />
         )
 
