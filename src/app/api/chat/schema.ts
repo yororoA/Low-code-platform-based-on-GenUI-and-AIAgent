@@ -45,4 +45,29 @@ export const outputSchemas = {
       )
     })
   }),
+  alignment: Output.object({
+    schema: z.object({
+      alignmentScore: z.number().min(0).max(100)
+        .describe("Alignment score between uiDescription and uiTree. 0 means totally mismatched, 100 means fully aligned."),
+      verdict: z.enum(["pass", "retry"]) 
+        .describe("pass if the structure is acceptable; retry if it should be regenerated."),
+      violations: z.array(z.object({
+        code: z.enum([
+          "NEED_NOT_COVERED",
+          "LAYOUT_MISMATCH",
+          "INFORMATION_INCOMPLETENESS",
+          "DSL_INVALID",
+          "STYLE_ONLY_FEEDBACK",
+          "OTHER",
+        ]).describe("Stable violation code for deterministic routing logic."),
+        stage: z.enum(["structure", "style", "data", "interaction"])
+          .describe("Which stage this violation belongs to. Only structure should block structure pass."),
+        severity: z.enum(["low", "medium", "high"]),
+        message: z.string().describe("Human-readable violation detail."),
+        suggestion: z.string().describe("Actionable fix suggestion for structure regeneration."),
+      })),
+      retryPrompt: z.string()
+        .describe("A concise prompt fragment that can be appended to the structure agent input for the next retry."),
+    })
+  }),
 }

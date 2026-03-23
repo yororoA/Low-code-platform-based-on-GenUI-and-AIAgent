@@ -1,6 +1,6 @@
 import { tool } from "ai";
 import { z } from "zod";
-import { structureAgent, styleAgent } from "./model"
+import { alignmentAgent, structureAgent, styleAgent } from "./model"
 
 
 // ======================= tool for call structure agent ======================
@@ -91,6 +91,26 @@ export async function callStyleAgent(uiTree: string, styleSummary: string) {
     resp,
     stream: () => resp.toUIMessageStream(),
   };
+}
+// ======================================================================
+
+
+// =========================== tool used for alignment critic ==================
+export async function callAlignmentAgent(params: {
+  uiDescription: string
+  uiNeeds: string[]
+  uiTree: string
+}) {
+  const response = await alignmentAgent.generate({
+    prompt: "Check the alignment between uiDescription and uiTree.",
+    options: {
+      uiDescription: params.uiDescription,
+      uiNeeds: params.uiNeeds,
+      uiTree: params.uiTree,
+    }
+  })
+
+  return response.output
 }
 // ======================================================================
 

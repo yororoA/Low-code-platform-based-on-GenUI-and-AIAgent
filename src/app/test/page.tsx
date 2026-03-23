@@ -38,36 +38,207 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { ThreeOutputPreviewCard } from "./three-output-preview-card"
 
 const adminOutputMock = {
-  text: "老板，我已经为您规划好了电商后台仪表盘的核心架构。该仪表盘将包含以下关键模块：\n\n1. **数据概览图表区**：使用Chart4u组件展示销售额、订单量、用户增长等核心指标的混合图表（支持柱状图、折线图、面积图）。\n2. **筛选控制区**：通过Dropdown4u组件提供时间范围、商品类别、地区等多维度筛选功能，配合Field4u和Label4u进行表单编排。\n3. **数据表格区**：使用Table4u组件展示详细的订单列表或商品数据，支持分页、排序和汇总统计。\n4. **辅助组件**：Alert4u用于关键指标预警，Card4u作为各模块的容器，Separator4u进行区域分割。\n\n这个仪表盘设计将帮助您实时监控电商业务运营状况，快速进行数据分析和决策。",
+  text: "好的，老板！我为您设计一个暖色调的个性化黄历日历。这个日历将采用柔和的暖色调（如橙色、黄色、米色），并整合黄历信息（如宜忌事项、吉凶时辰），以提升视觉吸引力和实用性。我会使用CalendarSingle组件作为基础，并搭配Card4u进行美化包装，确保界面既美观又易于使用。",
   necessary: true,
-  uiDescription: "一个现代化的电商后台仪表盘界面，采用卡片式布局，顶部为图表展示区，左侧为筛选控制面板，中间主体为数据表格，右侧可放置预警信息。整体设计简洁直观，支持响应式交互。",
-  uiNeeds: ["Chart4u", "Dropdown4u", "Table4u", "Field4u", "Label4u", "Alert4u", "Card4u", "Separator4u"],
+  uiDescription: "一个暖色调的个性化黄历日历界面，包含日历视图和黄历信息展示区。日历部分支持日期选择，并高亮显示当前日期；黄历信息区显示选中日期的宜忌事项、吉凶时辰等。整体采用橙色、黄色、米色等暖色调配色方案，避免默认的黑白风格。",
+  uiNeeds: ["CalendarSingle", "Card4u"],
+}
+
+const almanacUiTree = {
+  type: "Card4u",
+  id: "root-card",
+  props: {
+    className: "w-full max-w-4xl mx-auto p-6 bg-gradient-to-br from-amber-50 to-orange-50 rounded-2xl shadow-lg",
+    title: "个性化黄历日历",
+    description: "选择日期查看宜忌事项与吉凶时辰",
+    content: {
+      type: "div",
+      id: "content-wrapper",
+      props: { className: "flex flex-col md:flex-row gap-6" },
+      children: [
+        {
+          type: "CalendarSingle",
+          id: "calendar-view",
+          props: {
+            className: "flex-1 bg-white/80 backdrop-blur-sm rounded-xl p-4 shadow-md border border-amber-200",
+            classNames: {
+              day_selected: "bg-amber-500 text-white hover:bg-amber-600",
+              day_today: "bg-yellow-100 text-amber-800 font-bold border-2 border-amber-400",
+            },
+            showOutsideDays: true,
+            captionLayout: "buttons",
+            buttonVariant: "outline",
+          },
+        },
+        {
+          type: "Card4u",
+          id: "almanac-info",
+          props: {
+            className: "flex-1 bg-gradient-to-br from-amber-100 to-yellow-100 rounded-xl p-5 shadow-md border border-amber-300",
+            title: "黄历信息",
+            description: "选中日期的宜忌与时辰",
+            content: {
+              type: "div",
+              id: "info-content",
+              props: { className: "space-y-4" },
+              children: [
+                {
+                  type: "div",
+                  id: "date-display",
+                  props: { className: "text-lg font-semibold text-amber-800" },
+                  children: [
+                    { type: "text", id: "date-text", props: { content: "请选择日期" } },
+                  ],
+                },
+                {
+                  type: "div",
+                  id: "auspicious-section",
+                  props: { className: "space-y-2" },
+                  children: [
+                    {
+                      type: "div",
+                      id: "auspicious-header",
+                      props: { className: "flex items-center gap-2" },
+                      children: [
+                        {
+                          type: "div",
+                          id: "auspicious-icon",
+                          props: { className: "w-3 h-3 rounded-full bg-green-500" },
+                        },
+                        {
+                          type: "text",
+                          id: "auspicious-title",
+                          props: { content: "宜", className: "font-medium text-green-700" },
+                        },
+                      ],
+                    },
+                    {
+                      type: "div",
+                      id: "auspicious-items",
+                      props: { className: "pl-5 text-amber-900" },
+                      children: [
+                        {
+                          type: "text",
+                          id: "auspicious-placeholder",
+                          props: { content: "暂无数据" },
+                        },
+                      ],
+                    },
+                  ],
+                },
+                {
+                  type: "div",
+                  id: "inauspicious-section",
+                  props: { className: "space-y-2" },
+                  children: [
+                    {
+                      type: "div",
+                      id: "inauspicious-header",
+                      props: { className: "flex items-center gap-2" },
+                      children: [
+                        {
+                          type: "div",
+                          id: "inauspicious-icon",
+                          props: { className: "w-3 h-3 rounded-full bg-red-500" },
+                        },
+                        {
+                          type: "text",
+                          id: "inauspicious-title",
+                          props: { content: "忌", className: "font-medium text-red-700" },
+                        },
+                      ],
+                    },
+                    {
+                      type: "div",
+                      id: "inauspicious-items",
+                      props: { className: "pl-5 text-amber-900" },
+                      children: [
+                        {
+                          type: "text",
+                          id: "inauspicious-placeholder",
+                          props: { content: "暂无数据" },
+                        },
+                      ],
+                    },
+                  ],
+                },
+                {
+                  type: "div",
+                  id: "hours-section",
+                  props: { className: "space-y-2" },
+                  children: [
+                    {
+                      type: "div",
+                      id: "hours-header",
+                      props: { className: "flex items-center gap-2" },
+                      children: [
+                        {
+                          type: "div",
+                          id: "hours-icon",
+                          props: { className: "w-3 h-3 rounded-full bg-blue-500" },
+                        },
+                        {
+                          type: "text",
+                          id: "hours-title",
+                          props: { content: "吉凶时辰", className: "font-medium text-blue-700" },
+                        },
+                      ],
+                    },
+                    {
+                      type: "div",
+                      id: "hours-items",
+                      props: { className: "pl-5 text-amber-900" },
+                      children: [
+                        {
+                          type: "text",
+                          id: "hours-placeholder",
+                          props: { content: "暂无数据" },
+                        },
+                      ],
+                    },
+                  ],
+                },
+              ],
+            },
+          },
+        },
+      ],
+    },
+  },
 }
 
 const structureOutputMock = {
-  uiTree:
-    '{"type": "Card4u", "id": "dashboard-root", "props": {"className": "dashboard-container"}, "children": [{"type": "Card4u", "id": "top-chart-section", "props": {"className": "top-chart-card"}, "children": [{"type": "Chart4u", "id": "main-chart", "props": {"className": "dashboard-chart"}}]}, {"type": "Card4u", "id": "left-filter-section", "props": {"className": "left-filter-card"}, "children": [{"type": "Label4u", "id": "filter-label", "props": {"text": "筛选控制"}}, {"type": "Separator4u", "id": "filter-separator", "props": {"text": ""}}, {"type": "Field4u", "id": "filter-field-1", "props": {"label": "日期范围", "description": "选择数据时间段"}}, {"type": "Field4u", "id": "filter-field-2", "props": {"label": "产品类别", "description": "筛选特定产品"}}, {"type": "Dropdown4u", "id": "filter-dropdown", "props": {"placeholder": "更多筛选选项"}}]}, {"type": "Card4u", "id": "center-table-section", "props": {"className": "center-table-card"}, "children": [{"type": "Table4u", "id": "data-table", "props": {"caption": "销售数据表", "footer": "总计: 1000 笔订单"}}]}, {"type": "Card4u", "id": "right-alert-section", "props": {"className": "right-alert-card"}, "children": [{"type": "Label4u", "id": "alert-label", "props": {"text": "预警信息"}}, {"type": "Separator4u", "id": "alert-separator", "props": {"text": ""}}, {"type": "Alert4u", "id": "alert-1", "props": {"title": "库存预警", "description": "产品A库存低于安全线"}}, {"type": "Alert4u", "id": "alert-2", "props": {"title": "订单异常", "description": "检测到异常支付行为"}}]}]}'
+  uiTree: JSON.stringify(almanacUiTree),
 }
 
 const styleOutputMock = {
-  temp: "Dashboard layout with top chart, left filters, center table, and right alerts sections.",
+  temp: "Designing a warm-toned personalized almanac calendar interface with orange, yellow, beige, and other soft warm colors, avoiding default black-and-white styles. The main container uses a gradient background from beige to light orange, with rounded corners and soft shadows. The calendar area features a semi-transparent white background with blur effects and a light amber border, highlighting selected dates in amber and emphasizing the current date with a light yellow background and amber border. The almanac info area uses a gradient from amber to yellow with a medium amber border, divided into sections for auspicious, inauspicious, and auspicious hours, marked with small green, red, and blue dots respectively, using deep amber or corresponding accent colors for text. The layout is responsive, displaying side-by-side on large screens and stacked vertically on small screens. Subtle textures or patterns (like fine lines or dots) enhance texture, with rounded icons and buttons, creating a warm, traditional atmosphere overall.",
   styles: [
-    { id: "dashboard-root", className: "min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 p-4 md:p-6" },
-    { id: "top-chart-section", className: "bg-white rounded-xl shadow-lg p-4 md:p-6 mb-4 md:mb-6 border border-gray-200" },
-    { id: "main-chart", className: "w-full h-64 md:h-80" },
-    { id: "left-filter-section", className: "bg-white rounded-xl shadow-lg p-4 md:p-6 mb-4 md:mb-6 border border-gray-200" },
-    { id: "filter-label", className: "text-lg font-semibold text-gray-800 mb-2" },
-    { id: "filter-separator", className: "border-t border-gray-300 my-3" },
-    { id: "filter-field-1", className: "mb-4" },
-    { id: "filter-field-2", className: "mb-4" },
-    { id: "filter-dropdown", className: "w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500" },
-    { id: "center-table-section", className: "bg-white rounded-xl shadow-lg p-4 md:p-6 mb-4 md:mb-6 border border-gray-200" },
-    { id: "data-table", className: "w-full border-collapse border border-gray-300 rounded-lg overflow-hidden" },
-    { id: "right-alert-section", className: "bg-white rounded-xl shadow-lg p-4 md:p-6 mb-4 md:mb-6 border border-gray-200" },
-    { id: "alert-label", className: "text-lg font-semibold text-gray-800 mb-2" },
-    { id: "alert-separator", className: "border-t border-gray-300 my-3" },
-    { id: "alert-1", className: "mb-3 p-3 bg-yellow-50 border border-yellow-200 rounded-md" },
-    { id: "alert-2", className: "p-3 bg-red-50 border border-red-200 rounded-md" },
+    { id: "root-card", className: "w-full max-w-4xl mx-auto p-6 bg-gradient-to-br from-amber-50 to-orange-50 rounded-2xl shadow-lg border border-amber-100" },
+    { id: "content-wrapper", className: "flex flex-col md:flex-row gap-6" },
+    { id: "calendar-view", className: "flex-1 bg-white/80 backdrop-blur-sm rounded-xl p-4 shadow-md border border-amber-200" },
+    { id: "almanac-info", className: "flex-1 bg-gradient-to-br from-amber-100 to-yellow-100 rounded-xl p-5 shadow-md border border-amber-300" },
+    { id: "info-content", className: "space-y-4" },
+    { id: "date-display", className: "text-lg font-semibold text-amber-800" },
+    { id: "date-text", className: "text-amber-900" },
+    { id: "auspicious-section", className: "space-y-2" },
+    { id: "auspicious-header", className: "flex items-center gap-2" },
+    { id: "auspicious-icon", className: "w-3 h-3 rounded-full bg-green-500" },
+    { id: "auspicious-title", className: "font-medium text-green-700" },
+    { id: "auspicious-items", className: "pl-5 text-amber-900" },
+    { id: "auspicious-placeholder", className: "text-amber-700" },
+    { id: "inauspicious-section", className: "space-y-2" },
+    { id: "inauspicious-header", className: "flex items-center gap-2" },
+    { id: "inauspicious-icon", className: "w-3 h-3 rounded-full bg-red-500" },
+    { id: "inauspicious-title", className: "font-medium text-red-700" },
+    { id: "inauspicious-items", className: "pl-5 text-amber-900" },
+    { id: "inauspicious-placeholder", className: "text-amber-700" },
+    { id: "hours-section", className: "space-y-2" },
+    { id: "hours-header", className: "flex items-center gap-2" },
+    { id: "hours-icon", className: "w-3 h-3 rounded-full bg-blue-500" },
+    { id: "hours-title", className: "font-medium text-blue-700" },
+    { id: "hours-items", className: "pl-5 text-amber-900" },
+    { id: "hours-placeholder", className: "text-amber-700" },
   ],
 }
 

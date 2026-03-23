@@ -1,6 +1,7 @@
 import type { ReactNode } from "react"
 
 import { Alert4u } from "@/components/alert/alert4u"
+import { CalendarSingle } from "@/components/calendar/calendarSingle"
 import { Card4u } from "@/components/card/card4u"
 import { Chart4u } from "@/components/chart/chart4u"
 import { Dropdown4u } from "@/components/dropdown/dropdown4u"
@@ -55,15 +56,51 @@ function isUiTreeNode(value: unknown): value is UiTreeNode {
   return maybeNode.children.every(isUiTreeNode)
 }
 
+function toUiTreeNodes(value: unknown): UiTreeNode[] {
+  if (isUiTreeNode(value)) return [value]
+  if (!Array.isArray(value)) return []
+  return value.flatMap((item) => (isUiTreeNode(item) ? [item] : []))
+}
+
+function getNodeChildren(node: UiTreeNode): UiTreeNode[] {
+  const fromChildren = node.children ?? []
+  const fromContent = toUiTreeNodes(node.props?.content)
+  const fromPropsChildren = toUiTreeNodes(node.props?.children)
+
+  const merged = [...fromChildren, ...fromContent, ...fromPropsChildren]
+  const deduped = new Map<string, UiTreeNode>()
+  for (const child of merged) {
+    if (!deduped.has(child.id)) deduped.set(child.id, child)
+  }
+  return [...deduped.values()]
+}
+
 function collectIds(node: UiTreeNode): string[] {
   const current = [node.id]
-  const children = node.children?.flatMap(collectIds) ?? []
+  const children = getNodeChildren(node).flatMap(collectIds)
   return [...current, ...children]
 }
 
 function readStringProp(node: UiTreeNode, key: string): string | undefined {
   const value = node.props?.[key]
   return typeof value === "string" ? value : undefined
+}
+
+function readOrientationProp(node: UiTreeNode): "horizontal" | "vertical" | undefined {
+  const value = node.props?.orientation
+  return value === "horizontal" || value === "vertical" ? value : undefined
+}
+
+function readBooleanProp(node: UiTreeNode, key: string): boolean | undefined {
+  const value = node.props?.[key]
+  return typeof value === "boolean" ? value : undefined
+}
+
+function readCaptionLayoutProp(node: UiTreeNode): "label" | "dropdown" | "dropdown-months" | "dropdown-years" | undefined {
+  const value = readStringProp(node, "captionLayout")
+  return value === "label" || value === "dropdown" || value === "dropdown-months" || value === "dropdown-years"
+    ? value
+    : undefined
 }
 
 export function ThreeOutputPreviewCard({
@@ -110,22 +147,128 @@ export function ThreeOutputPreviewCard({
     return [fromTree, fromStyle].filter(Boolean).join(" ")
   }
 
+  const findChildByType = (node: UiTreeNode, type: string) =>
+    node.children?.find((child) => child.type === type)
+
+  const findChildById = (node: UiTreeNode, id: string) =>
+    node.children?.find((child) => child.id === id)
+
+  const resolveTableHeaders = (node: UiTreeNode) => {
+    const thead = findChildByType(node, "thead") ?? findChildById(node, "table-header")
+    const headerRow = thead?.children?.find((child) => child.type === "tr")
+    const headerCells = headerRow?.children?.filter((child) => child.type === "th" || child.type === "td") ?? []
+    const headerClassName = thead ? getMergedClassName(thead) : undefined
+
+    return headerCells.length > 0
+      ? headerCells.map((cell) => ({
+          description: readStringProp(cell, "text") ?? cell.id,
+          className: getMergedClassName(cell),
+        }))
+      : [
+          { description: "类别", className: headerClassName },
+          { description: "详情", className: headerClassName },
+        ]
+  }
+
+  const resolveTableRows = (node: UiTreeNode) => {
+    const tbody = findChildByType(node, "tbody") ?? findChildById(node, "table-body")
+    const rowNodes = tbody?.children?.filter((child) => child.type === "tr") ?? []
+    const rowClassName = tbody ? getMergedClassName(tbody) : undefined
+
+    return rowNodes.length > 0
+      ? rowNodes.map((rowNode) => {
+          const cells = rowNode.children?.filter((cell) => cell.type === "td" || cell.type === "th") ?? []
+          return {
+            key: rowNode.id,
+            className: getMergedClassName(rowNode),
+            cells: cells.map((cell) => ({
+              content: readStringProp(cell, "text") ?? "-",
+              className: getMergedClassName(cell),
+            })),
+          }
+        })
+      : [
+          {
+            className: rowClassName,
+            cells: [
+              { content: "宜" },
+              { content: "祭祀、祈福、出行" },
+            ],
+          },
+          {
+            className: rowClassName,
+            cells: [
+              { content: "忌" },
+              { content: "动土、安葬" },
+            ],
+          },
+          {
+            className: rowClassName,
+            cells: [
+              { content: "节气" },
+              { content: "春分" },
+            ],
+          },
+          {
+            className: rowClassName,
+            cells: [
+              { content: "吉时" },
+              { content: "辰时、午时、酉时" },
+            ],
+          },
+        ]
+  }
+
+  const resolveTableFooter = (node: UiTreeNode) => {
+    const footerText = readStringProp(node, "footer")
+    const tfoot = findChildByType(node, "tfoot") ?? findChildById(node, "table-footer")
+    const footerClassName = tfoot ? getMergedClassName(tfoot) : undefined
+
+    if (footerText) {
+      return {
+        className: footerClassName,
+        cells: [{ content: "汇总" }, { content: footerText }],
+      }
+    }
+
+    if (tfoot) {
+      return {
+        className: footerClassName,
+        cells: [{ content: "备注" }, { content: "以当日黄历为准" }],
+      }
+    }
+
+    return undefined
+  }
+
   const renderMockNode = (node: UiTreeNode): ReactNode => {
     const className = getMergedClassName(node)
-    const children = node.children?.map((child) => renderMockNode(child))
+    const children = getNodeChildren(node).map((child) => renderMockNode(child))
 
     switch (node.type) {
-      case "Card4u":
+      case "Card4u": {
+        const title = readStringProp(node, "title")
+        const description = readStringProp(node, "description")
+
+        if (title || description) {
+          return (
+            <Card4u
+              key={node.id}
+              className={className}
+              title={title}
+              description={description}
+              content={<div className="space-y-3">{children}</div>}
+              showDefaultFooterButton={false}
+            />
+          )
+        }
+
         return (
-          <Card4u
-            key={node.id}
-            className={className}
-            title={readStringProp(node, "title") ?? node.id}
-            description={readStringProp(node, "description")}
-            content={<div className="space-y-3">{children}</div>}
-            showDefaultFooterButton={false}
-          />
+          <Card4u key={node.id} className={className} showDefaultFooterButton={false}>
+            {children}
+          </Card4u>
         )
+      }
 
       case "Chart4u":
         return (
@@ -160,6 +303,7 @@ export function ThreeOutputPreviewCard({
             key={node.id}
             className={className}
             label={readStringProp(node, "text") || undefined}
+            separatorProps={{ orientation: readOrientationProp(node) }}
           />
         )
 
@@ -204,30 +348,50 @@ export function ThreeOutputPreviewCard({
           />
         )
 
-      case "Table4u":
+      case "Table4u": {
+        const tableHeaders = resolveTableHeaders(node)
+        const tableRows = resolveTableRows(node)
+        const tableFooter = resolveTableFooter(node)
+
         return (
           <Table4u
             key={node.id}
             className={className}
             captionTitle={readStringProp(node, "caption") ?? "数据表"}
-            headers={[
-              { description: "订单号" },
-              { description: "状态" },
-              { description: "金额", className: "text-right" },
-            ]}
-            rows={[
-              { cells: [{ content: "ORD-001" }, { content: "已支付" }, { content: "¥1200", className: "text-right" }] },
-              { cells: [{ content: "ORD-002" }, { content: "待支付" }, { content: "¥560", className: "text-right" }] },
-            ]}
-            footer={{
-              cells: [
-                { content: "汇总" },
-                { content: "" },
-                { content: readStringProp(node, "footer") ?? "总计", className: "text-right" },
-              ],
-            }}
+            headers={tableHeaders}
+            rows={tableRows}
+            footer={tableFooter}
           />
         )
+      }
+
+      case "CalendarSingle":
+        return (
+          <CalendarSingle
+            key={node.id}
+            className={className}
+            showOutsideDays={readBooleanProp(node, "showOutsideDays")}
+            captionLayout={readCaptionLayoutProp(node)}
+            buttonVariant={readStringProp(node, "buttonVariant") as "default" | "outline" | "ghost" | undefined}
+            classNames={typeof node.props?.classNames === "object" ? (node.props?.classNames as NonNullable<React.ComponentProps<typeof CalendarSingle>["classNames"]>) : undefined}
+          />
+        )
+
+      case "div":
+        return (
+          <div key={node.id} className={className}>
+            {children}
+          </div>
+        )
+
+      case "text": {
+        const textContent = readStringProp(node, "content") ?? ""
+        return (
+          <span key={node.id} className={className}>
+            {textContent}
+          </span>
+        )
+      }
 
       case "Alert4u":
         return (
