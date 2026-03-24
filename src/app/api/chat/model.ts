@@ -47,9 +47,9 @@ export const structureAgent = new ToolLoopAgent({
       - The schema of each UI component you should follow when designing the UI structure:
       ${componentsMeta.map(({ name, description, propsSchema, dslExample }) => `- ${name}: ${description}\nSchema:\n${JSON.stringify(propsSchema, null, 2)}\nExample:\n${JSON.stringify(dslExample, null, 2)}\n`).join("\n\n")}
 
-      - For each UI component you choose to use, if the UI could be further enhanced with styles, please specify the UI with a unique id.
+      - Every node in uiTree MUST have a globally unique id, regardless of whether style stage will modify it.
       - Keep structure-stage classes minimal and layout-focused (spacing/layout/container only); leave visual polish (colors/gradients/shadows/state colors) to style stage.
-      - After structuring the UI, please also provide a text summarty of the style design suggestions for the entire UI, which will be passed to the style agent for styling.
+      - After structuring the UI, provide a concise style summary for the style agent.
       `,
   }),
 });
@@ -74,7 +74,7 @@ export const styleAgent = new ToolLoopAgent({
       - The style summary provided by the structure agent for your reference:
       ${options.styleSummary || "None"}
 
-      IMPORTATN: ${settings.instructions}
+      IMPORTANT: ${settings.instructions}
     `,
   }),
 });
