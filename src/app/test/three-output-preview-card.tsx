@@ -1,4 +1,5 @@
 import type { ReactNode } from "react"
+import Image from "next/image"
 
 import { Alert4u } from "@/components/alert/alert4u"
 import { CalendarSingle } from "@/components/calendar/calendarSingle"
@@ -9,6 +10,28 @@ import { Field4u } from "@/components/field/field4u"
 import { Label4u } from "@/components/label/label4u"
 import { Separator4u } from "@/components/separator/separator4u"
 import { Table4u } from "@/components/table/table4u"
+import {
+  Accordion as UiAccordion,
+  AccordionContent as UiAccordionContent,
+  AccordionItem as UiAccordionItem,
+  AccordionTrigger as UiAccordionTrigger,
+} from "@/components/ui/accordion"
+import {
+  Avatar as UiAvatar,
+  AvatarFallback as UiAvatarFallback,
+  AvatarImage as UiAvatarImage,
+} from "@/components/ui/avatar"
+import { Button as UiButton } from "@/components/ui/button"
+import {
+  Card as UiCard,
+  CardContent as UiCardContent,
+  CardDescription as UiCardDescription,
+  CardFooter as UiCardFooter,
+  CardHeader as UiCardHeader,
+  CardTitle as UiCardTitle,
+} from "@/components/ui/card"
+import { Label as UiLabel } from "@/components/ui/label"
+import { Separator as UiSeparator } from "@/components/ui/separator"
 
 type UiTreeNode = {
   type: string
@@ -103,6 +126,43 @@ function readCaptionLayoutProp(node: UiTreeNode): "label" | "dropdown" | "dropdo
   return value === "label" || value === "dropdown" || value === "dropdown-months" || value === "dropdown-years"
     ? value
     : undefined
+}
+
+function readAccordionTypeProp(node: UiTreeNode): "single" | "multiple" {
+  const value = readStringProp(node, "type")
+  return value === "multiple" ? "multiple" : "single"
+}
+
+function readButtonVariantProp(node: UiTreeNode): React.ComponentProps<typeof UiButton>["variant"] {
+  const value = readStringProp(node, "variant")
+  if (
+    value === "default" ||
+    value === "destructive" ||
+    value === "outline" ||
+    value === "secondary" ||
+    value === "ghost" ||
+    value === "link"
+  ) {
+    return value
+  }
+  return "default"
+}
+
+function readButtonSizeProp(node: UiTreeNode): React.ComponentProps<typeof UiButton>["size"] {
+  const value = readStringProp(node, "size")
+  if (
+    value === "default" ||
+    value === "xs" ||
+    value === "sm" ||
+    value === "lg" ||
+    value === "icon" ||
+    value === "icon-xs" ||
+    value === "icon-sm" ||
+    value === "icon-lg"
+  ) {
+    return value
+  }
+  return "default"
 }
 
 export function ThreeOutputPreviewCard({
@@ -339,6 +399,136 @@ export function ThreeOutputPreviewCard({
     const children = getNodeChildren(node).map((child) => renderMockNode(child))
 
     switch (node.type) {
+      case "Card":
+        return (
+          <UiCard key={node.id} className={className}>
+            {children}
+          </UiCard>
+        )
+
+      case "CardHeader":
+        return (
+          <UiCardHeader key={node.id} className={className}>
+            {children}
+          </UiCardHeader>
+        )
+
+      case "CardTitle":
+        return (
+          <UiCardTitle key={node.id} className={className}>
+            {children}
+          </UiCardTitle>
+        )
+
+      case "CardDescription":
+        return (
+          <UiCardDescription key={node.id} className={className}>
+            {children}
+          </UiCardDescription>
+        )
+
+      case "CardContent":
+        return (
+          <UiCardContent key={node.id} className={className}>
+            {children}
+          </UiCardContent>
+        )
+
+      case "CardFooter":
+        return (
+          <UiCardFooter key={node.id} className={className}>
+            {children}
+          </UiCardFooter>
+        )
+
+      case "Button":
+        return (
+          <UiButton
+            key={node.id}
+            className={className}
+            variant={readButtonVariantProp(node)}
+            size={readButtonSizeProp(node)}
+          >
+            {children}
+          </UiButton>
+        )
+
+      case "Label":
+        return (
+          <UiLabel key={node.id} className={className}>
+            {children}
+          </UiLabel>
+        )
+
+      case "Separator":
+        return (
+          <UiSeparator
+            key={node.id}
+            className={className}
+            orientation={readOrientationProp(node)}
+          />
+        )
+
+      case "Accordion":
+        return (
+          <UiAccordion
+            key={node.id}
+            className={className}
+            type={readAccordionTypeProp(node)}
+            collapsible={readBooleanProp(node, "collapsible")}
+          >
+            {children}
+          </UiAccordion>
+        )
+
+      case "AccordionItem":
+        return (
+          <UiAccordionItem
+            key={node.id}
+            className={className}
+            value={readStringProp(node, "value") ?? node.id}
+          >
+            {children}
+          </UiAccordionItem>
+        )
+
+      case "AccordionTrigger":
+        return (
+          <UiAccordionTrigger key={node.id} className={className}>
+            {children}
+          </UiAccordionTrigger>
+        )
+
+      case "AccordionContent":
+        return (
+          <UiAccordionContent key={node.id} className={className}>
+            {children}
+          </UiAccordionContent>
+        )
+
+      case "Avatar":
+        return (
+          <UiAvatar key={node.id} className={className}>
+            {children}
+          </UiAvatar>
+        )
+
+      case "AvatarImage":
+        return (
+          <UiAvatarImage
+            key={node.id}
+            src={readStringProp(node, "src")}
+            alt={readStringProp(node, "alt")}
+          />
+        )
+
+      case "AvatarFallback":
+        return (
+          <UiAvatarFallback key={node.id} className={className}>
+            {children}
+          </UiAvatarFallback>
+        )
+
       case "Card4u": {
         const title = readStringProp(node, "title")
         const description = readStringProp(node, "description")
@@ -475,6 +665,26 @@ export function ThreeOutputPreviewCard({
           <div key={node.id} className={className}>
             {children}
           </div>
+        )
+
+      case "span":
+        return (
+          <span key={node.id} className={className}>
+            {children}
+          </span>
+        )
+
+      case "img":
+        return (
+          <Image
+            key={node.id}
+            className={className}
+            src={readStringProp(node, "src") ?? "/next.svg"}
+            alt={readStringProp(node, "alt") ?? ""}
+            width={160}
+            height={160}
+            unoptimized
+          />
         )
 
       case "text": {

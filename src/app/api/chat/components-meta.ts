@@ -9,7 +9,7 @@ export interface ComponentMeta {
 }
 
 /**
- * 已完成参数适配的组件元信息，用于提示词构建、DSL 生成与组件检索。
+ * 原子组件元信息，用于提示词构建、DSL 生成与组件检索。
  */
 export const componentsMeta: ComponentMeta[] = [
   {

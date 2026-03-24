@@ -8,7 +8,7 @@ export const outputSchemas = {
       text: z.string().describe("The text to be sent back to the boss."),
       necessary: z.boolean().describe("Whether the ui is necessary for the boss understanding."),
       uiDescription: z.string().describe('The description of the interface needed.'),
-      uiNeeds: z.array(z.string()).describe("A list of UI components that are needed."),
+      uiNeeds: z.array(z.string()).describe("A list of required business-intent components selected from supported metadata names."),
     }),
   }),
   structure: Output.object({

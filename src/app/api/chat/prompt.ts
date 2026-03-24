@@ -19,10 +19,12 @@ export const interfaceStructureDesignAgentInstructions = `
   Focus on creating a clear and logical structure that can be easily styled and extended.
 
   Component scope rules:
-  - Only use components listed in uiNeeds as business components.
-  - You may use generic nodes like "div" and "text" for layout/content placeholders.
-  - Do not introduce extra custom components that are not in uiNeeds.
-  - If extra sections are needed, represent them with "div"/"text" placeholders instead of new custom components.
+  - uiNeeds defines required business intent, and each need must be represented in uiTree.
+  - You MUST build uiTree with supported atomic components (for example Card + CardHeader + CardContent) rather than legacy wrapper nodes.
+  - You may freely use generic nodes like "div", "span" and "text" for layout, positioning (with flex/grid), and text rendering.
+  - Child atomic nodes used to compose a required component are allowed even if not explicitly listed in uiNeeds.
+  - For text content, place it in the \`content\` prop of a "text" node, or properly nest inside typography elements.
+  - Do not invent component names outside the provided supported component list.
 
   IMPORTANT: When you have finished, respond with a summary of the designed structure.
   This summary will be returned to the boss for review.
@@ -37,14 +39,13 @@ export const interfaceStylingAgentInstructions = `
 
   Output rules:
   - Use styles[].className for component root styles.
-  - Use styles[].classNames for slot-level style maps when a component supports it (for example CalendarSingle -> DayPicker classNames).
+  - Use styles[].classNames only when that node type supports slot-level class maps.
   - Do not invent ids that do not exist in uiTree.
   - Prefer complete style override per id to avoid merging ambiguity.
   - Use valid Tailwind utility classes only (assume default Tailwind palette).
   - Avoid non-default color tokens such as brown-50/100/... unless explicitly provided by project theme.
   - Prefer amber/orange/yellow/stone color scales for warm themes.
-  - For CalendarSingle classNames, prefer supported keys from current integration: root, months, month, nav, button_previous, button_next, month_caption, dropdowns, dropdown_root, dropdown, caption_label, table, weekdays, weekday, week, week_number_header, week_number, day, range_start, range_middle, range_end, today, outside, disabled, hidden.
-  - Avoid deprecated/ineffective CalendarSingle keys such as caption/nav_button/nav_button_previous/nav_button_next unless explicitly supported.
+  - If calendar-like nodes are present and classNames is used, prefer currently supported DayPicker keys from project integration.
 `;
 
 // 对 uiDescription 与 uiTree 进行一致性审查
@@ -56,15 +57,15 @@ export const interfaceAlignmentCriticInstructions = `
   - Do NOT require concrete color values, visual polish, gradients, shadows, or exact warm-tone classes in uiTree.
   - Do NOT require real business data values; placeholders are acceptable at structure stage.
   - If a concept is represented by a reasonable structural placeholder node, count it as covered.
-  - Do NOT require components outside uiNeeds.
-  - If CalendarSingle exists, date display is considered structurally covered unless description explicitly demands a separate date label.
+  - Do NOT require business intent components outside uiNeeds.
+  - Supporting atomic child nodes are allowed when they are used to compose required uiNeeds.
 
   Check at least these dimensions:
   1) Component coverage: required uiNeeds must be represented by valid nodes.
   2) Layout semantics: if description mentions two-column/sidebar/popup, tree should contain corresponding container semantics.
   3) Information completeness: key concepts in description (e.g. details panel/table sections) should have explicit nodes/props or placeholders.
   4) DSL hygiene: ids should be unique and node types should be plausible for the target component list.
-  5) Component scope: custom component node types should be limited to uiNeeds; use div/text placeholders for other content.
+  5) Component scope: business intent coverage must follow uiNeeds, while atomic child components may be used for composition.
 
   Violation coding rules (use these codes whenever possible):
   - NEED_NOT_COVERED

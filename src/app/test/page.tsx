@@ -41,96 +41,170 @@ const adminOutputMock = {
   text: "好的，老板。我将为您创建一个暖色调、个性化的黄历日历。这个日历会采用温馨的配色方案（如橙色、黄色、米色等），并整合黄历信息（如宜忌事项、吉凶方位等）。我会先设计一个基本的日历界面，然后根据需要添加黄历数据展示。",
   necessary: true,
   uiDescription: "一个暖色调的个性化黄历日历界面，包含日历视图和黄历信息面板。日历部分显示日期，黄历部分展示每日的宜忌事项、吉凶等。",
-  uiNeeds: ["CalendarSingle", "Card4u", "Table4u", "Alert4u"],
+  uiNeeds: ["Card", "Accordion", "Avatar", "Button", "Label", "Separator"],
 }
 
 const almanacUiTree = {
   type: "div",
   id: "root",
   props: {
-    className: "min-h-screen p-4 md:p-6 flex flex-col md:flex-row gap-6",
+    className: "min-h-screen p-4 md:p-6 grid gap-6 md:grid-cols-[2fr_1fr]",
   },
   children: [
     {
-      type: "Card4u",
+      type: "Card",
       id: "calendar-card",
       props: {
-        title: "黄历日历",
-        description: "查看每日宜忌吉凶",
-        className: "md:w-2/3",
-        content: {
-          type: "CalendarSingle",
-          id: "main-calendar",
-          props: {
-            className: "w-full",
-            captionLayout: "dropdown-months",
-            showOutsideDays: true,
-          },
-        },
+        className: "border-amber-200 bg-white/90",
       },
-    },
-    {
-      type: "Card4u",
-      id: "almanac-panel",
-      props: {
-        title: "黄历信息",
-        description: "今日宜忌事项",
-        className: "md:w-1/3",
-        content: {
-          type: "div",
-          id: "almanac-content",
-          props: { className: "space-y-4" },
+      children: [
+        {
+          type: "CardHeader",
+          id: "calendar-header",
           children: [
             {
-              type: "Alert4u",
-              id: "auspicious-alert",
-              props: {
-                title: "宜",
-                description: "祭祀、祈福、开市、交易",
-              },
+              type: "CardTitle",
+              id: "calendar-title",
+              children: [{ type: "text", id: "calendar-title-text", props: { content: "黄历日历" } }],
             },
             {
-              type: "Alert4u",
-              id: "inauspicious-alert",
-              props: {
-                title: "忌",
-                description: "嫁娶、动土、安葬",
-              },
-            },
-            {
-              type: "Table4u",
-              id: "details-table",
-              props: {
-                captionTitle: "详细吉凶",
-                headers: [
-                  { description: "事项" },
-                  { description: "吉凶" },
-                ],
-                rows: [
-                  {
-                    cells: [
-                      { content: "财神方位" },
-                      { content: "正东" },
-                    ],
-                  },
-                  {
-                    cells: [
-                      { content: "冲煞" },
-                      { content: "冲兔(乙卯)" },
-                    ],
-                  },
-                  {
-                    cells: [
-                      { content: "吉时" },
-                      { content: "巳时、午时" },
-                    ],
-                  },
-                ],
-              },
+              type: "CardDescription",
+              id: "calendar-description",
+              children: [{ type: "text", id: "calendar-description-text", props: { content: "查看每日宜忌吉凶" } }],
             },
           ],
         },
+        {
+          type: "CardContent",
+          id: "calendar-content",
+          props: { className: "space-y-4" },
+          children: [
+            {
+              type: "Label",
+              id: "selected-date-label",
+              children: [{ type: "text", id: "selected-date-label-text", props: { content: "今日日期" } }],
+            },
+            {
+              type: "div",
+              id: "selected-date-value",
+              props: { className: "rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm" },
+              children: [{ type: "text", id: "selected-date-value-text", props: { content: "二零二六年三月二十四日" } }],
+            },
+            {
+              type: "Separator",
+              id: "calendar-separator",
+              props: { className: "my-2", orientation: "horizontal" },
+            },
+            {
+              type: "Accordion",
+              id: "almanac-accordion",
+              props: { type: "single", collapsible: true, className: "w-full" },
+              children: [
+                {
+                  type: "AccordionItem",
+                  id: "yi-item",
+                  props: { value: "yi" },
+                  children: [
+                    {
+                      type: "AccordionTrigger",
+                      id: "yi-trigger",
+                      children: [{ type: "text", id: "yi-trigger-text", props: { content: "宜" } }],
+                    },
+                    {
+                      type: "AccordionContent",
+                      id: "yi-content",
+                      children: [{ type: "text", id: "yi-content-text", props: { content: "祭祀、祈福、开市、交易" } }],
+                    },
+                  ],
+                },
+                {
+                  type: "AccordionItem",
+                  id: "ji-item",
+                  props: { value: "ji" },
+                  children: [
+                    {
+                      type: "AccordionTrigger",
+                      id: "ji-trigger",
+                      children: [{ type: "text", id: "ji-trigger-text", props: { content: "忌" } }],
+                    },
+                    {
+                      type: "AccordionContent",
+                      id: "ji-content",
+                      children: [{ type: "text", id: "ji-content-text", props: { content: "嫁娶、动土、安葬" } }],
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    },
+    {
+      type: "Card",
+      id: "detail-card",
+      props: {
+        className: "border-orange-200 bg-white/90",
       },
+      children: [
+        {
+          type: "CardHeader",
+          id: "detail-header",
+          children: [
+            {
+              type: "CardTitle",
+              id: "detail-title",
+              children: [{ type: "text", id: "detail-title-text", props: { content: "当日信息" } }],
+            },
+            {
+              type: "CardDescription",
+              id: "detail-description",
+              children: [{ type: "text", id: "detail-description-text", props: { content: "快速查看值日神与方位信息" } }],
+            },
+          ],
+        },
+        {
+          type: "CardContent",
+          id: "detail-content",
+          props: { className: "space-y-3" },
+          children: [
+            {
+              type: "Avatar",
+              id: "symbol-avatar",
+              props: { className: "h-12 w-12" },
+              children: [
+                { type: "AvatarImage", id: "symbol-avatar-image", props: { src: "https://github.com/shadcn.png", alt: "avatar" } },
+                { type: "AvatarFallback", id: "symbol-avatar-fallback", children: [{ type: "text", id: "symbol-avatar-fallback-text", props: { content: "吉" } }] },
+              ],
+            },
+            {
+              type: "div",
+              id: "direction-block",
+              props: { className: "rounded-md border border-orange-200 bg-orange-50 px-3 py-2 text-sm" },
+              children: [{ type: "text", id: "direction-text", props: { content: "财神方位：正东；喜神方位：西南" } }],
+            },
+          ],
+        },
+        {
+          type: "CardFooter",
+          id: "detail-footer",
+          props: { className: "grid grid-cols-2 gap-2" },
+          children: [
+            {
+              type: "Button",
+              id: "view-detail-button",
+              props: { variant: "outline", className: "w-full" },
+              children: [{ type: "text", id: "view-detail-button-text", props: { content: "查看详情" } }],
+            },
+            {
+              type: "Button",
+              id: "next-day-button",
+              props: { className: "w-full" },
+              children: [{ type: "text", id: "next-day-button-text", props: { content: "切换明日" } }],
+            },
+          ],
+        },
+      ],
     },
   ],
 }
@@ -140,59 +214,35 @@ const structureOutputMock = {
 }
 
 const styleOutputMock = {
-  temp: "Warm traditional Chinese almanac calendar interface with amber/orange/stone color palette and responsive design",
+  temp: "Warm traditional Chinese almanac interface with amber/orange/stone color palette",
   styles: [
     {
       id: "root",
-      className: "min-h-screen p-4 md:p-6 flex flex-col md:flex-row gap-6 bg-gradient-to-br from-amber-50 to-orange-50",
+      className: "min-h-screen p-4 md:p-6 grid gap-6 md:grid-cols-[2fr_1fr] bg-gradient-to-br from-amber-50 to-orange-50",
     },
     {
       id: "calendar-card",
-      className: "md:w-2/3 bg-white/90 backdrop-blur-sm border border-amber-200 rounded-xl shadow-lg",
+      className: "border-amber-200 bg-white/90 rounded-xl shadow-md",
     },
     {
-      id: "main-calendar",
-      className: "w-full",
-      classNames: {
-        root: "p-4",
-        months: "space-y-4",
-        month: "space-y-4",
-        caption: "flex justify-center pt-1 relative items-center",
-        caption_label: "text-xl font-semibold text-amber-900",
-        nav: "space-x-1 flex items-center",
-        nav_button: "h-7 w-7 bg-transparent p-0 opacity-50 hover:opacity-100 text-amber-700 hover:text-amber-900",
-        nav_button_previous: "absolute left-1",
-        nav_button_next: "absolute right-1",
-        table: "w-full border-collapse space-y-1",
-        head_row: "flex",
-        head_cell: "text-amber-800 font-medium text-sm w-14 h-9 flex items-center justify-center",
-        row: "flex w-full mt-2",
-        cell: "h-14 w-14 text-center text-sm p-0 relative [&:has([aria-selected])]:bg-amber-100 first:[&:has([aria-selected])]:rounded-l-md last:[&:has([aria-selected])]:rounded-r-md focus-within:relative focus-within:z-20",
-        day: "h-14 w-14 p-0 font-normal aria-selected:opacity-100 hover:bg-amber-100 rounded-lg",
-        day_selected: "bg-amber-500 text-white hover:bg-amber-500 hover:text-white focus:bg-amber-500 focus:text-white font-semibold",
-        day_today: "bg-amber-100 text-amber-900 font-semibold",
-        day_outside: "text-amber-400 opacity-50",
-        day_disabled: "text-amber-300 opacity-50",
-        day_range_middle: "aria-selected:bg-amber-100 aria-selected:text-amber-900",
-        day_hidden: "invisible",
-      },
+      id: "calendar-header",
+      className: "space-y-1",
     },
     {
-      id: "almanac-panel",
-      className: "md:w-1/3 bg-white/90 backdrop-blur-sm border border-amber-200 rounded-xl shadow-lg",
-    },
-    { id: "almanac-content", className: "space-y-4 p-4" },
-    {
-      id: "auspicious-alert",
-      className: "bg-gradient-to-r from-amber-50 to-yellow-50 border border-amber-300 text-amber-900 rounded-lg",
+      id: "calendar-title",
+      className: "text-amber-900",
     },
     {
-      id: "inauspicious-alert",
-      className: "bg-gradient-to-r from-stone-50 to-stone-100 border border-stone-300 text-stone-900 rounded-lg",
+      id: "almanac-accordion",
+      className: "rounded-lg border border-amber-200 px-3",
     },
     {
-      id: "details-table",
-      className: "bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-200 rounded-lg overflow-hidden",
+      id: "detail-card",
+      className: "border-orange-200 bg-white/90 rounded-xl shadow-md",
+    },
+    {
+      id: "next-day-button",
+      className: "bg-orange-500 text-white hover:bg-orange-500/90",
     },
   ],
 }
