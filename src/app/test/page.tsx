@@ -15,7 +15,7 @@ import {
   UserIcon,
 } from "lucide-react"
 
-import { ThreeOutputPreviewCard } from "./three-output-preview-card"
+import { ThreeOutputPreviewCard } from "../../lib/renderByAST"
 import {
   Accordion,
   AccordionContent,
