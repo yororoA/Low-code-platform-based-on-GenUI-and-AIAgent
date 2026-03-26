@@ -1,6 +1,6 @@
 import type { ReactNode } from "react"
 import Link from "next/link"
-import { Separator4u } from "@/components/separator/separator4u"
+import { Separator } from "@/components/ui/separator"
 
 export default function StudioLayout({ children }: { children: ReactNode }) {
   return (
@@ -16,7 +16,7 @@ export default function StudioLayout({ children }: { children: ReactNode }) {
           <Link href="/studio/projects">Projects</Link>
           <Link href="/studio/pages">Pages</Link>
           <Link href="/studio/workflows">Workflows</Link>
-          <Separator4u className="my-2" />
+          <Separator className="my-2" />
           <div className="text-xs text-muted-foreground">Workspace Navigation</div>
         </aside>
         <main className="overflow-auto">{children}</main>
