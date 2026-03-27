@@ -4,193 +4,118 @@ interface DataItem {
   value: string;
 }
 
-type OperationType = 'open' | 'close' | 'add' | 'update' | 'delete' | 'get' | 'getByIndex';
+type OperationType = 'new_store' | 'open' | 'close' | 'add' | 'update' | 'delete' | 'get' | 'getByIndex';
 
 
-export function DBOperation(operationType: OperationType, data?: DataItem, id?: string, indexName?: string, indexValue?: string) {
-  const DB_NAME = 'test-db';
-  const STORE_NAME = 'test-store';
-  const MAX_RETRY = 3;
-  let retryCount: number = 0;
-  let openRequest: IDBOpenDBRequest;
-  let isOpen: boolean = false;
-  let db: IDBDatabase = null as unknown as IDBDatabase;
+// 使用类封装以维持数据库连接状态，或使用外部变量
+export class DBManager {
+  private static db: IDBDatabase | null = null;
+  private static DB_NAME = 'test-db';
 
-  if (operationType === 'open') {
-    openDB();
-  } else if (operationType === 'close') {
-    if (isOpen && db) {
-      db.close();
-      isOpen = false;
-      console.log('IndexedDB closed successfully');
+  // 获取当前数据库实例（如果没打开则打开）
+  private static async getDB(targetStore?: string, forceUpgrade: boolean = false): Promise<IDBDatabase> {
+    // 1. 如果已打开且不需要升级，直接返回
+    if (this.db && !forceUpgrade) return this.db;
+
+    // 2. 如果需要升级（新表），先关闭旧连接
+    if (this.db) {
+      this.db.close();
+      this.db = null;
     }
-  } else {
-    if (!isOpen) openDB();
-    switch (operationType) {
-      case 'add':
-        if (data) addData(data);
-        else throw new Error('Data is required');
-        break;
-      case 'update':
-        if (data) updateData(data);
-        else throw new Error('Data is required');
-        break;
-      case 'delete':
-        if (id !== undefined) deleteData(id);
-        else throw new Error('ID is required');
-        break;
-      case 'get':
-        if (id !== undefined) readData(id);
-        else throw new Error('ID is required');
-        break;
-      case 'getByIndex':
-        if (indexName && indexValue) readDataByIndex(indexName, indexValue);
-        else throw new Error('Index name and value are required');
-        break;
-      default:
-        break;
+
+    // 3. 探测当前版本（如果不传版本号打开，可以获取当前最新版本）
+    const currentVersion = await new Promise<number>((resolve) => {
+      const req = window.indexedDB.open(this.DB_NAME);
+      req.onsuccess = () => {
+        const v = req.result.version;
+        req.result.close();
+        resolve(v);
+      };
+    });
+
+    const nextVersion = forceUpgrade ? currentVersion + 1 : currentVersion;
+
+    // 4. 正式打开/升级
+    return new Promise((resolve, reject) => {
+      const request = window.indexedDB.open(this.DB_NAME, nextVersion);
+
+      request.onupgradeneeded = () => {
+        const db = request.result;
+        if (targetStore && !db.objectStoreNames.contains(targetStore)) {
+          const store = db.createObjectStore(targetStore, { keyPath: 'id' });
+          store.createIndex('nameIndex', 'name', { unique: false });
+          console.log(`表 ${targetStore} 创建成功，版本升级至: ${nextVersion}`);
+        }
+      };
+
+      request.onsuccess = () => {
+        this.db = request.result;
+        resolve(this.db);
+      };
+
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  // 对外暴露的统一操作接口
+  static async execute(
+    operationType: OperationType,
+    store_name: string = 'test-store',
+    params: { data?: DataItem; id?: string; indexName?: string; indexValue?: string } = {}
+  ) {
+    const { data, id, indexName, indexValue } = params;
+
+    try {
+      // 处理“新建表”逻辑：强制升级版本
+      if (operationType === 'new_store') {
+        await this.getDB(store_name, true);
+        return;
+      }
+
+      const db = await this.getDB(store_name);
+
+      // 打开数据库
+      if (operationType === 'open') {
+        await this.getDB(store_name); // 确保连接被建立
+        console.log("数据库预开启完成");
+        return;
+      }
+
+      // 关闭连接
+      if (operationType === 'close') {
+        db.close();
+        this.db = null;
+        console.log('Database closed');
+        return;
+      }
+
+      // 执行具体的 CRUD 操作
+      const transaction = db.transaction(store_name, operationType === 'get' || operationType === 'getByIndex' ? 'readonly' : 'readwrite');
+      const store = transaction.objectStore(store_name);
+      let request: IDBRequest;
+
+      switch (operationType) {
+        case 'add': request = store.add(data!); break;
+        case 'update': request = store.put(data!); break;
+        case 'delete': request = store.delete(id!); break;
+        case 'get': request = store.get(id!); break;
+        case 'getByIndex': request = store.index(indexName!).get(indexValue!); break;
+        default: return;
+      }
+
+      return new Promise((resolve, reject) => {
+        request.onsuccess = () => {
+          console.log(`${operationType} 操作成功:`, request.result || id);
+          resolve(request.result);
+        };
+        request.onerror = () => reject(request.error);
+      });
+
+    } catch (error) {
+      console.error(`操作 ${operationType} 失败:`, error);
     }
   }
-
-
-  // 打开数据库
-  function openDB() {
-    openRequest = window.indexedDB.open(DB_NAME);
-    // 失败重试
-    openRequest.onerror = (event) => {
-      console.error('Error opening IndexedDB:', event);
-      if (retryCount++ < MAX_RETRY) {
-        openDB();
-      }
-      throw new Error('Error opening IndexedDB');
-    };
-    // 成功
-    openRequest.onsuccess = (event) => {
-      db = (event.target as IDBOpenDBRequest).result;
-      isOpen = true;
-      console.log('IndexedDB opened successfully:', db);
-    };
-    // 首次创建/版本升级
-    openRequest.onupgradeneeded = (event) => {
-      db = (event.target as IDBOpenDBRequest).result;
-      if (!db.objectStoreNames.contains(STORE_NAME)) {
-        const store = db.createObjectStore(STORE_NAME, { keyPath: 'id' }); // 创建相应表
-        store.createIndex('nameIndex', 'name', { unique: false }); // 创建索引
-      }
-    };
-  }
-
-  // 添加数据
-  function addData(data: DataItem) {
-    const transaction = db.transaction(STORE_NAME, 'readwrite'); // 开启相应表的读写事务
-    const store = transaction.objectStore(STORE_NAME); // 获取相应表
-    const request = store.add(data); // 添加数据
-
-    request.onsuccess = () => console.log('Data added successfully:', request.result);
-    request.onerror = () => console.error('Error adding data:', request.error);
-  }
-
-  // 读取数据
-  function readData(id: string) {
-    const transaction = db.transaction(STORE_NAME, 'readonly'); // 开启相应表的只读事务
-    const store = transaction.objectStore(STORE_NAME); // 获取相应表
-    const request = store.get(id); // 获取数据
-
-    request.onsuccess = () => console.log('Data read successfully:', request.result);
-    request.onerror = () => console.error('Error reading data:', request.error);
-  }
-
-  // 根据索引读取数据
-  function readDataByIndex(indexName: string, indexValue: string) {
-    const transaction = db.transaction(STORE_NAME, 'readonly'); // 开启相应表的只读事务
-    const store = transaction.objectStore(STORE_NAME); // 获取相应表
-    const index = store.index(indexName); // 获取索引
-    const request = index.get(indexValue); // 获取数据
-
-    request.onsuccess = () => console.log('Data read successfully:', request.result);
-    request.onerror = () => console.error('Error reading data:', request.error);
-  }
-
-  // 更新数据(全量覆盖)
-  function updateData(data: DataItem) {
-    const transaction = db.transaction(STORE_NAME, 'readwrite'); // 开启相应表的读写事务
-    const store = transaction.objectStore(STORE_NAME); // 获取相应表
-    // put 会根据数据中主键判断该数据为新增还是更新
-    // 如果数据中主键在表中不存在，则执行添加操作；如果存在，则执行更新操作（全量覆盖）
-    const request = store.put(data); // 更新数据
-
-    request.onsuccess = () => console.log('Data updated successfully:', request.result);
-    request.onerror = () => console.error('Error updating data:', request.error);
-  }
-
-  // 删除数据
-  function deleteData(id: string) {
-    const transaction = db.transaction(STORE_NAME, 'readwrite'); // 开启相应表的读写事务
-    const store = transaction.objectStore(STORE_NAME); // 获取相应表
-    const request = store.delete(id); // 根据主键删除数据
-
-    request.onsuccess = () => console.log('Data deleted successfully:', id);
-    request.onerror = () => console.error('Error deleting data:', request.error);
-  }
 }
 
 
 
-abstract class Vehicle {
-  constructor(
-    public color: string,
-    public brand: string,
-  ){}
-}
-
-class Bicycle extends Vehicle {
-  public owner: string;
-
-  constructor(
-    color: string,
-    brand: string,
-    owner: string,
-  ){
-    super(color, brand);
-    this.owner = owner;
-  }
-}
-
-class Headlight {}
-class Motor{}
-class Auto extends Vehicle {
-  public owners: Person[];
-  public headlights: Headlight[];
-  public motor: Motor;
-
-  constructor(
-    color: string,
-    brand: string,
-    owners: Person[],
-  ){
-    super(color, brand);
-    this.owners = owners;
-    this.headlights = [new Headlight(), new Headlight()];
-    this.motor = new Motor();
-
-    owners.forEach(owner => owner.addVehicle(this));
-  }
-}
-
-abstract class Person {
-  private vehicles: Vehicle[] = [];
-
-  constructor(
-    public name: string,
-    public age: number,
-    public gender: string,
-  ){}
-
-  public addVehicle(vehicle: Vehicle) {
-    this.vehicles.push(vehicle);
-  }
-
-  public getVehicles() {
-    return this.vehicles;
-  }
-}

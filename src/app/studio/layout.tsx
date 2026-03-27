@@ -1,8 +1,26 @@
-import type { ReactNode } from "react"
+import { useEffect, type ReactNode } from "react"
 import Link from "next/link"
 import { Separator } from "@/components/ui/separator"
+import { DBManager } from "@/lib/dbtest"
 
 export default function StudioLayout({ children }: { children: ReactNode }) {
+
+  useEffect(() => {
+    let isCanceled = false;
+    (async () => {
+      // 连接数据库
+      await DBManager.execute('open');
+      if (isCanceled) await DBManager.execute('close');
+    })();
+    return () => {
+      isCanceled = true;
+      (async () => {
+        await DBManager.execute('close');
+      })();
+    }
+  }, []);
+
+
   return (
     <div className="min-h-dvh w-full bg-background">
       <div className="h-14 border-b flex items-center px-4">

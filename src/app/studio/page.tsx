@@ -22,24 +22,11 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { AdminAgentMessage } from "../api/chat/model"
-import { DBOperation } from "@/lib/dbtest";
+// import { DBManager } from "@/lib/dbtest";
 
 export default function StudioPage() {
   const [input, setInput] = useState("");
   const { messages, sendMessage, status, stop } = useChat<AdminAgentMessage>();
-
-  useEffect(()=>{
-    // 连接数据库
-    DBOperation('open');
-
-    // 每次 messages 更新时将最新消息存储到 IndexedDB
-    
-
-    // 组件卸载时关闭数据库连接
-    return () => {
-      DBOperation('close');
-    };
-  }, [messages]);
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
