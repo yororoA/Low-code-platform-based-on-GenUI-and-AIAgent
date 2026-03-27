@@ -1,6 +1,5 @@
 "use client"
 
-import { test } from "node:test"
 import { ChangeEvent, FormEvent, useEffect, useState } from "react"
 import { useChat } from "@ai-sdk/react"
 import { Button } from "@/components/ui/button"
@@ -11,46 +10,36 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
-import { Label } from "@/components/ui/label"
-import { Separator } from "@/components/ui/separator"
-import {
-  Table,
-  TableBody,
-  TableCaption,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
 import { AdminAgentMessage } from "../api/chat/model"
-import { DBManager, DataItem } from "@/lib/dbtest";
+import { DBManager, DataItem } from "@/lib/dbtest"
 
 export default function StudioPage() {
-  const [input, setInput] = useState<string>("");
-  const { messages, setMessages, sendMessage, status, stop } = useChat<AdminAgentMessage>();
-  const [topic, setTopic] = useState<string>("");
+  const [input, setInput] = useState<string>("")
+  const { messages, setMessages, sendMessage, status, stop } = useChat<AdminAgentMessage>()
 
-  test('topic use',()=>console.log(topic))
-
+  // 初始
   useEffect(() => {
     // 从库中读取历史记录
     (async () => {
-      const history = await DBManager.execute({ 
-        operationType: 'getAllByIndex', 
-        indexName: 'timestampIndex' 
-      }) as DataItem[];
-      const last = history.at(-1);
+      const history = await DBManager.execute({
+        operationType: "getAllByIndex",
+        indexName: "timestampIndex",
+      }) as DataItem[]
+      const last = history.at(-1)
       if (last) {
-        setTopic(last.topic);
-        setMessages(last.messages);
+        setMessages(last.messages)
       }
-    })();
-  }, [setMessages]);
+    })()
+  }, [setMessages])
 
+  // 更新
   useEffect(() => {
-    // 每当 messages 变化时，保存到库中
+    // 每当 messages 更新时，保存到库中
+    console.log(messages.at(-1)?.parts.filter(part => part.type === 'tool-showResponse')[0]?.input?.text);
+    (async () => {
 
-  }, [messages]);
+    })();
+  }, [messages])
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -59,136 +48,91 @@ export default function StudioPage() {
 
     await sendMessage({ text })
     setInput("")
-  };
+  }
 
   const handleInputChange = (event: ChangeEvent<HTMLTextAreaElement>) => {
     setInput(event.target.value)
-  };
+  }
 
-  const lastMessage = messages.at(-1);
-  const lastMessageText =
-    lastMessage?.parts
-      ?.map(part => {
-        if (part.type === "text") {
-          return part.text
-        }
-        return ""
-      })
+  const isStreaming = status === "streaming" || status === "submitted"
+  const canSend = input.trim().length > 0 && !isStreaming
+
+  const getMessageText = (message: AdminAgentMessage) =>
+    message.parts
+      ?.map((part) => (part.type === "text" ? part.text : ""))
       .join("")
-      .trim() ?? "";
+      .trim()
 
-  const tableRows = messages.map(message => ({
-    key: message.id,
-    cells: [
-      { content: message.role },
-      {
-        content:
-          message.parts
-            ?.map(part => (part.type === "text" ? part.text : ""))
-            .join("")
-            .trim() || "(non-text message)",
-      },
-    ],
-  }));
+  const getDisplayText = (message: AdminAgentMessage) => {
+    if (message.role === "user") {
+      return getMessageText(message) || "(empty user message)"
+    }
+
+    const toolText = message.parts
+      .find((part) => part.type === "tool-showResponse")
+      ?.input?.text
+
+    return toolText || getMessageText(message) || "(non-text message)"
+  }
 
   return (
-    <div className="p-4 md:p-6 space-y-4">
-      <div className="grid gap-4 xl:grid-cols-[1fr_420px]">
-        <Card>
-          <CardHeader>
-            <CardTitle>Prompt Console</CardTitle>
-            <CardDescription>输入需求并实时接收 Agent 流式输出。</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form className="space-y-3" onSubmit={handleSubmit}>
-              <div className="space-y-2">
-                <Label htmlFor="prompt-input">User Prompt</Label>
-                <p className="text-xs text-muted-foreground">支持自然语言描述页面需求</p>
-                <textarea
-                  id="prompt-input"
-                  name="prompt"
-                  value={input}
-                  onChange={handleInputChange}
-                  placeholder="例如：生成一个电商后台仪表盘，包含图表、筛选和表格"
-                  className="min-h-28 w-full rounded-md border bg-background px-3 py-2 text-sm outline-none ring-offset-background focus-visible:ring-2 focus-visible:ring-ring"
-                />
-              </div>
-
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  type="submit"
-                  disabled={status === "submitted" || status === "streaming"}
-                >
-                  {status === "streaming" ? "Generating..." : "Send"}
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={stop}
-                  disabled={status !== "streaming"}
-                >
-                  Stop
-                </Button>
-              </div>
-            </form>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Latest Output</CardTitle>
-            <CardDescription>最后一条消息提取（messages.at(-1)）</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3 text-sm">
-              <div className="rounded-md border p-3">
-                <div className="text-xs text-muted-foreground mb-1">role</div>
-                <div>{lastMessage?.role ?? "-"}</div>
-              </div>
-              <div className="rounded-md border p-3">
-                <div className="text-xs text-muted-foreground mb-1">text</div>
-                <div className="whitespace-pre-wrap break-words">
-                  {lastMessageText || "暂无文本输出"}
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      <div className="flex items-center gap-3">
-        <Separator className="flex-1" />
-        <span className="text-xs text-muted-foreground">Conversation</span>
-        <Separator className="flex-1" />
-      </div>
-
-      <Card>
+    <div className="h-full p-4 md:p-6">
+      <Card className="flex h-full flex-col">
         <CardHeader>
-          <CardTitle>Message Timeline</CardTitle>
-          <CardDescription>会话消息基础表格视图</CardDescription>
+          <CardTitle>Conversation</CardTitle>
+          <CardDescription>输入需求并实时接收 Agent 流式输出。</CardDescription>
         </CardHeader>
-        <CardContent>
-          <Table>
-            <TableCaption>{`Total messages: ${messages.length}`}</TableCaption>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-36">Role</TableHead>
-                <TableHead>Content</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {tableRows.map((row) => (
-                <TableRow key={row.key}>
-                  <TableCell className="align-top">{row.cells[0].content}</TableCell>
-                  <TableCell className="whitespace-pre-wrap break-words align-top">
-                    {row.cells[1].content}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+
+        <CardContent className="flex min-h-0 flex-1 flex-col gap-4">
+          <div className="flex-1 space-y-3 overflow-y-auto rounded-md border bg-muted/20 p-3">
+            {messages.length === 0 ? (
+              <div className="text-sm text-muted-foreground">
+                还没有消息，输入内容后点击 Send 开始对话。
+              </div>
+            ) : (
+              messages.map((message) => {
+                const isUser = message.role === "user"
+                return (
+                  <div
+                    key={message.id}
+                    className={`flex ${isUser ? "justify-end" : "justify-start"}`}
+                  >
+                    <div
+                      className={`max-w-[80%] whitespace-pre-wrap break-words rounded-lg px-3 py-2 text-sm ${isUser
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-card border text-card-foreground"
+                        }`}
+                    >
+                      {getDisplayText(message)}
+                    </div>
+                  </div>
+                )
+              })
+            )}
+          </div>
+
+          <form onSubmit={handleSubmit} className="mt-auto flex items-end gap-2">
+            <textarea
+              id="prompt-input"
+              name="prompt"
+              value={input}
+              onChange={handleInputChange}
+              placeholder="例如：生成一个电商后台仪表盘，包含图表、筛选和表格"
+              className="min-h-24 flex-1 rounded-md border bg-background px-3 py-2 text-sm outline-none ring-offset-background focus-visible:ring-2 focus-visible:ring-ring"
+            />
+
+            {isStreaming ? (
+              <Button type="button" variant="outline" onClick={stop}>
+                Stop
+              </Button>
+            ) : (
+              <Button type="submit" disabled={!canSend}>
+                Send
+              </Button>
+            )}
+          </form>
         </CardContent>
       </Card>
     </div>
-  );
+  )
 }
