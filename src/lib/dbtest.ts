@@ -61,12 +61,27 @@ class DBManager {
         }
       };
 
-      request.onsuccess = () => {
+      request.onsuccess = async () => {
         this.db = request.result;
+
+        // 兼容历史版本：如果数据库已存在但目标表不存在，自动触发一次升级创建表
+        if (targetStore && !this.db.objectStoreNames.contains(targetStore) && !forceUpgrade) {
+          this.db.close();
+          this.db = null;
+          try {
+            const upgradedDB = await this.getDB(targetStore, true);
+            resolve(upgradedDB);
+          } catch (error) {
+            reject(error);
+          }
+          return;
+        }
+
         resolve(this.db);
       };
 
       request.onerror = () => reject(request.error);
+      request.onblocked = () => reject(new Error("IndexedDB open blocked by another connection"));
     });
   }
 
@@ -103,7 +118,11 @@ class DBManager {
       }
 
       // 执行具体的 CRUD 操作
-      const transaction = db.transaction(store_name, operationType === 'get' || operationType === 'getByIndex' ? 'readonly' : 'readwrite');
+      const isReadOnly =
+        operationType === 'get' ||
+        operationType === 'getByIndex' ||
+        operationType === 'getAllByIndex';
+      const transaction = db.transaction(store_name, isReadOnly ? 'readonly' : 'readwrite');
       const store = transaction.objectStore(store_name);
       let request: IDBRequest;
 
