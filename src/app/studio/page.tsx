@@ -1,5 +1,6 @@
 "use client"
 
+import { test } from "node:test"
 import { ChangeEvent, FormEvent, useEffect, useState } from "react"
 import { useChat } from "@ai-sdk/react"
 import { Button } from "@/components/ui/button"
@@ -22,11 +23,34 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { AdminAgentMessage } from "../api/chat/model"
-// import { DBManager } from "@/lib/dbtest";
+import { DBManager, DataItem } from "@/lib/dbtest";
 
 export default function StudioPage() {
-  const [input, setInput] = useState("");
-  const { messages, sendMessage, status, stop } = useChat<AdminAgentMessage>();
+  const [input, setInput] = useState<string>("");
+  const { messages, setMessages, sendMessage, status, stop } = useChat<AdminAgentMessage>();
+  const [topic, setTopic] = useState<string>("");
+
+  test('topic use',()=>console.log(topic))
+
+  useEffect(() => {
+    // 从库中读取历史记录
+    (async () => {
+      const history = await DBManager.execute({ 
+        operationType: 'getAllByIndex', 
+        indexName: 'timestampIndex' 
+      }) as DataItem[];
+      const last = history.at(-1);
+      if (last) {
+        setTopic(last.topic);
+        setMessages(last.messages);
+      }
+    })();
+  }, [setMessages]);
+
+  useEffect(() => {
+    // 每当 messages 变化时，保存到库中
+
+  }, [messages]);
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()

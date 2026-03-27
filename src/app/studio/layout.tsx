@@ -9,13 +9,13 @@ export default function StudioLayout({ children }: { children: ReactNode }) {
     let isCanceled = false;
     (async () => {
       // 连接数据库
-      await DBManager.execute('open');
-      if (isCanceled) await DBManager.execute('close');
+      await DBManager.execute({ operationType: 'open' });
+      if (isCanceled) await DBManager.execute({ operationType: 'close' });
     })();
     return () => {
       isCanceled = true;
       (async () => {
-        await DBManager.execute('close');
+        await DBManager.execute({ operationType: 'close' });
       })();
     }
   }, []);
