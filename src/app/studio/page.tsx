@@ -1,6 +1,6 @@
 "use client"
 
-import { ChangeEvent, FormEvent, useState } from "react"
+import { ChangeEvent, FormEvent, useEffect, useState } from "react"
 import { useChat } from "@ai-sdk/react"
 import { Button } from "@/components/ui/button"
 import {
@@ -22,11 +22,24 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { AdminAgentMessage } from "../api/chat/model"
+import { DBOperation } from "@/lib/dbtest";
 
 export default function StudioPage() {
-  const [input, setInput] = useState("")
-  const { messages, sendMessage, status, stop } =
-    useChat<AdminAgentMessage>()
+  const [input, setInput] = useState("");
+  const { messages, sendMessage, status, stop } = useChat<AdminAgentMessage>();
+
+  useEffect(()=>{
+    // 连接数据库
+    DBOperation('open');
+
+    // 每次 messages 更新时将最新消息存储到 IndexedDB
+    
+
+    // 组件卸载时关闭数据库连接
+    return () => {
+      DBOperation('close');
+    };
+  }, [messages]);
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -35,13 +48,13 @@ export default function StudioPage() {
 
     await sendMessage({ text })
     setInput("")
-  }
+  };
 
   const handleInputChange = (event: ChangeEvent<HTMLTextAreaElement>) => {
     setInput(event.target.value)
-  }
+  };
 
-  const lastMessage = messages.at(-1)
+  const lastMessage = messages.at(-1);
   const lastMessageText =
     lastMessage?.parts
       ?.map(part => {
@@ -51,7 +64,7 @@ export default function StudioPage() {
         return ""
       })
       .join("")
-      .trim() ?? ""
+      .trim() ?? "";
 
   const tableRows = messages.map(message => ({
     key: message.id,
@@ -65,7 +78,7 @@ export default function StudioPage() {
             .trim() || "(non-text message)",
       },
     ],
-  }))
+  }));
 
   return (
     <div className="p-4 md:p-6 space-y-4">
@@ -166,5 +179,5 @@ export default function StudioPage() {
         </CardContent>
       </Card>
     </div>
-  )
+  );
 }
