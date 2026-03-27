@@ -1,14 +1,26 @@
+import { AdminAgentMessage } from "@/app/api/chat/model";
+
+
 interface DataItem {
   id: string;
-  name: string;
-  value: string;
+  timestamp: Date;
+  topic: string;
+  messages: AdminAgentMessage[];
 }
 
-type OperationType = 'new_store' | 'open' | 'close' | 'add' | 'update' | 'delete' | 'get' | 'getByIndex';
+type OperationType = 'new_store' | 'open' | 'close' | 'add' | 'update' | 'delete' | 'get' | 'getByIndex' | 'getAllByIndex';
 
+interface ExecuteOptions {
+  operationType: OperationType;
+  store_name?: string;
+  data?: DataItem;
+  id?: string;
+  indexName?: string;
+  indexValue?: string,
+}
 
 // 使用类封装以维持数据库连接状态，或使用外部变量
-export class DBManager {
+class DBManager {
   private static db: IDBDatabase | null = null;
   private static DB_NAME = 'test-db';
 
@@ -43,27 +55,43 @@ export class DBManager {
         const db = request.result;
         if (targetStore && !db.objectStoreNames.contains(targetStore)) {
           const store = db.createObjectStore(targetStore, { keyPath: 'id' });
-          store.createIndex('nameIndex', 'name', { unique: false });
+          store.createIndex('timestampIndex', 'timestamp', { unique: false });
+          store.createIndex('topicIndex', 'topic', { unique: false });
           console.log(`表 ${targetStore} 创建成功，版本升级至: ${nextVersion}`);
         }
       };
 
-      request.onsuccess = () => {
+      request.onsuccess = async () => {
         this.db = request.result;
+
+        // 兼容历史版本：如果数据库已存在但目标表不存在，自动触发一次升级创建表
+        if (targetStore && !this.db.objectStoreNames.contains(targetStore) && !forceUpgrade) {
+          this.db.close();
+          this.db = null;
+          try {
+            const upgradedDB = await this.getDB(targetStore, true);
+            resolve(upgradedDB);
+          } catch (error) {
+            reject(error);
+          }
+          return;
+        }
+
         resolve(this.db);
       };
 
       request.onerror = () => reject(request.error);
+      request.onblocked = () => reject(new Error("IndexedDB open blocked by another connection"));
     });
   }
 
   // 对外暴露的统一操作接口
-  static async execute(
-    operationType: OperationType,
-    store_name: string = 'test-store',
-    params: { data?: DataItem; id?: string; indexName?: string; indexValue?: string } = {}
-  ) {
-    const { data, id, indexName, indexValue } = params;
+  static async execute(options: ExecuteOptions) {
+    const {
+      operationType,
+      store_name = 'test-store',
+      data, id, indexName, indexValue,
+    } = options;
 
     try {
       // 处理“新建表”逻辑：强制升级版本
@@ -90,7 +118,11 @@ export class DBManager {
       }
 
       // 执行具体的 CRUD 操作
-      const transaction = db.transaction(store_name, operationType === 'get' || operationType === 'getByIndex' ? 'readonly' : 'readwrite');
+      const isReadOnly =
+        operationType === 'get' ||
+        operationType === 'getByIndex' ||
+        operationType === 'getAllByIndex';
+      const transaction = db.transaction(store_name, isReadOnly ? 'readonly' : 'readwrite');
       const store = transaction.objectStore(store_name);
       let request: IDBRequest;
 
@@ -100,6 +132,7 @@ export class DBManager {
         case 'delete': request = store.delete(id!); break;
         case 'get': request = store.get(id!); break;
         case 'getByIndex': request = store.index(indexName!).get(indexValue!); break;
+        case 'getAllByIndex': request = store.index(indexName!).getAll(); break;
         default: return;
       }
 
@@ -117,5 +150,4 @@ export class DBManager {
   }
 }
 
-
-
+export { type DataItem, DBManager, type OperationType, type ExecuteOptions };

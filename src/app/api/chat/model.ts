@@ -1,4 +1,4 @@
-import { wrapLanguageModel, ToolLoopAgent, InferAgentUIMessage } from 'ai';
+import { wrapLanguageModel, ToolLoopAgent, InferAgentUIMessage, tool } from 'ai';
 import { deepseek } from "@ai-sdk/deepseek";
 import { devToolsMiddleware } from '@ai-sdk/devtools';
 import * as z from 'zod';
@@ -19,13 +19,22 @@ const model = wrapLanguageModel({
 export const adminAgent = new ToolLoopAgent({
   model,
   instructions: textAgentInstructions,
-  output: outputSchemas.admin,
+  // output: outputSchemas.admin,
   tools: {
-    ...chatTools,
+    // ...chatTools,
     // 'call-structure-agent(no stream)': callStructureAgent_Usual,
     // 'call-structure-agent(stream)': callStructureAgent_Stream,
+    showResponse: tool({
+      description: "Show the response to the user.",
+      inputSchema: z.object({
+        text: z.string().describe("The text to be sent back to the boss."),
+        necessary: z.boolean().describe("Whether the ui is necessary for the boss understanding."),
+        uiDescription: z.string().describe("The description of the interface needed."),
+        uiNeeds: z.array(z.string()).describe("A list of required business-intent components selected from supported metadata names."),
+      }),
+    })
   },
-  toolChoice: 'auto'
+  toolChoice: 'required'
 });
 export type AdminAgentMessage = InferAgentUIMessage<typeof adminAgent>;
 
