@@ -18,34 +18,74 @@ const adminToolOutputSchema = z.object({
   uiNeeds: z.array(z.string()),
 });
 
-function collectToolOutputFromParts(parts: unknown[]): AdminToolOutput | null {
-  for (const part of parts) {
-    if (!part || typeof part !== "object") continue;
-    const p = part as Record<string, unknown>;
+function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
+  return !!value && typeof (value as PromiseLike<unknown>).then === "function";
+}
 
-    // UIMessage 侧常见形态: { type: "tool-showResponse", input: {...} }
-    if (p.type === "tool-showResponse") {
-      const parsed = adminToolOutputSchema.safeParse(p.input);
-      if (parsed.success) return parsed.data;
+function tryParseAdminToolOutput(payload: unknown): AdminToolOutput | null {
+  if (typeof payload === "string") {
+    try {
+      const parsedJson = JSON.parse(payload);
+      const parsed = adminToolOutputSchema.safeParse(parsedJson);
+      return parsed.success ? parsed.data : null;
+    } catch {
+      return null;
+    }
+  }
+
+  const parsed = adminToolOutputSchema.safeParse(payload);
+  return parsed.success ? parsed.data : null;
+}
+
+async function collectAdminToolOutputDeep(root: unknown): Promise<AdminToolOutput | null> {
+  const queue: unknown[] = [root];
+  const visited = new WeakSet<object>();
+
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (current == null) continue;
+
+    if (isPromiseLike(current)) {
+      try {
+        queue.push(await current);
+      } catch {
+        // ignore rejected nested promises and continue probing other branches
+      }
+      continue;
     }
 
-    // 模型消息侧兜底形态: { type: "tool-call", toolName: "showResponse", input|args: ... }
-    if (p.type === "tool-call" && p.toolName === "showResponse") {
-      const directParsed = adminToolOutputSchema.safeParse(p.input);
-      if (directParsed.success) return directParsed.data;
+    const direct = tryParseAdminToolOutput(current);
+    if (direct) return direct;
 
-      if (typeof p.args === "string") {
-        try {
-          const argsObj = JSON.parse(p.args);
-          const parsed = adminToolOutputSchema.safeParse(argsObj);
-          if (parsed.success) return parsed.data;
-        } catch {
-          // ignore malformed JSON and continue fallback probing
-        }
-      } else {
-        const parsed = adminToolOutputSchema.safeParse(p.args);
-        if (parsed.success) return parsed.data;
+    if (Array.isArray(current)) {
+      for (const item of current) queue.push(item);
+      continue;
+    }
+
+    if (typeof current !== "object") continue;
+
+    const obj = current as Record<string, unknown>;
+    if (visited.has(obj)) continue;
+    visited.add(obj);
+
+    const toolTag = obj.type;
+    const toolName = obj.toolName ?? obj.tool ?? obj.name;
+    const looksLikeShowResponseToolCall =
+      toolTag === "tool-showResponse" ||
+      toolName === "showResponse" ||
+      (toolTag === "tool-call" && toolName === "showResponse");
+
+    if (looksLikeShowResponseToolCall) {
+      const candidates = [obj.input, obj.args, obj.arguments, obj.output];
+      for (const candidate of candidates) {
+        const parsed = tryParseAdminToolOutput(candidate);
+        if (parsed) return parsed;
+        if (candidate != null) queue.push(candidate);
       }
+    }
+
+    for (const value of Object.values(obj)) {
+      queue.push(value);
     }
   }
 
@@ -56,40 +96,18 @@ async function extractAdminToolOutput(streamResult: unknown): Promise<AdminToolO
   if (!streamResult || typeof streamResult !== "object") return null;
   const result = streamResult as Record<string, unknown>;
 
-  const responseValue = result.response;
-  const response =
-    responseValue && typeof (responseValue as PromiseLike<unknown>).then === "function"
-      ? await (responseValue as Promise<unknown>)
-      : responseValue;
+  const likelyContainers = [
+    streamResult,
+    result.resp,
+    result.response,
+    result.output,
+    result.messages,
+    result.steps,
+  ];
 
-  const containers: unknown[] = [result, response];
-
-  for (const container of containers) {
-    if (!container || typeof container !== "object") continue;
-    const c = container as Record<string, unknown>;
-
-    const topLevelMessages = Array.isArray(c.messages) ? c.messages : [];
-    for (const message of topLevelMessages) {
-      if (!message || typeof message !== "object") continue;
-      const m = message as Record<string, unknown>;
-      const parts = Array.isArray(m.parts) ? m.parts : [];
-      const parsed = collectToolOutputFromParts(parts);
-      if (parsed) return parsed;
-    }
-
-    const steps = Array.isArray(c.steps) ? c.steps : [];
-    for (const step of steps) {
-      if (!step || typeof step !== "object") continue;
-      const s = step as Record<string, unknown>;
-      const stepMessages = Array.isArray(s.messages) ? s.messages : [];
-      for (const message of stepMessages) {
-        if (!message || typeof message !== "object") continue;
-        const m = message as Record<string, unknown>;
-        const parts = Array.isArray(m.parts) ? m.parts : [];
-        const parsed = collectToolOutputFromParts(parts);
-        if (parsed) return parsed;
-      }
-    }
+  for (const container of likelyContainers) {
+    const parsed = await collectAdminToolOutputDeep(container);
+    if (parsed) return parsed;
   }
 
   return null;

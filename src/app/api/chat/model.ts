@@ -32,6 +32,7 @@ export const adminAgent = new ToolLoopAgent({
         necessary: z.boolean().describe("Whether the ui is necessary for the boss understanding."),
         uiDescription: z.string().describe("The description of the interface needed."),
         uiNeeds: z.array(z.string()).describe("A list of required business-intent components selected from supported metadata names."),
+        done: z.boolean().describe("Whether the response output is complete."),
       }),
     })
   },
