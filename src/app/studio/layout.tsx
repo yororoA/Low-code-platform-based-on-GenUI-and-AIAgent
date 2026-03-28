@@ -40,8 +40,8 @@ export default function StudioLayout({ children }: { children: ReactNode }) {
         <div className="ml-auto flex gap-2">{/* actions */}</div>
       </div>
 
-      <div className="grid min-h-[calc(100dvh-56px)] grid-cols-1 lg:grid-cols-[240px_1fr_300px]">
-        <aside className="border-b p-3 flex flex-col gap-2 lg:border-b-0 lg:border-r">
+      <div className="grid h-[calc(100dvh-56px)] grid-cols-1 lg:grid-cols-[240px_1fr_300px]">
+        <aside className="border-b p-3 flex flex-col gap-2 lg:border-b-0 lg:border-r overflow-y-auto">
           <Accordion type="single" collapsible className="w-full">
             <AccordionItem value="home" className="border-b-0">
               <AccordionTrigger className="rounded-md px-2 py-2 text-sm hover:no-underline hover:bg-accent">
@@ -67,8 +67,12 @@ export default function StudioLayout({ children }: { children: ReactNode }) {
           <Separator className="my-2" />
           <div className="text-xs text-muted-foreground">Workspace Navigation</div>
         </aside>
-        <main className="overflow-auto">{children}</main>
-        <aside className="hidden border-l p-3 lg:block">
+        <main className="flex-1 min-w-0 h-full overflow-hidden">
+          <div className="h-full overflow-y-auto">
+            {children}
+          </div>
+        </main>
+        <aside className="hidden border-l p-3 lg:block overflow-y-auto">
           <div className="text-sm text-muted-foreground">Inspector</div>
         </aside>
       </div>

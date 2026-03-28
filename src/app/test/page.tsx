@@ -92,213 +92,214 @@ import {
 } from "@/components/ui/table"
 
 const adminOutputMock = {
-  text: "好的，老板。我将为您创建一个暖色调、个性化的黄历日历。这个日历会采用温馨的配色方案（如橙色、黄色、米色等），并整合黄历信息（如宜忌事项、吉凶方位等）。我会先设计一个基本的日历界面，然后根据需要添加黄历数据展示。",
+  text: "好的，老板。我将为您创建一个简洁现代的日记记录页面。",
   necessary: true,
-  uiDescription: "一个暖色调的个性化黄历日历界面，包含日历视图和黄历信息面板。日历部分显示日期，黄历部分展示每日的宜忌事项、吉凶等。",
-  uiNeeds: ["Card", "Accordion", "Avatar", "Button", "Label", "Separator"],
+  uiDescription: "一个简洁现代的日记记录页面，包含编辑器和日记列表。",
+  uiNeeds: ["Card", "Button", "Separator"],
 }
 
-const almanacUiTree = {
-  type: "div",
-  id: "root",
-  props: {
-    className: "min-h-screen p-4 md:p-6 grid gap-6 md:grid-cols-[2fr_1fr]",
-  },
-  children: [
-    {
-      type: "Card",
-      id: "calendar-card",
-      props: {
-        className: "border-amber-200 bg-white/90",
-      },
-      children: [
-        {
-          type: "CardHeader",
-          id: "calendar-header",
-          children: [
-            {
-              type: "CardTitle",
-              id: "calendar-title",
-              children: [{ type: "text", id: "calendar-title-text", props: { content: "黄历日历" } }],
-            },
-            {
-              type: "CardDescription",
-              id: "calendar-description",
-              children: [{ type: "text", id: "calendar-description-text", props: { content: "查看每日宜忌吉凶" } }],
-            },
-          ],
-        },
-        {
-          type: "CardContent",
-          id: "calendar-content",
-          props: { className: "space-y-4" },
-          children: [
-            {
-              type: "Label",
-              id: "selected-date-label",
-              children: [{ type: "text", id: "selected-date-label-text", props: { content: "今日日期" } }],
-            },
-            {
-              type: "div",
-              id: "selected-date-value",
-              props: { className: "rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm" },
-              children: [{ type: "text", id: "selected-date-value-text", props: { content: "二零二六年三月二十四日" } }],
-            },
-            {
-              type: "Separator",
-              id: "calendar-separator",
-              props: { className: "my-2", orientation: "horizontal" },
-            },
-            {
-              type: "Accordion",
-              id: "almanac-accordion",
-              props: { type: "single", collapsible: true, className: "w-full" },
-              children: [
-                {
-                  type: "AccordionItem",
-                  id: "yi-item",
-                  props: { value: "yi" },
-                  children: [
-                    {
-                      type: "AccordionTrigger",
-                      id: "yi-trigger",
-                      children: [{ type: "text", id: "yi-trigger-text", props: { content: "宜" } }],
-                    },
-                    {
-                      type: "AccordionContent",
-                      id: "yi-content",
-                      children: [{ type: "text", id: "yi-content-text", props: { content: "祭祀、祈福、开市、交易" } }],
-                    },
-                  ],
-                },
-                {
-                  type: "AccordionItem",
-                  id: "ji-item",
-                  props: { value: "ji" },
-                  children: [
-                    {
-                      type: "AccordionTrigger",
-                      id: "ji-trigger",
-                      children: [{ type: "text", id: "ji-trigger-text", props: { content: "忌" } }],
-                    },
-                    {
-                      type: "AccordionContent",
-                      id: "ji-content",
-                      children: [{ type: "text", id: "ji-content-text", props: { content: "嫁娶、动土、安葬" } }],
-                    },
-                  ],
-                },
-              ],
-            },
-          ],
-        },
-      ],
-    },
-    {
-      type: "Card",
-      id: "detail-card",
-      props: {
-        className: "border-orange-200 bg-white/90",
-      },
-      children: [
-        {
-          type: "CardHeader",
-          id: "detail-header",
-          children: [
-            {
-              type: "CardTitle",
-              id: "detail-title",
-              children: [{ type: "text", id: "detail-title-text", props: { content: "当日信息" } }],
-            },
-            {
-              type: "CardDescription",
-              id: "detail-description",
-              children: [{ type: "text", id: "detail-description-text", props: { content: "快速查看值日神与方位信息" } }],
-            },
-          ],
-        },
-        {
-          type: "CardContent",
-          id: "detail-content",
-          props: { className: "space-y-3" },
-          children: [
-            {
-              type: "Avatar",
-              id: "symbol-avatar",
-              props: { className: "h-12 w-12" },
-              children: [
-                { type: "AvatarImage", id: "symbol-avatar-image", props: { src: "https://github.com/shadcn.png", alt: "avatar" } },
-                { type: "AvatarFallback", id: "symbol-avatar-fallback", children: [{ type: "text", id: "symbol-avatar-fallback-text", props: { content: "吉" } }] },
-              ],
-            },
-            {
-              type: "div",
-              id: "direction-block",
-              props: { className: "rounded-md border border-orange-200 bg-orange-50 px-3 py-2 text-sm" },
-              children: [{ type: "text", id: "direction-text", props: { content: "财神方位：正东；喜神方位：西南" } }],
-            },
-          ],
-        },
-        {
-          type: "CardFooter",
-          id: "detail-footer",
-          props: { className: "grid grid-cols-2 gap-2" },
-          children: [
-            {
-              type: "Button",
-              id: "view-detail-button",
-              props: { variant: "outline", className: "w-full" },
-              children: [{ type: "text", id: "view-detail-button-text", props: { content: "查看详情" } }],
-            },
-            {
-              type: "Button",
-              id: "next-day-button",
-              props: { className: "w-full" },
-              children: [{ type: "text", id: "next-day-button-text", props: { content: "切换明日" } }],
-            },
-          ],
-        },
-      ],
-    },
-  ],
-}
+const almanacUiTree = {"type": "div", "id": "root", "props": {"className": "min-h-screen bg-gray-50 p-6"}, "children": [{"type": "div", "id": "header", "props": {"className": "mb-8 text-center"}, "children": [{"type": "text", "id": "header-text", "props": {"content": "我的日记本"}}]}, {"type": "div", "id": "main-content", "props": {"className": "flex flex-col md:flex-row gap-6"}, "children": [{"type": "Card", "id": "editor-card", "props": {"className": "flex-1"}, "children": [{"type": "CardHeader", "id": "editor-header", "props": {"className": "pb-3"}, "children": [{"type": "CardTitle", "id": "editor-title", "props": {"className": "text-xl"}, "children": [{"type": "text", "id": "editor-title-text", "props": {"content": "写新日记"}}]}, {"type": "CardDescription", "id": "editor-description", "props": {"className": "text-sm"}, "children": [{"type": "text", "id": "editor-description-text", "props": {"content": "记录你的想法和心情"}}]}]}, {"type": "CardContent", "id": "editor-content", "props": {"className": "space-y-4"}, "children": [{"type": "div", "id": "title-section", "props": {"className": "space-y-2"}, "children": [{"type": "text", "id": "title-label", "props": {"content": "标题"}}, {"type": "div", "id": "title-input-wrapper", "props": {"className": "border rounded p-2 bg-white"}, "children": [{"type": "text", "id": "title-input-placeholder", "props": {"content": "输入日记标题..."}}]}]}, {"type": "div", "id": "date-section", "props": {"className": "space-y-2"}, "children": [{"type": "text", "id": "date-label", "props": {"content": "日期"}}, {"type": "div", "id": "date-display", "props": {"className": "text-gray-600"}, "children": [{"type": "text", "id": "date-text", "props": {"content": "2023-10-05"}}]}]}, {"type": "Separator", "id": "separator-1", "props": {"orientation": "horizontal", "className": "my-2"}}, {"type": "div", "id": "content-section", "props": {"className": "space-y-2"}, "children": [{"type": "text", "id": "content-label", "props": {"content": "内容"}}, {"type": "div", "id": "content-editor", "props": {"className": "border rounded p-3 min-h-[200px] bg-white"}, "children": [{"type": "text", "id": "content-placeholder", "props": {"content": "开始写作..."}}]}]}]}, {"type": "CardFooter", "id": "editor-footer", "props": {"className": "pt-4"}, "children": [{"type": "Button", "id": "save-button", "props": {"variant": "default", "size": "default", "className": "w-full"}, "children": [{"type": "text", "id": "save-button-text", "props": {"content": "保存日记"}}]}]}]}, {"type": "Card", "id": "list-card", "props": {"className": "flex-1"}, "children": [{"type": "CardHeader", "id": "list-header", "props": {"className": "pb-3"}, "children": [{"type": "CardTitle", "id": "list-title", "props": {"className": "text-xl"}, "children": [{"type": "text", "id": "list-title-text", "props": {"content": "日记列表"}}]}, {"type": "CardDescription", "id": "list-description", "props": {"className": "text-sm"}, "children": [{"type": "text", "id": "list-description-text", "props": {"content": "查看和管理你的日记"}}]}]}, {"type": "CardContent", "id": "list-content", "props": {"className": "space-y-4"}, "children": [{"type": "div", "id": "list-item-1", "props": {"className": "border rounded p-4 bg-white"}, "children": [{"type": "div", "id": "list-item-header", "props": {"className": "flex justify-between items-center mb-2"}, "children": [{"type": "text", "id": "list-item-title-1", "props": {"content": "美好的一天"}}, {"type": "text", "id": "list-item-date-1", "props": {"content": "2023-10-04"}}]}, {"type": "div", "id": "list-item-preview-1", "props": {"className": "text-gray-600 truncate"}, "children": [{"type": "text", "id": "list-item-content-1", "props": {"content": "今天天气晴朗，心情很好..."}}]}]}, {"type": "div", "id": "list-item-2", "props": {"className": "border rounded p-4 bg-white"}, "children": [{"type": "div", "id": "list-item-header-2", "props": {"className": "flex justify-between items-center mb-2"}, "children": [{"type": "text", "id": "list-item-title-2", "props": {"content": "工作反思"}}, {"type": "text", "id": "list-item-date-2", "props": {"content": "2023-10-03"}}]}, {"type": "div", "id": "list-item-preview-2", "props": {"className": "text-gray-600 truncate"}, "children": [{"type": "text", "id": "list-item-content-2", "props": {"content": "项目进展顺利，但需要改进沟通..."}}]}]}, {"type": "div", "id": "list-empty-state", "props": {"className": "text-center text-gray-500 py-8"}, "children": [{"type": "text", "id": "empty-text", "props": {"content": "暂无更多日记"}}]}]}]}]}]}
 
 const structureOutputMock = {
   uiTree: JSON.stringify(almanacUiTree),
 }
 
 const styleOutputMock = {
-  temp: "Warm traditional Chinese almanac interface with amber/orange/stone color palette",
-  styles: [
-    {
-      id: "root",
-      className: "min-h-screen p-4 md:p-6 grid gap-6 md:grid-cols-[2fr_1fr] bg-gradient-to-br from-amber-50 to-orange-50",
-    },
-    {
-      id: "calendar-card",
-      className: "border-amber-200 bg-white/90 rounded-xl shadow-md",
-    },
-    {
-      id: "calendar-header",
-      className: "space-y-1",
-    },
-    {
-      id: "calendar-title",
-      className: "text-amber-900",
-    },
-    {
-      id: "almanac-accordion",
-      className: "rounded-lg border border-amber-200 px-3",
-    },
-    {
-      id: "detail-card",
-      className: "border-orange-200 bg-white/90 rounded-xl shadow-md",
-    },
-    {
-      id: "next-day-button",
-      className: "bg-orange-500 text-white hover:bg-orange-500/90",
-    },
-  ],
+    "temp": "Designing a clean, modern diary interface with warm amber/stone color accents, subtle shadows, and responsive layout.",
+    "styles": [
+        {
+            "id": "root",
+            "className": "min-h-screen bg-gray-50 p-6"
+        },
+        {
+            "id": "header",
+            "className": "mb-8 text-center"
+        },
+        {
+            "id": "header-text",
+            "className": "text-3xl font-bold text-gray-900"
+        },
+        {
+            "id": "main-content",
+            "className": "flex flex-col md:flex-row gap-6"
+        },
+        {
+            "id": "editor-card",
+            "className": "flex-1 bg-white border border-gray-200 rounded-lg shadow-sm"
+        },
+        {
+            "id": "editor-header",
+            "className": "pb-3 border-b border-gray-100"
+        },
+        {
+            "id": "editor-title",
+            "className": "text-xl font-semibold text-gray-900"
+        },
+        {
+            "id": "editor-title-text",
+            "className": ""
+        },
+        {
+            "id": "editor-description",
+            "className": "text-sm text-gray-500"
+        },
+        {
+            "id": "editor-description-text",
+            "className": ""
+        },
+        {
+            "id": "editor-content",
+            "className": "space-y-4"
+        },
+        {
+            "id": "title-section",
+            "className": "space-y-2"
+        },
+        {
+            "id": "title-label",
+            "className": "text-sm font-medium text-gray-700"
+        },
+        {
+            "id": "title-input-wrapper",
+            "className": "border border-gray-300 rounded-md p-2 bg-white focus-within:ring-2 focus-within:ring-amber-500 focus-within:border-amber-500"
+        },
+        {
+            "id": "title-input-placeholder",
+            "className": "text-gray-400"
+        },
+        {
+            "id": "date-section",
+            "className": "space-y-2"
+        },
+        {
+            "id": "date-label",
+            "className": "text-sm font-medium text-gray-700"
+        },
+        {
+            "id": "date-display",
+            "className": "text-gray-600"
+        },
+        {
+            "id": "date-text",
+            "className": ""
+        },
+        {
+            "id": "separator-1",
+            "className": "my-2 bg-gray-200"
+        },
+        {
+            "id": "content-section",
+            "className": "space-y-2"
+        },
+        {
+            "id": "content-label",
+            "className": "text-sm font-medium text-gray-700"
+        },
+        {
+            "id": "content-editor",
+            "className": "border border-gray-300 rounded-md p-3 min-h-[200px] bg-white focus-within:ring-2 focus-within:ring-amber-500 focus-within:border-amber-500"
+        },
+        {
+            "id": "content-placeholder",
+            "className": "text-gray-400"
+        },
+        {
+            "id": "editor-footer",
+            "className": "pt-4 border-t border-gray-100"
+        },
+        {
+            "id": "save-button",
+            "className": "w-full bg-amber-600 hover:bg-amber-700 text-white font-medium py-2 px-4 rounded-md transition-colors"
+        },
+        {
+            "id": "save-button-text",
+            "className": ""
+        },
+        {
+            "id": "list-card",
+            "className": "flex-1 bg-white border border-gray-200 rounded-lg shadow-sm"
+        },
+        {
+            "id": "list-header",
+            "className": "pb-3 border-b border-gray-100"
+        },
+        {
+            "id": "list-title",
+            "className": "text-xl font-semibold text-gray-900"
+        },
+        {
+            "id": "list-title-text",
+            "className": ""
+        },
+        {
+            "id": "list-description",
+            "className": "text-sm text-gray-500"
+        },
+        {
+            "id": "list-description-text",
+            "className": ""
+        },
+        {
+            "id": "list-content",
+            "className": "space-y-4"
+        },
+        {
+            "id": "list-item-1",
+            "className": "border border-gray-200 rounded-lg p-4 bg-white hover:bg-amber-50 transition-colors cursor-pointer"
+        },
+        {
+            "id": "list-item-header",
+            "className": "flex justify-between items-center mb-2"
+        },
+        {
+            "id": "list-item-title-1",
+            "className": "font-medium text-gray-900"
+        },
+        {
+            "id": "list-item-date-1",
+            "className": "text-sm text-amber-600"
+        },
+        {
+            "id": "list-item-preview-1",
+            "className": "text-gray-600 truncate"
+        },
+        {
+            "id": "list-item-content-1",
+            "className": ""
+        },
+        {
+            "id": "list-item-2",
+            "className": "border border-gray-200 rounded-lg p-4 bg-white hover:bg-amber-50 transition-colors cursor-pointer"
+        },
+        {
+            "id": "list-item-header-2",
+            "className": "flex justify-between items-center mb-2"
+        },
+        {
+            "id": "list-item-title-2",
+            "className": "font-medium text-gray-900"
+        },
+        {
+            "id": "list-item-date-2",
+            "className": "text-sm text-amber-600"
+        },
+        {
+            "id": "list-item-preview-2",
+            "className": "text-gray-600 truncate"
+        },
+        {
+            "id": "list-item-content-2",
+            "className": ""
+        },
+        {
+            "id": "list-empty-state",
+            "className": "text-center text-gray-500 py-8"
+        },
+        {
+            "id": "empty-text",
+            "className": ""
+        }
+    ]
 }
 
 const chartData = [

@@ -110,8 +110,8 @@ export default function StudioPage() {
   }
 
   return (
-    <div className="h-full p-4 md:p-6">
-      <Card className="flex h-full flex-col">
+    <div className="h-full p-4 md:p-6 flex flex-col">
+      <Card className="flex flex-1 flex-col min-h-0">
         <CardHeader>
           <CardTitle>Conversation</CardTitle>
           <CardDescription>输入需求并实时接收 Agent 流式输出。</CardDescription>
