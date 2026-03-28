@@ -92,213 +92,282 @@ import {
 } from "@/components/ui/table"
 
 const adminOutputMock = {
-  text: "好的，老板。我将为您创建一个暖色调、个性化的黄历日历。这个日历会采用温馨的配色方案（如橙色、黄色、米色等），并整合黄历信息（如宜忌事项、吉凶方位等）。我会先设计一个基本的日历界面，然后根据需要添加黄历数据展示。",
+  text: "好的，老板。我将为您创建一个现代、清晰的日历界面，包含当前月份日历视图和日程安排列表。",
   necessary: true,
-  uiDescription: "一个暖色调的个性化黄历日历界面，包含日历视图和黄历信息面板。日历部分显示日期，黄历部分展示每日的宜忌事项、吉凶等。",
-  uiNeeds: ["Card", "Accordion", "Avatar", "Button", "Label", "Separator"],
+  uiDescription: "一个现代、清晰的日历界面，包含当前月份日历视图和日程安排列表。日历部分显示网格布局，突出显示今天。日程安排列表显示时间、标题和描述。",
+  uiNeeds: ["Card", "Badge"],
 }
 
-const almanacUiTree = {
-  type: "div",
-  id: "root",
-  props: {
-    className: "min-h-screen p-4 md:p-6 grid gap-6 md:grid-cols-[2fr_1fr]",
-  },
-  children: [
-    {
-      type: "Card",
-      id: "calendar-card",
-      props: {
-        className: "border-amber-200 bg-white/90",
-      },
-      children: [
-        {
-          type: "CardHeader",
-          id: "calendar-header",
-          children: [
-            {
-              type: "CardTitle",
-              id: "calendar-title",
-              children: [{ type: "text", id: "calendar-title-text", props: { content: "黄历日历" } }],
-            },
-            {
-              type: "CardDescription",
-              id: "calendar-description",
-              children: [{ type: "text", id: "calendar-description-text", props: { content: "查看每日宜忌吉凶" } }],
-            },
-          ],
-        },
-        {
-          type: "CardContent",
-          id: "calendar-content",
-          props: { className: "space-y-4" },
-          children: [
-            {
-              type: "Label",
-              id: "selected-date-label",
-              children: [{ type: "text", id: "selected-date-label-text", props: { content: "今日日期" } }],
-            },
-            {
-              type: "div",
-              id: "selected-date-value",
-              props: { className: "rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm" },
-              children: [{ type: "text", id: "selected-date-value-text", props: { content: "二零二六年三月二十四日" } }],
-            },
-            {
-              type: "Separator",
-              id: "calendar-separator",
-              props: { className: "my-2", orientation: "horizontal" },
-            },
-            {
-              type: "Accordion",
-              id: "almanac-accordion",
-              props: { type: "single", collapsible: true, className: "w-full" },
-              children: [
-                {
-                  type: "AccordionItem",
-                  id: "yi-item",
-                  props: { value: "yi" },
-                  children: [
-                    {
-                      type: "AccordionTrigger",
-                      id: "yi-trigger",
-                      children: [{ type: "text", id: "yi-trigger-text", props: { content: "宜" } }],
-                    },
-                    {
-                      type: "AccordionContent",
-                      id: "yi-content",
-                      children: [{ type: "text", id: "yi-content-text", props: { content: "祭祀、祈福、开市、交易" } }],
-                    },
-                  ],
-                },
-                {
-                  type: "AccordionItem",
-                  id: "ji-item",
-                  props: { value: "ji" },
-                  children: [
-                    {
-                      type: "AccordionTrigger",
-                      id: "ji-trigger",
-                      children: [{ type: "text", id: "ji-trigger-text", props: { content: "忌" } }],
-                    },
-                    {
-                      type: "AccordionContent",
-                      id: "ji-content",
-                      children: [{ type: "text", id: "ji-content-text", props: { content: "嫁娶、动土、安葬" } }],
-                    },
-                  ],
-                },
-              ],
-            },
-          ],
-        },
-      ],
-    },
-    {
-      type: "Card",
-      id: "detail-card",
-      props: {
-        className: "border-orange-200 bg-white/90",
-      },
-      children: [
-        {
-          type: "CardHeader",
-          id: "detail-header",
-          children: [
-            {
-              type: "CardTitle",
-              id: "detail-title",
-              children: [{ type: "text", id: "detail-title-text", props: { content: "当日信息" } }],
-            },
-            {
-              type: "CardDescription",
-              id: "detail-description",
-              children: [{ type: "text", id: "detail-description-text", props: { content: "快速查看值日神与方位信息" } }],
-            },
-          ],
-        },
-        {
-          type: "CardContent",
-          id: "detail-content",
-          props: { className: "space-y-3" },
-          children: [
-            {
-              type: "Avatar",
-              id: "symbol-avatar",
-              props: { className: "h-12 w-12" },
-              children: [
-                { type: "AvatarImage", id: "symbol-avatar-image", props: { src: "https://github.com/shadcn.png", alt: "avatar" } },
-                { type: "AvatarFallback", id: "symbol-avatar-fallback", children: [{ type: "text", id: "symbol-avatar-fallback-text", props: { content: "吉" } }] },
-              ],
-            },
-            {
-              type: "div",
-              id: "direction-block",
-              props: { className: "rounded-md border border-orange-200 bg-orange-50 px-3 py-2 text-sm" },
-              children: [{ type: "text", id: "direction-text", props: { content: "财神方位：正东；喜神方位：西南" } }],
-            },
-          ],
-        },
-        {
-          type: "CardFooter",
-          id: "detail-footer",
-          props: { className: "grid grid-cols-2 gap-2" },
-          children: [
-            {
-              type: "Button",
-              id: "view-detail-button",
-              props: { variant: "outline", className: "w-full" },
-              children: [{ type: "text", id: "view-detail-button-text", props: { content: "查看详情" } }],
-            },
-            {
-              type: "Button",
-              id: "next-day-button",
-              props: { className: "w-full" },
-              children: [{ type: "text", id: "next-day-button-text", props: { content: "切换明日" } }],
-            },
-          ],
-        },
-      ],
-    },
-  ],
-}
+const almanacUiTree = {"type": "div", "id": "calendar-container", "props": {"className": "flex flex-col gap-6 p-4 max-w-4xl mx-auto"}, "children": [{"type": "Card", "id": "calendar-card", "props": {"className": "w-full shadow-sm border"}, "children": [{"type": "CardHeader", "id": "calendar-header", "props": {"className": "flex flex-row items-center justify-between p-4"}, "children": [{"type": "CardTitle", "id": "calendar-title", "props": {"className": "text-xl font-semibold"}, "children": [{"type": "text", "id": "calendar-title-text", "props": {"content": "当前月份日历"}}]}, {"type": "Badge", "id": "today-badge", "props": {"variant": "default", "className": "ml-2"}, "children": [{"type": "text", "id": "today-badge-text", "props": {"content": "今天"}}]}]}, {"type": "CardContent", "id": "calendar-content", "props": {"className": "p-4 pt-0"}, "children": [{"type": "div", "id": "calendar-grid", "props": {"className": "grid grid-cols-7 gap-2"}, "children": [{"type": "div", "id": "weekday-header-0", "props": {"className": "text-center font-medium text-sm"}, "children": [{"type": "text", "id": "weekday-text-0", "props": {"content": "日"}}]}, {"type": "div", "id": "weekday-header-1", "props": {"className": "text-center font-medium text-sm"}, "children": [{"type": "text", "id": "weekday-text-1", "props": {"content": "一"}}]}, {"type": "div", "id": "weekday-header-2", "props": {"className": "text-center font-medium text-sm"}, "children": [{"type": "text", "id": "weekday-text-2", "props": {"content": "二"}}]}, {"type": "div", "id": "weekday-header-3", "props": {"className": "text-center font-medium text-sm"}, "children": [{"type": "text", "id": "weekday-text-3", "props": {"content": "三"}}]}, {"type": "div", "id": "weekday-header-4", "props": {"className": "text-center font-medium text-sm"}, "children": [{"type": "text", "id": "weekday-text-4", "props": {"content": "四"}}]}, {"type": "div", "id": "weekday-header-5", "props": {"className": "text-center font-medium text-sm"}, "children": [{"type": "text", "id": "weekday-text-5", "props": {"content": "五"}}]}, {"type": "div", "id": "weekday-header-6", "props": {"className": "text-center font-medium text-sm"}, "children": [{"type": "text", "id": "weekday-text-6", "props": {"content": "六"}}]}, {"type": "div", "id": "calendar-day-1", "props": {"className": "text-center p-2 rounded-md"}, "children": [{"type": "text", "id": "day-text-1", "props": {"content": "1"}}]}, {"type": "div", "id": "calendar-day-2", "props": {"className": "text-center p-2 rounded-md"}, "children": [{"type": "text", "id": "day-text-2", "props": {"content": "2"}}]}, {"type": "div", "id": "calendar-day-3", "props": {"className": "text-center p-2 rounded-md"}, "children": [{"type": "text", "id": "day-text-3", "props": {"content": "3"}}]}, {"type": "div", "id": "calendar-day-4", "props": {"className": "text-center p-2 rounded-md"}, "children": [{"type": "text", "id": "day-text-4", "props": {"content": "4"}}]}, {"type": "div", "id": "calendar-day-5", "props": {"className": "text-center p-2 rounded-md"}, "children": [{"type": "text", "id": "day-text-5", "props": {"content": "5"}}]}, {"type": "div", "id": "calendar-day-6", "props": {"className": "text-center p-2 rounded-md"}, "children": [{"type": "text", "id": "day-text-6", "props": {"content": "6"}}]}, {"type": "div", "id": "calendar-day-7", "props": {"className": "text-center p-2 rounded-md"}, "children": [{"type": "text", "id": "day-text-7", "props": {"content": "7"}}]}, {"type": "div", "id": "calendar-day-8", "props": {"className": "text-center p-2 rounded-md"}, "children": [{"type": "text", "id": "day-text-8", "props": {"content": "8"}}]}, {"type": "div", "id": "calendar-day-9", "props": {"className": "text-center p-2 rounded-md"}, "children": [{"type": "text", "id": "day-text-9", "props": {"content": "9"}}]}, {"type": "div", "id": "calendar-day-10", "props": {"className": "text-center p-2 rounded-md"}, "children": [{"type": "text", "id": "day-text-10", "props": {"content": "10"}}]}, {"type": "div", "id": "calendar-day-11", "props": {"className": "text-center p-2 rounded-md"}, "children": [{"type": "text", "id": "day-text-11", "props": {"content": "11"}}]}, {"type": "div", "id": "calendar-day-12", "props": {"className": "text-center p-2 rounded-md"}, "children": [{"type": "text", "id": "day-text-12", "props": {"content": "12"}}]}, {"type": "div", "id": "calendar-day-13", "props": {"className": "text-center p-2 rounded-md"}, "children": [{"type": "text", "id": "day-text-13", "props": {"content": "13"}}]}, {"type": "div", "id": "calendar-day-14", "props": {"className": "text-center p-2 rounded-md"}, "children": [{"type": "text", "id": "day-text-14", "props": {"content": "14"}}]}, {"type": "div", "id": "calendar-day-15", "props": {"className": "text-center p-2 rounded-md"}, "children": [{"type": "text", "id": "day-text-15", "props": {"content": "15"}}]}, {"type": "div", "id": "calendar-day-16", "props": {"className": "text-center p-2 rounded-md"}, "children": [{"type": "text", "id": "day-text-16", "props": {"content": "16"}}]}, {"type": "div", "id": "calendar-day-17", "props": {"className": "text-center p-2 rounded-md"}, "children": [{"type": "text", "id": "day-text-17", "props": {"content": "17"}}]}, {"type": "div", "id": "calendar-day-18", "props": {"className": "text-center p-2 rounded-md"}, "children": [{"type": "text", "id": "day-text-18", "props": {"content": "18"}}]}, {"type": "div", "id": "calendar-day-19", "props": {"className": "text-center p-2 rounded-md"}, "children": [{"type": "text", "id": "day-text-19", "props": {"content": "19"}}]}, {"type": "div", "id": "calendar-day-20", "props": {"className": "text-center p-2 rounded-md"}, "children": [{"type": "text", "id": "day-text-20", "props": {"content": "20"}}]}, {"type": "div", "id": "calendar-day-21", "props": {"className": "text-center p-2 rounded-md"}, "children": [{"type": "text", "id": "day-text-21", "props": {"content": "21"}}]}, {"type": "div", "id": "calendar-day-22", "props": {"className": "text-center p-2 rounded-md"}, "children": [{"type": "text", "id": "day-text-22", "props": {"content": "22"}}]}, {"type": "div", "id": "calendar-day-23", "props": {"className": "text-center p-2 rounded-md"}, "children": [{"type": "text", "id": "day-text-23", "props": {"content": "23"}}]}, {"type": "div", "id": "calendar-day-24", "props": {"className": "text-center p-2 rounded-md"}, "children": [{"type": "text", "id": "day-text-24", "props": {"content": "24"}}]}, {"type": "div", "id": "calendar-day-25", "props": {"className": "text-center p-2 rounded-md"}, "children": [{"type": "text", "id": "day-text-25", "props": {"content": "25"}}]}, {"type": "div", "id": "calendar-day-26", "props": {"className": "text-center p-2 rounded-md"}, "children": [{"type": "text", "id": "day-text-26", "props": {"content": "26"}}]}, {"type": "div", "id": "calendar-day-27", "props": {"className": "text-center p-2 rounded-md"}, "children": [{"type": "text", "id": "day-text-27", "props": {"content": "27"}}]}, {"type": "div", "id": "calendar-day-28", "props": {"className": "text-center p-2 rounded-md"}, "children": [{"type": "text", "id": "day-text-28", "props": {"content": "28"}}]}, {"type": "div", "id": "calendar-day-29", "props": {"className": "text-center p-2 rounded-md"}, "children": [{"type": "text", "id": "day-text-29", "props": {"content": "29"}}]}, {"type": "div", "id": "calendar-day-30", "props": {"className": "text-center p-2 rounded-md"}, "children": [{"type": "text", "id": "day-text-30", "props": {"content": "30"}}]}, {"type": "div", "id": "calendar-day-31", "props": {"className": "text-center p-2 rounded-md"}, "children": [{"type": "text", "id": "day-text-31", "props": {"content": "31"}}]}]}]}]}, {"type": "Card", "id": "schedule-card", "props": {"className": "w-full shadow-sm border"}, "children": [{"type": "CardHeader", "id": "schedule-header", "props": {"className": "p-4"}, "children": [{"type": "CardTitle", "id": "schedule-title", "props": {"className": "text-xl font-semibold"}, "children": [{"type": "text", "id": "schedule-title-text", "props": {"content": "最近的日程安排"}}]}]}, {"type": "CardContent", "id": "schedule-content", "props": {"className": "p-4 pt-0"}, "children": [{"type": "div", "id": "schedule-list", "props": {"className": "flex flex-col gap-3"}, "children": [{"type": "div", "id": "schedule-item-1", "props": {"className": "flex flex-row items-center gap-3 p-3 rounded-md"}, "children": [{"type": "Badge", "id": "schedule-badge-1", "props": {"variant": "secondary", "className": ""}, "children": [{"type": "text", "id": "schedule-badge-text-1", "props": {"content": "10:00"}}]}, {"type": "div", "id": "schedule-details-1", "props": {"className": "flex flex-col"}, "children": [{"type": "text", "id": "schedule-title-1", "props": {"content": "团队会议"}}, {"type": "text", "id": "schedule-description-1", "props": {"content": "讨论项目进度"}}]}]}, {"type": "div", "id": "schedule-item-2", "props": {"className": "flex flex-row items-center gap-3 p-3 rounded-md"}, "children": [{"type": "Badge", "id": "schedule-badge-2", "props": {"variant": "secondary", "className": ""}, "children": [{"type": "text", "id": "schedule-badge-text-2", "props": {"content": "14:30"}}]}, {"type": "div", "id": "schedule-details-2", "props": {"className": "flex flex-col"}, "children": [{"type": "text", "id": "schedule-title-2", "props": {"content": "客户演示"}}, {"type": "text", "id": "schedule-description-2", "props": {"content": "展示新功能"}}]}]}, {"type": "div", "id": "schedule-item-3", "props": {"className": "flex flex-row items-center gap-3 p-3 rounded-md"}, "children": [{"type": "Badge", "id": "schedule-badge-3", "props": {"variant": "secondary", "className": ""}, "children": [{"type": "text", "id": "schedule-badge-text-3", "props": {"content": "16:00"}}]}, {"type": "div", "id": "schedule-details-3", "props": {"className": "flex flex-col"}, "children": [{"type": "text", "id": "schedule-title-3", "props": {"content": "健身"}}, {"type": "text", "id": "schedule-description-3", "props": {"content": "健身房锻炼"}}]}]}]}]}]}]}
 
 const structureOutputMock = {
   uiTree: JSON.stringify(almanacUiTree),
 }
 
 const styleOutputMock = {
-  temp: "Warm traditional Chinese almanac interface with amber/orange/stone color palette",
-  styles: [
-    {
-      id: "root",
-      className: "min-h-screen p-4 md:p-6 grid gap-6 md:grid-cols-[2fr_1fr] bg-gradient-to-br from-amber-50 to-orange-50",
-    },
-    {
-      id: "calendar-card",
-      className: "border-amber-200 bg-white/90 rounded-xl shadow-md",
-    },
-    {
-      id: "calendar-header",
-      className: "space-y-1",
-    },
-    {
-      id: "calendar-title",
-      className: "text-amber-900",
-    },
-    {
-      id: "almanac-accordion",
-      className: "rounded-lg border border-amber-200 px-3",
-    },
-    {
-      id: "detail-card",
-      className: "border-orange-200 bg-white/90 rounded-xl shadow-md",
-    },
-    {
-      id: "next-day-button",
-      className: "bg-orange-500 text-white hover:bg-orange-500/90",
-    },
-  ],
+    "temp": "Calendar and schedule interface with modern styling using warm amber/orange/stone color palette. Today's date (day 15) highlighted with amber background, weekday headers in stone-700, schedule items with hover effects.",
+    "styles": [
+        {
+            "id": "calendar-container",
+            "className": "flex flex-col gap-6 p-4 max-w-4xl mx-auto bg-stone-50"
+        },
+        {
+            "id": "calendar-card",
+            "className": "w-full shadow-md border border-stone-200 rounded-xl bg-white"
+        },
+        {
+            "id": "calendar-header",
+            "className": "flex flex-row items-center justify-between p-4 border-b border-stone-100"
+        },
+        {
+            "id": "calendar-title",
+            "className": "text-xl font-semibold text-stone-800"
+        },
+        {
+            "id": "today-badge",
+            "className": "ml-2 bg-amber-500 text-white hover:bg-amber-600"
+        },
+        {
+            "id": "calendar-content",
+            "className": "p-4 pt-0"
+        },
+        {
+            "id": "calendar-grid",
+            "className": "grid grid-cols-7 gap-2"
+        },
+        {
+            "id": "weekday-header-0",
+            "className": "text-center font-medium text-sm text-stone-700 py-2"
+        },
+        {
+            "id": "weekday-header-1",
+            "className": "text-center font-medium text-sm text-stone-700 py-2"
+        },
+        {
+            "id": "weekday-header-2",
+            "className": "text-center font-medium text-sm text-stone-700 py-2"
+        },
+        {
+            "id": "weekday-header-3",
+            "className": "text-center font-medium text-sm text-stone-700 py-2"
+        },
+        {
+            "id": "weekday-header-4",
+            "className": "text-center font-medium text-sm text-stone-700 py-2"
+        },
+        {
+            "id": "weekday-header-5",
+            "className": "text-center font-medium text-sm text-stone-700 py-2"
+        },
+        {
+            "id": "weekday-header-6",
+            "className": "text-center font-medium text-sm text-stone-700 py-2"
+        },
+        {
+            "id": "calendar-day-1",
+            "className": "text-center p-2 rounded-md text-stone-700 hover:bg-stone-100 cursor-pointer"
+        },
+        {
+            "id": "calendar-day-2",
+            "className": "text-center p-2 rounded-md text-stone-700 hover:bg-stone-100 cursor-pointer"
+        },
+        {
+            "id": "calendar-day-3",
+            "className": "text-center p-2 rounded-md text-stone-700 hover:bg-stone-100 cursor-pointer"
+        },
+        {
+            "id": "calendar-day-4",
+            "className": "text-center p-2 rounded-md text-stone-700 hover:bg-stone-100 cursor-pointer"
+        },
+        {
+            "id": "calendar-day-5",
+            "className": "text-center p-2 rounded-md text-stone-700 hover:bg-stone-100 cursor-pointer"
+        },
+        {
+            "id": "calendar-day-6",
+            "className": "text-center p-2 rounded-md text-stone-700 hover:bg-stone-100 cursor-pointer"
+        },
+        {
+            "id": "calendar-day-7",
+            "className": "text-center p-2 rounded-md text-stone-700 hover:bg-stone-100 cursor-pointer"
+        },
+        {
+            "id": "calendar-day-8",
+            "className": "text-center p-2 rounded-md text-stone-700 hover:bg-stone-100 cursor-pointer"
+        },
+        {
+            "id": "calendar-day-9",
+            "className": "text-center p-2 rounded-md text-stone-700 hover:bg-stone-100 cursor-pointer"
+        },
+        {
+            "id": "calendar-day-10",
+            "className": "text-center p-2 rounded-md text-stone-700 hover:bg-stone-100 cursor-pointer"
+        },
+        {
+            "id": "calendar-day-11",
+            "className": "text-center p-2 rounded-md text-stone-700 hover:bg-stone-100 cursor-pointer"
+        },
+        {
+            "id": "calendar-day-12",
+            "className": "text-center p-2 rounded-md text-stone-700 hover:bg-stone-100 cursor-pointer"
+        },
+        {
+            "id": "calendar-day-13",
+            "className": "text-center p-2 rounded-md text-stone-700 hover:bg-stone-100 cursor-pointer"
+        },
+        {
+            "id": "calendar-day-14",
+            "className": "text-center p-2 rounded-md text-stone-700 hover:bg-stone-100 cursor-pointer"
+        },
+        {
+            "id": "calendar-day-15",
+            "className": "text-center p-2 rounded-md bg-amber-500 text-white font-semibold hover:bg-amber-600 cursor-pointer"
+        },
+        {
+            "id": "calendar-day-16",
+            "className": "text-center p-2 rounded-md text-stone-700 hover:bg-stone-100 cursor-pointer"
+        },
+        {
+            "id": "calendar-day-17",
+            "className": "text-center p-2 rounded-md text-stone-700 hover:bg-stone-100 cursor-pointer"
+        },
+        {
+            "id": "calendar-day-18",
+            "className": "text-center p-2 rounded-md text-stone-700 hover:bg-stone-100 cursor-pointer"
+        },
+        {
+            "id": "calendar-day-19",
+            "className": "text-center p-2 rounded-md text-stone-700 hover:bg-stone-100 cursor-pointer"
+        },
+        {
+            "id": "calendar-day-20",
+            "className": "text-center p-2 rounded-md text-stone-700 hover:bg-stone-100 cursor-pointer"
+        },
+        {
+            "id": "calendar-day-21",
+            "className": "text-center p-2 rounded-md text-stone-700 hover:bg-stone-100 cursor-pointer"
+        },
+        {
+            "id": "calendar-day-22",
+            "className": "text-center p-2 rounded-md text-stone-700 hover:bg-stone-100 cursor-pointer"
+        },
+        {
+            "id": "calendar-day-23",
+            "className": "text-center p-2 rounded-md text-stone-700 hover:bg-stone-100 cursor-pointer"
+        },
+        {
+            "id": "calendar-day-24",
+            "className": "text-center p-2 rounded-md text-stone-700 hover:bg-stone-100 cursor-pointer"
+        },
+        {
+            "id": "calendar-day-25",
+            "className": "text-center p-2 rounded-md text-stone-700 hover:bg-stone-100 cursor-pointer"
+        },
+        {
+            "id": "calendar-day-26",
+            "className": "text-center p-2 rounded-md text-stone-700 hover:bg-stone-100 cursor-pointer"
+        },
+        {
+            "id": "calendar-day-27",
+            "className": "text-center p-2 rounded-md text-stone-700 hover:bg-stone-100 cursor-pointer"
+        },
+        {
+            "id": "calendar-day-28",
+            "className": "text-center p-2 rounded-md text-stone-700 hover:bg-stone-100 cursor-pointer"
+        },
+        {
+            "id": "calendar-day-29",
+            "className": "text-center p-2 rounded-md text-stone-700 hover:bg-stone-100 cursor-pointer"
+        },
+        {
+            "id": "calendar-day-30",
+            "className": "text-center p-2 rounded-md text-stone-700 hover:bg-stone-100 cursor-pointer"
+        },
+        {
+            "id": "calendar-day-31",
+            "className": "text-center p-2 rounded-md text-stone-700 hover:bg-stone-100 cursor-pointer"
+        },
+        {
+            "id": "schedule-card",
+            "className": "w-full shadow-md border border-stone-200 rounded-xl bg-white"
+        },
+        {
+            "id": "schedule-header",
+            "className": "p-4 border-b border-stone-100"
+        },
+        {
+            "id": "schedule-title",
+            "className": "text-xl font-semibold text-stone-800"
+        },
+        {
+            "id": "schedule-content",
+            "className": "p-4 pt-0"
+        },
+        {
+            "id": "schedule-list",
+            "className": "flex flex-col gap-3"
+        },
+        {
+            "id": "schedule-item-1",
+            "className": "flex flex-row items-center gap-3 p-3 rounded-md border border-stone-100 hover:bg-stone-50 cursor-pointer transition-colors"
+        },
+        {
+            "id": "schedule-badge-1",
+            "className": "bg-stone-100 text-stone-800 font-medium px-3 py-1 rounded-full"
+        },
+        {
+            "id": "schedule-details-1",
+            "className": "flex flex-col"
+        },
+        {
+            "id": "schedule-title-1",
+            "className": "text-stone-800 font-medium"
+        },
+        {
+            "id": "schedule-description-1",
+            "className": "text-stone-600 text-sm"
+        },
+        {
+            "id": "schedule-item-2",
+            "className": "flex flex-row items-center gap-3 p-3 rounded-md border border-stone-100 hover:bg-stone-50 cursor-pointer transition-colors"
+        },
+        {
+            "id": "schedule-badge-2",
+            "className": "bg-stone-100 text-stone-800 font-medium px-3 py-1 rounded-full"
+        },
+        {
+            "id": "schedule-details-2",
+            "className": "flex flex-col"
+        },
+        {
+            "id": "schedule-title-2",
+            "className": "text-stone-800 font-medium"
+        },
+        {
+            "id": "schedule-description-2",
+            "className": "text-stone-600 text-sm"
+        },
+        {
+            "id": "schedule-item-3",
+            "className": "flex flex-row items-center gap-3 p-3 rounded-md border border-stone-100 hover:bg-stone-50 cursor-pointer transition-colors"
+        },
+        {
+            "id": "schedule-badge-3",
+            "className": "bg-stone-100 text-stone-800 font-medium px-3 py-1 rounded-full"
+        },
+        {
+            "id": "schedule-details-3",
+            "className": "flex flex-col"
+        },
+        {
+            "id": "schedule-title-3",
+            "className": "text-stone-800 font-medium"
+        },
+        {
+            "id": "schedule-description-3",
+            "className": "text-stone-600 text-sm"
+        }
+    ]
 }
 
 const chartData = [

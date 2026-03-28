@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/card"
 import { Label as UiLabel } from "@/components/ui/label"
 import { Separator as UiSeparator } from "@/components/ui/separator"
+import { Badge as UiBadge } from "@/components/ui/badge"
 
 type UiTreeNode = {
   type: string
@@ -118,6 +119,19 @@ function readButtonVariantProp(node: UiTreeNode): React.ComponentProps<typeof Ui
     value === "secondary" ||
     value === "ghost" ||
     value === "link"
+  ) {
+    return value
+  }
+  return "default"
+}
+
+function readBadgeVariantProp(node: UiTreeNode): React.ComponentProps<typeof UiBadge>["variant"] {
+  const value = readStringProp(node, "variant")
+  if (
+    value === "default" ||
+    value === "secondary" ||
+    value === "destructive" ||
+    value === "outline"
   ) {
     return value
   }
@@ -241,6 +255,17 @@ export function ThreeOutputPreviewCard({
           >
             {children}
           </UiButton>
+        )
+
+      case "Badge":
+        return (
+          <UiBadge
+            key={node.id}
+            className={className}
+            variant={readBadgeVariantProp(node)}
+          >
+            {children}
+          </UiBadge>
         )
 
       case "Label":
