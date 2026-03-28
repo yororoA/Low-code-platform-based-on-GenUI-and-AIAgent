@@ -53,7 +53,7 @@ export default function StudioLayout({ children }: { children: ReactNode }) {
                     Home
                   </Link>
                   {details.map(({ id, topic }) => (
-                    <Link key={topic} href={`/studio?id=${id}`} className="rounded-md px-2 py-1.5 text-sm text-muted-foreground">
+                    <Link key={id} href={`/studio?id=${id}`} className="rounded-md px-2 py-1.5 text-sm text-muted-foreground">
                       {topic}
                     </Link>
                   ))}

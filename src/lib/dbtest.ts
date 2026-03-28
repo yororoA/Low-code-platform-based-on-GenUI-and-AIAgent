@@ -162,7 +162,7 @@ class DBManager {
               if (cursor) {
                 results.push({
                   id: cursor.primaryKey as string,
-                  [indexName!]: cursor.key
+                  [index.keyPath as string]: cursor.key
                 });
                 cursor.continue();
               } else {
