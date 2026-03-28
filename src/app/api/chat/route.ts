@@ -1,8 +1,99 @@
 import { convertToModelMessages, createUIMessageStreamResponse, createUIMessageStream, type UIMessage } from "ai"
 import { adminAgent } from "./model"
 import { callAlignmentAgent, callStructureAgent_Stream, callStyleAgent } from "./tools";
+import { z } from "zod";
 
 type AlignmentResult = Awaited<ReturnType<typeof callAlignmentAgent>>;
+type AdminToolOutput = {
+  text: string;
+  necessary: boolean;
+  uiDescription: string;
+  uiNeeds: string[];
+};
+
+const adminToolOutputSchema = z.object({
+  text: z.string(),
+  necessary: z.boolean(),
+  uiDescription: z.string(),
+  uiNeeds: z.array(z.string()),
+});
+
+function collectToolOutputFromParts(parts: unknown[]): AdminToolOutput | null {
+  for (const part of parts) {
+    if (!part || typeof part !== "object") continue;
+    const p = part as Record<string, unknown>;
+
+    // UIMessage 侧常见形态: { type: "tool-showResponse", input: {...} }
+    if (p.type === "tool-showResponse") {
+      const parsed = adminToolOutputSchema.safeParse(p.input);
+      if (parsed.success) return parsed.data;
+    }
+
+    // 模型消息侧兜底形态: { type: "tool-call", toolName: "showResponse", input|args: ... }
+    if (p.type === "tool-call" && p.toolName === "showResponse") {
+      const directParsed = adminToolOutputSchema.safeParse(p.input);
+      if (directParsed.success) return directParsed.data;
+
+      if (typeof p.args === "string") {
+        try {
+          const argsObj = JSON.parse(p.args);
+          const parsed = adminToolOutputSchema.safeParse(argsObj);
+          if (parsed.success) return parsed.data;
+        } catch {
+          // ignore malformed JSON and continue fallback probing
+        }
+      } else {
+        const parsed = adminToolOutputSchema.safeParse(p.args);
+        if (parsed.success) return parsed.data;
+      }
+    }
+  }
+
+  return null;
+}
+
+async function extractAdminToolOutput(streamResult: unknown): Promise<AdminToolOutput | null> {
+  if (!streamResult || typeof streamResult !== "object") return null;
+  const result = streamResult as Record<string, unknown>;
+
+  const responseValue = result.response;
+  const response =
+    responseValue && typeof (responseValue as PromiseLike<unknown>).then === "function"
+      ? await (responseValue as Promise<unknown>)
+      : responseValue;
+
+  const containers: unknown[] = [result, response];
+
+  for (const container of containers) {
+    if (!container || typeof container !== "object") continue;
+    const c = container as Record<string, unknown>;
+
+    const topLevelMessages = Array.isArray(c.messages) ? c.messages : [];
+    for (const message of topLevelMessages) {
+      if (!message || typeof message !== "object") continue;
+      const m = message as Record<string, unknown>;
+      const parts = Array.isArray(m.parts) ? m.parts : [];
+      const parsed = collectToolOutputFromParts(parts);
+      if (parsed) return parsed;
+    }
+
+    const steps = Array.isArray(c.steps) ? c.steps : [];
+    for (const step of steps) {
+      if (!step || typeof step !== "object") continue;
+      const s = step as Record<string, unknown>;
+      const stepMessages = Array.isArray(s.messages) ? s.messages : [];
+      for (const message of stepMessages) {
+        if (!message || typeof message !== "object") continue;
+        const m = message as Record<string, unknown>;
+        const parts = Array.isArray(m.parts) ? m.parts : [];
+        const parsed = collectToolOutputFromParts(parts);
+        if (parsed) return parsed;
+      }
+    }
+  }
+
+  return null;
+}
 
 /**
  * 仅保留结构阶段违规：
@@ -43,7 +134,18 @@ export async function POST(req: Request) {
         // 把 admin 代理的流式输出直接透传给前端
         await writer.merge(levelONEresp.toUIMessageStream());
 
-        const levelONEoutput = await levelONEresp.output;
+        const levelONEoutput = await extractAdminToolOutput(levelONEresp);
+        if (!levelONEoutput) {
+          const parseFailId = `admin-parse-failed-${Date.now()}`;
+          writer.write({ type: "text-start", id: parseFailId });
+          writer.write({
+            type: "text-delta",
+            id: parseFailId,
+            delta: "Admin tool output not found or invalid. Please ensure showResponse tool is called with valid input.",
+          });
+          writer.write({ type: "text-end", id: parseFailId });
+          return;
+        }
         // Level 2: 仅在必要时进入结构设计
         if(levelONEoutput.necessary && levelONEoutput.uiNeeds.length > 0) {
           const adminInfoId = `admin-info-${Date.now()}`;
