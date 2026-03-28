@@ -1,6 +1,6 @@
 "use client"
 
-import { ChangeEvent, FormEvent, useEffect, useState } from "react"
+import { ChangeEvent, FormEvent, useEffect, useState, useRef } from "react"
 import { useChat } from "@ai-sdk/react"
 import { Button } from "@/components/ui/button"
 import {
@@ -10,16 +10,46 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { AlertCircle } from "lucide-react"
 import { AdminAgentMessage } from "../api/chat/model"
 import { DBManager, DataItem } from "@/lib/dbtest"
 import { strToHexStr } from "@/lib/utils"
 
+const getShowResponsePayload = (message: AdminAgentMessage) => {
+  return message.parts
+    .find((part) => part.type === "tool-showResponse")
+    ?.input;
+}
+
 export default function StudioPage() {
   const [input, setInput] = useState<string>("")
-  const { messages, setMessages, sendMessage, status, stop } = useChat<AdminAgentMessage>();
-  const [thisDetail, setThisDetail] = useState<{
-    id: string, topic: string, timestamp: Date
-  }>({ id: '', topic: 'New Conversation', timestamp: new Date() });
+  const thisDetailRef = useRef<{ id: string, topic: string, timestamp: Date }>({
+    id: '', topic: 'New Conversation', timestamp: new Date()
+  });
+  const { messages, setMessages, sendMessage, status, stop, error } = useChat<AdminAgentMessage>({
+    onFinish: (event) => {
+      const { message } = event;
+      // messages更新
+      if (!thisDetailRef.current.id) {
+        const payload = getShowResponsePayload(message);
+        if (payload?.topic) {
+          thisDetailRef.current.topic = payload.topic;
+          thisDetailRef.current.id = strToHexStr(thisDetailRef.current.topic + (new Date()).toString());
+          thisDetailRef.current.timestamp = new Date();
+        }
+      }
+      (async () => {
+        await DBManager.execute({
+          operationType: 'update',
+          data: {
+            ...thisDetailRef.current,
+            messages: [...messages, message]
+          }
+        });
+      })();
+    },
+  });
 
   // 初始
   useEffect(() => {
@@ -32,36 +62,44 @@ export default function StudioPage() {
       const last = history.at(-1)
       if (last) {
         setMessages(last.messages)
-        setThisDetail({
+        thisDetailRef.current = {
           id: last.id,
           topic: last.topic,
           timestamp: last.timestamp
-        });
+        };
       }
     })()
   }, [setMessages])
 
   // 更新
   useEffect(() => {
-    console.log(messages);
-    // 每当 messages 更新时，保存到库中
-    console.log(messages.at(-1)?.parts.filter(part => part.type === 'tool-showResponse')[0]?.input?.text);
-    (async () => {
-      const d = { ...thisDetail };
-      const lastDone = messages
-        .filter(message => message.role === 'assistant')
-        .at(-1)?.parts.filter(part => part.type === 'tool-showResponse')[0]?.input?.done;
-      if (lastDone) {
-        const lastTopic = messages
-          .filter(message => message.role === 'assistant')
-          .at(-1)?.parts.filter(part => part.type === 'tool-showResponse')[0]?.input?.topic;
-        if (d.topic === 'New Conversation') {
-          // 当前缓存中topic为空且agent输出已有topic
-          d.topic = lastTopic as string;
-          d.id = strToHexStr(lastTopic + (new Date().getTime().toString()));
-          d.timestamp = new Date();
-          setThisDetail(d);
+    if (messages.length === 0) return;
+
+    const saveToDB = async () => {
+      const d = thisDetailRef.current;
+
+      // 尝试从最新的 assistant 消息中提取 topic
+      let extractedTopic = "";
+      const assistantMessages = messages.filter(m => m.role === 'assistant');
+      for (let i = assistantMessages.length - 1; i >= 0; i--) {
+        const payload = getShowResponsePayload(assistantMessages[i]);
+        if (payload?.topic) {
+          extractedTopic = payload.topic;
+          break;
         }
+      }
+
+      if (!d.id) {
+        // 初始化 ID
+        d.topic = extractedTopic || 'New Conversation';
+        d.id = strToHexStr(d.topic + Date.now().toString());
+        d.timestamp = new Date();
+      } else if (extractedTopic && d.topic === 'New Conversation') {
+        // 更新 topic
+        d.topic = extractedTopic;
+      }
+
+      if (d.id) {
         await DBManager.execute({
           operationType: 'update',
           data: {
@@ -70,10 +108,10 @@ export default function StudioPage() {
           }
         });
       }
+    };
 
-
-    })();
-  }, [messages, thisDetail])
+    saveToDB();
+  }, [messages])
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -144,6 +182,16 @@ export default function StudioPage() {
               })
             )}
           </div>
+          
+          {error && (
+            <Alert variant="destructive">
+              <AlertCircle className="h-4 w-4" />
+              <AlertTitle>错误</AlertTitle>
+              <AlertDescription>
+                {error.message || "发生了一个未知错误，请重试。"}
+              </AlertDescription>
+            </Alert>
+          )}
 
           <form onSubmit={handleSubmit} className="mt-auto flex items-end gap-2">
             <textarea

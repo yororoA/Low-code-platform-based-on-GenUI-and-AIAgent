@@ -166,7 +166,7 @@ export async function POST(req: Request) {
           return;
         }
         // Level 2: 仅在必要时进入结构设计
-        if(levelONEoutput.necessary && levelONEoutput.uiNeeds.length > 0) {
+        if (levelONEoutput.necessary && levelONEoutput.uiNeeds.length > 0) {
           const adminInfoId = `admin-info-${Date.now()}`;
           writer.write({ type: "text-start", id: adminInfoId });
           writer.write({
@@ -196,7 +196,7 @@ export async function POST(req: Request) {
               levelTWOoutput = null;
             }
 
-            const currentUiTree = levelTWOoutput?.uiTree 
+            const currentUiTree = levelTWOoutput?.uiTree
               ? (typeof levelTWOoutput.uiTree === 'string' ? levelTWOoutput.uiTree : JSON.stringify(levelTWOoutput.uiTree))
               : "";
 
@@ -291,7 +291,7 @@ ${alignment.retryPrompt || "Please generate a valid structure."}`;
 
           // Level 3: 结构通过后再进入样式设计
           const styleResp = await callStyleAgent(
-            typeof levelTWOoutput.uiTree === 'string' ? levelTWOoutput.uiTree : JSON.stringify(levelTWOoutput.uiTree), 
+            typeof levelTWOoutput.uiTree === 'string' ? levelTWOoutput.uiTree : JSON.stringify(levelTWOoutput.uiTree),
             levelTWOoutput.styleSummary
           );
           // 透传样式代理流式输出
