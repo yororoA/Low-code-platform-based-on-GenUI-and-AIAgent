@@ -119,7 +119,8 @@ async function extractAdminToolOutput(streamResult: unknown): Promise<AdminToolO
  * - style/data/interaction 在本阶段只做参考，不阻断结构流转
  */
 function normalizeAlignmentForStructureStage(alignment: AlignmentResult) {
-  const structureScopedViolations = alignment.violations.filter((v) => {
+  const violations = alignment?.violations || [];
+  const structureScopedViolations = violations.filter((v) => {
     return v.stage === "structure";
   });
 
@@ -189,15 +190,24 @@ export async function POST(req: Request) {
             // 透传结构代理流式输出
             await writer.merge(structureResp.stream());
 
-            levelTWOoutput = await structureResp.resp.output;
+            try {
+              levelTWOoutput = await structureResp.resp.output;
+            } catch {
+              levelTWOoutput = null;
+            }
+
+            const currentUiTree = levelTWOoutput?.uiTree 
+              ? (typeof levelTWOoutput.uiTree === 'string' ? levelTWOoutput.uiTree : JSON.stringify(levelTWOoutput.uiTree))
+              : "";
 
             let rawAlignment: AlignmentResult;
             try {
+              if (!currentUiTree) throw new Error("uiTree is missing");
               // Level 2.5: critic 对 uiDescription 与 uiTree 做一致性评估
               rawAlignment = await callAlignmentAgent({
                 uiDescription: levelONEoutput.uiDescription,
                 uiNeeds: levelONEoutput.uiNeeds,
-                uiTree: levelTWOoutput.uiTree,
+                uiTree: currentUiTree,
               });
             } catch (error) {
               // critic 异常时降级为“可重试的结构错误”，避免整条请求中断
@@ -246,23 +256,23 @@ export async function POST(req: Request) {
             if (attempt < MAX_STRUCTURE_ATTEMPTS) {
               // 把“上一版 uiTree + 违规详情 + retryPrompt”拼成下一轮修复提示
               const violationHints = alignment.violations
-                .map((v, idx) => `${idx + 1}. (${v.code}/${v.severity}) ${v.message} -> ${v.suggestion}`)
+                ?.map((v, idx) => `${idx + 1}. (${v.code}/${v.severity}) ${v.message} -> ${v.suggestion}`)
                 .join("\n");
 
               structurePrompt = `${levelONEoutput.uiDescription}
 
 [Previous uiTree - revise instead of rewriting blindly]
-${levelTWOoutput.uiTree}
+${currentUiTree || "No valid uiTree generated."}
 
 [Alignment Violations - must fix all]
 ${violationHints || "None"}
 
 [Alignment Fix Guidance]
-${alignment.retryPrompt}`;
+${alignment.retryPrompt || "Please generate a valid structure."}`;
             }
           }
 
-          if (!levelTWOoutput) {
+          if (!levelTWOoutput || !levelTWOoutput.uiTree) {
             throw new Error("Structure generation failed after alignment loop.");
           }
 
@@ -280,7 +290,10 @@ ${alignment.retryPrompt}`;
           }
 
           // Level 3: 结构通过后再进入样式设计
-          const styleResp = await callStyleAgent(levelTWOoutput.uiTree, levelTWOoutput.styleSummary);
+          const styleResp = await callStyleAgent(
+            typeof levelTWOoutput.uiTree === 'string' ? levelTWOoutput.uiTree : JSON.stringify(levelTWOoutput.uiTree), 
+            levelTWOoutput.styleSummary
+          );
           // 透传样式代理流式输出
           await writer.merge(styleResp.stream());
 
