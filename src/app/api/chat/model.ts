@@ -2,10 +2,11 @@ import { wrapLanguageModel, ToolLoopAgent, InferAgentUIMessage, tool } from 'ai'
 import { deepseek } from "@ai-sdk/deepseek";
 import { devToolsMiddleware } from '@ai-sdk/devtools';
 import * as z from 'zod';
-import { chatTools } from './tools';
+// import { chatTools } from './tools';
 import { interfaceStructureDesignAgentInstructions, textAgentInstructions, interfaceStylingAgentInstructions, interfaceAlignmentCriticInstructions } from './prompt';
 import { outputSchemas } from './schema';
 import { componentsMeta } from './components-meta';
+import { todo } from 'node:test';
 
 
 const model = wrapLanguageModel({
@@ -38,6 +39,7 @@ export const adminAgent = new ToolLoopAgent({
   },
   toolChoice: 'required'
 });
+todo('若done为false,在所有流行为结束后应再次调用showResponse并设置done为true');
 export type AdminAgentMessage = InferAgentUIMessage<typeof adminAgent>;
 
 // structure agent
