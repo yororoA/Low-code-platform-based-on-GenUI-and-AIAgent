@@ -1,8 +1,117 @@
 import { convertToModelMessages, createUIMessageStreamResponse, createUIMessageStream, type UIMessage } from "ai"
 import { adminAgent } from "./model"
 import { callAlignmentAgent, callStructureAgent_Stream, callStyleAgent } from "./tools";
+import { z } from "zod";
 
 type AlignmentResult = Awaited<ReturnType<typeof callAlignmentAgent>>;
+type AdminToolOutput = {
+  text: string;
+  necessary: boolean;
+  uiDescription: string;
+  uiNeeds: string[];
+};
+
+const adminToolOutputSchema = z.object({
+  text: z.string(),
+  necessary: z.boolean(),
+  uiDescription: z.string(),
+  uiNeeds: z.array(z.string()),
+});
+
+function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
+  return !!value && typeof (value as PromiseLike<unknown>).then === "function";
+}
+
+function tryParseAdminToolOutput(payload: unknown): AdminToolOutput | null {
+  if (typeof payload === "string") {
+    try {
+      const parsedJson = JSON.parse(payload);
+      const parsed = adminToolOutputSchema.safeParse(parsedJson);
+      return parsed.success ? parsed.data : null;
+    } catch {
+      return null;
+    }
+  }
+
+  const parsed = adminToolOutputSchema.safeParse(payload);
+  return parsed.success ? parsed.data : null;
+}
+
+async function collectAdminToolOutputDeep(root: unknown): Promise<AdminToolOutput | null> {
+  const queue: unknown[] = [root];
+  const visited = new WeakSet<object>();
+
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (current == null) continue;
+
+    if (isPromiseLike(current)) {
+      try {
+        queue.push(await current);
+      } catch {
+        // ignore rejected nested promises and continue probing other branches
+      }
+      continue;
+    }
+
+    const direct = tryParseAdminToolOutput(current);
+    if (direct) return direct;
+
+    if (Array.isArray(current)) {
+      for (const item of current) queue.push(item);
+      continue;
+    }
+
+    if (typeof current !== "object") continue;
+
+    const obj = current as Record<string, unknown>;
+    if (visited.has(obj)) continue;
+    visited.add(obj);
+
+    const toolTag = obj.type;
+    const toolName = obj.toolName ?? obj.tool ?? obj.name;
+    const looksLikeShowResponseToolCall =
+      toolTag === "tool-showResponse" ||
+      toolName === "showResponse" ||
+      (toolTag === "tool-call" && toolName === "showResponse");
+
+    if (looksLikeShowResponseToolCall) {
+      const candidates = [obj.input, obj.args, obj.arguments, obj.output];
+      for (const candidate of candidates) {
+        const parsed = tryParseAdminToolOutput(candidate);
+        if (parsed) return parsed;
+        if (candidate != null) queue.push(candidate);
+      }
+    }
+
+    for (const value of Object.values(obj)) {
+      queue.push(value);
+    }
+  }
+
+  return null;
+}
+
+async function extractAdminToolOutput(streamResult: unknown): Promise<AdminToolOutput | null> {
+  if (!streamResult || typeof streamResult !== "object") return null;
+  const result = streamResult as Record<string, unknown>;
+
+  const likelyContainers = [
+    streamResult,
+    result.resp,
+    result.response,
+    result.output,
+    result.messages,
+    result.steps,
+  ];
+
+  for (const container of likelyContainers) {
+    const parsed = await collectAdminToolOutputDeep(container);
+    if (parsed) return parsed;
+  }
+
+  return null;
+}
 
 /**
  * 仅保留结构阶段违规：
@@ -43,7 +152,18 @@ export async function POST(req: Request) {
         // 把 admin 代理的流式输出直接透传给前端
         await writer.merge(levelONEresp.toUIMessageStream());
 
-        const levelONEoutput = await levelONEresp.output;
+        const levelONEoutput = await extractAdminToolOutput(levelONEresp);
+        if (!levelONEoutput) {
+          const parseFailId = `admin-parse-failed-${Date.now()}`;
+          writer.write({ type: "text-start", id: parseFailId });
+          writer.write({
+            type: "text-delta",
+            id: parseFailId,
+            delta: "Admin tool output not found or invalid. Please ensure showResponse tool is called with valid input.",
+          });
+          writer.write({ type: "text-end", id: parseFailId });
+          return;
+        }
         // Level 2: 仅在必要时进入结构设计
         if(levelONEoutput.necessary && levelONEoutput.uiNeeds.length > 0) {
           const adminInfoId = `admin-info-${Date.now()}`;

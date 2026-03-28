@@ -12,10 +12,14 @@ import {
 } from "@/components/ui/card"
 import { AdminAgentMessage } from "../api/chat/model"
 import { DBManager, DataItem } from "@/lib/dbtest"
+import { strToHexStr } from "@/lib/utils"
 
 export default function StudioPage() {
   const [input, setInput] = useState<string>("")
-  const { messages, setMessages, sendMessage, status, stop } = useChat<AdminAgentMessage>()
+  const { messages, setMessages, sendMessage, status, stop } = useChat<AdminAgentMessage>();
+  const [thisDetail, setThisDetail] = useState<{
+    id: string, topic: string, timestamp: Date
+  }>({ id: '', topic: 'New Conversation', timestamp: new Date() });
 
   // 初始
   useEffect(() => {
@@ -28,18 +32,48 @@ export default function StudioPage() {
       const last = history.at(-1)
       if (last) {
         setMessages(last.messages)
+        setThisDetail({
+          id: last.id,
+          topic: last.topic,
+          timestamp: last.timestamp
+        });
       }
     })()
   }, [setMessages])
 
   // 更新
   useEffect(() => {
+    console.log(messages);
     // 每当 messages 更新时，保存到库中
     console.log(messages.at(-1)?.parts.filter(part => part.type === 'tool-showResponse')[0]?.input?.text);
     (async () => {
+      const d = { ...thisDetail };
+      const lastDone = messages
+        .filter(message => message.role === 'assistant')
+        .at(-1)?.parts.filter(part => part.type === 'tool-showResponse')[0]?.input?.done;
+      if (lastDone) {
+        const lastTopic = messages
+          .filter(message => message.role === 'assistant')
+          .at(-1)?.parts.filter(part => part.type === 'tool-showResponse')[0]?.input?.topic;
+        if (d.topic === 'New Conversation') {
+          // 当前缓存中topic为空且agent输出已有topic
+          d.topic = lastTopic as string;
+          d.id = strToHexStr(lastTopic + (new Date().getTime().toString()));
+          d.timestamp = new Date();
+          setThisDetail(d);
+        }
+        await DBManager.execute({
+          operationType: 'update',
+          data: {
+            ...d,
+            messages
+          }
+        });
+      }
+
 
     })();
-  }, [messages])
+  }, [messages, thisDetail])
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
