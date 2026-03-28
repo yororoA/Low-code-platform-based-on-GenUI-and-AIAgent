@@ -28,6 +28,7 @@ export const adminAgent = new ToolLoopAgent({
       description: "Show the response to the user.",
       inputSchema: z.object({
         text: z.string().describe("The text to be sent back to the boss."),
+        topic: z.string().describe("The topic of the conversation."),
         necessary: z.boolean().describe("Whether the ui is necessary for the boss understanding."),
         uiDescription: z.string().describe("The description of the interface needed."),
         uiNeeds: z.array(z.string()).describe("A list of required business-intent components selected from supported metadata names."),
