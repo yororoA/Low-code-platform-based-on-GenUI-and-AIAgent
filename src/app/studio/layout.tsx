@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, type ReactNode } from "react"
+import { useEffect, type ReactNode, useState } from "react"
 import Link from "next/link"
 import {
   Accordion,
@@ -11,13 +11,18 @@ import { Separator } from "@/components/ui/separator"
 import { DBManager } from "@/lib/dbtest"
 
 export default function StudioLayout({ children }: { children: ReactNode }) {
+  const [details, setDetails] = useState<{ id: string, topic: string }[]>([]);
 
   useEffect(() => {
     let isCanceled = false;
     (async () => {
-      // 连接数据库
+      // 连接数据库并初始化历史列表
       await DBManager.execute({ operationType: 'open' });
       if (isCanceled) await DBManager.execute({ operationType: 'close' });
+      else {
+        const allTopix = await DBManager.execute({ operationType: 'getSummary', indexName: 'topicIndex' });
+        setDetails(allTopix as { id: string, topic: string }[]);
+      }
     })();
     return () => {
       isCanceled = true;
@@ -25,7 +30,7 @@ export default function StudioLayout({ children }: { children: ReactNode }) {
         await DBManager.execute({ operationType: 'close' });
       })();
     }
-  }, []);
+  }, [setDetails]);
 
 
   return (
@@ -47,12 +52,11 @@ export default function StudioLayout({ children }: { children: ReactNode }) {
                   <Link href="/studio" className="rounded-md px-2 py-1.5 text-sm hover:bg-accent">
                     Home
                   </Link>
-                  <div className="rounded-md px-2 py-1.5 text-sm text-muted-foreground">
-                    页面占位 1
-                  </div>
-                  <div className="rounded-md px-2 py-1.5 text-sm text-muted-foreground">
-                    页面占位 2
-                  </div>
+                  {details.map(({ id, topic }) => (
+                    <Link key={topic} href={`/studio?id=${id}`} className="rounded-md px-2 py-1.5 text-sm text-muted-foreground">
+                      {topic}
+                    </Link>
+                  ))}
                 </div>
               </AccordionContent>
             </AccordionItem>
