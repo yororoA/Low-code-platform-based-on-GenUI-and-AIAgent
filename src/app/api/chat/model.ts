@@ -6,7 +6,6 @@ import * as z from 'zod';
 import { interfaceStructureDesignAgentInstructions, textAgentInstructions, interfaceStylingAgentInstructions, interfaceAlignmentCriticInstructions } from './prompt';
 import { outputSchemas } from './schema';
 import { componentsMeta } from './components-meta';
-import { todo } from 'node:test';
 
 
 const model = wrapLanguageModel({
@@ -33,13 +32,11 @@ export const adminAgent = new ToolLoopAgent({
         necessary: z.boolean().describe("Whether the ui is necessary for the boss understanding."),
         uiDescription: z.string().describe("The description of the interface needed."),
         uiNeeds: z.array(z.string()).describe("A list of required business-intent components selected from supported metadata names."),
-        done: z.boolean().describe("Whether the response output is complete."),
       }),
     })
   },
   toolChoice: 'required'
 });
-todo('若done为false,在所有流行为结束后应再次调用showResponse并设置done为true');
 export type AdminAgentMessage = InferAgentUIMessage<typeof adminAgent>;
 
 // structure agent
