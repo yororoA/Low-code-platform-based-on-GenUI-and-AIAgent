@@ -8,7 +8,7 @@ interface DataItem {
   messages: AdminAgentMessage[];
 }
 
-type OperationType = 'new_store' | 'open' | 'close' | 'add' | 'update' | 'delete' | 'get' | 'getByIndex' | 'getAllByIndex';
+type OperationType = 'new_store' | 'open' | 'close' | 'add' | 'update' | 'delete' | 'get' | 'getByIndex' | 'getAllByIndex' | 'getAllIndexValue' | 'getAllIds' | 'getSummary';
 
 interface ExecuteOptions {
   operationType: OperationType;
@@ -131,8 +131,49 @@ class DBManager {
         case 'update': request = store.put(data!); break;
         case 'delete': request = store.delete(id!); break;
         case 'get': request = store.get(id!); break;
+        case 'getAllIds': request = store.getAllKeys(); break;
         case 'getByIndex': request = store.index(indexName!).get(indexValue!); break;
         case 'getAllByIndex': request = store.index(indexName!).getAll(); break;
+        case 'getAllIndexValue': {
+          request = store.index(indexName!).openKeyCursor(null, 'nextunique');
+          const results: unknown[] = [];
+          return new Promise((resolve, reject) => {
+            request.onsuccess = (event) => {
+              const cursor = (event.target as IDBRequest<IDBCursor>).result;
+              if (cursor) {
+                results.push(cursor.key);
+                cursor.continue();
+              } else {
+                resolve(results);
+              }
+            }
+            request.onerror = () => {
+              reject(request.error);
+            }
+          })
+        }
+        case 'getSummary': {
+          const index = store.index(indexName!);
+          const results: { id: string, [indexName: string]: unknown }[] = [];
+          const request = index.openCursor();
+          return new Promise((resolve, reject) => {
+            request.onsuccess = (event) => {
+              const cursor = (event.target as IDBRequest<IDBCursor>).result;
+              if (cursor) {
+                results.push({
+                  id: cursor.primaryKey as string,
+                  [indexName!]: cursor.key
+                });
+                cursor.continue();
+              } else {
+                resolve(results);
+              }
+            }
+            request.onerror = () => {
+              reject(request.error);
+            }
+          });
+        }
         default: return;
       }
 
