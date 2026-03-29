@@ -146,18 +146,17 @@ export async function POST(req: Request) {
         // 结构代理最多重试次数（包含首次生成）
         const MAX_STRUCTURE_ATTEMPTS = 10;
 
+        let stageCounter = 0;
+        const getStageId = () => `stage-info-${Date.now()}-${stageCounter++}`;
+        const writeStageInfo = (delta: string) => {
+          const id = getStageId();
+          writer.write({ type: "text-start", id });
+          writer.write({ type: "text-delta", id, delta });
+          writer.write({ type: "text-end", id });
+        };
+
         // Level 1: admin 代理决定是否需要 UI，以及候选组件
-        // 状态信息 1
-        let stageInfoId = `stage-info-${Date.now()}`;
-        writer.write({
-          type: "text-start",
-          id: stageInfoId
-        });
-        writer.write({
-          type: "text-delta",
-          id: stageInfoId,
-          delta: "[ADMIN]: Thinking for response..."
-        });
+        writeStageInfo("[ADMIN]: Thinking for response...");
 
         const levelONEresp = await adminAgent.stream({
           messages: modelMessages,
@@ -177,22 +176,10 @@ export async function POST(req: Request) {
           writer.write({ type: "text-end", id: parseFailId });
           return;
         }
-        // 状态信息1
-        writer.write({
-          type: "text-end",
-          id: stageInfoId
-        });
 
         // Level 2: 仅在必要时进入结构设计
         if (levelONEoutput.necessary && levelONEoutput.uiNeeds.length > 0) {
-          const adminInfoId = `admin-info-${Date.now()}`;
-          writer.write({ type: "text-start", id: adminInfoId });
-          writer.write({
-            type: "text-delta",
-            id: adminInfoId,
-            delta: `Admin agent determined that UI is necessary with needs: ${levelONEoutput.uiNeeds.join(", ")}`,
-          });
-          writer.write({ type: "text-end", id: adminInfoId });
+          writeStageInfo(`Admin agent determined that UI is necessary with needs: ${levelONEoutput.uiNeeds.join(", ")}`);
 
           // 初始结构提示词：来自 admin 的 uiDescription
           let structurePrompt = levelONEoutput.uiDescription;
@@ -201,14 +188,7 @@ export async function POST(req: Request) {
 
           // 结构生成 + 对齐审查闭环
           for (let attempt = 1; attempt <= MAX_STRUCTURE_ATTEMPTS; attempt++) {
-            // structure 状态信息开始
-            stageInfoId = `stage-info-${Date.now()}`;
-            writer.write({ type: "text-start", id: stageInfoId });
-            writer.write({
-              type: "text-delta",
-              id: stageInfoId,
-              delta: `[STRUCTURE]: Structure generation attempt ${attempt} of ${MAX_STRUCTURE_ATTEMPTS}...`
-            });
+            writeStageInfo(`[STRUCTURE]: Structure generation attempt ${attempt} of ${MAX_STRUCTURE_ATTEMPTS}...`);
 
             const structureResp = await callStructureAgent_Stream({
               textDescription: structurePrompt,
@@ -226,17 +206,8 @@ export async function POST(req: Request) {
             const currentUiTree = levelTWOoutput?.uiTree
               ? (typeof levelTWOoutput.uiTree === 'string' ? levelTWOoutput.uiTree : JSON.stringify(levelTWOoutput.uiTree))
               : "";
-            // structure 状态信息结束
-            writer.write({ type: "text-end", id: stageInfoId });
 
-            // alignment 状态信息开始
-            stageInfoId = `stage-info-${Date.now()}`;
-            writer.write({ type: "text-start", id: stageInfoId });
-            writer.write({
-              type: "text-delta",
-              id: stageInfoId,
-              delta: `[ALIGNMENT]: Alignment analysis attempt ${attempt} of ${MAX_STRUCTURE_ATTEMPTS}...`
-            });
+            writeStageInfo(`[ALIGNMENT]: Alignment analysis attempt ${attempt} of ${MAX_STRUCTURE_ATTEMPTS}...`);
 
             let rawAlignment: AlignmentResult;
             try {
@@ -288,22 +259,12 @@ export async function POST(req: Request) {
 
             // 结构通过则结束重试
             if (alignment.verdict === "pass") {
-              writer.write({
-                type: "text-delta",
-                id: stageInfoId,
-                delta: `[STRUCTURE]: Structure generation passed after ${attempt} attempts.`,
-              });
-              writer.write({ type: "text-end", id: stageInfoId });
+              writeStageInfo(`[STRUCTURE]: Structure generation passed after ${attempt} attempts.`);
               break;
             }
 
             if (attempt < MAX_STRUCTURE_ATTEMPTS) {
-              writer.write({
-                type: "text-delta",
-                id: stageInfoId,
-                delta: `[ALIGNMENT]: Alignment determined to retry.`,
-              })
-              writer.write({ type: "text-end", id: stageInfoId });
+              writeStageInfo("[ALIGNMENT]: Alignment determined to retry.");
               
               // 把“上一版 uiTree + 违规详情 + retryPrompt”拼成下一轮修复提示
               const violationHints = alignment.violations
@@ -322,9 +283,6 @@ export async function POST(req: Request) {
                     ${alignment.retryPrompt || "Please generate a valid structure."}
                     `;
             }
-            
-            // alignment 状态信息结束
-            writer.write({ type: "text-end", id: stageInfoId });
           }
 
           if (!levelTWOoutput || !levelTWOoutput.uiTree) {
@@ -345,20 +303,13 @@ export async function POST(req: Request) {
           }
 
           // Level 3: 结构通过后再进入样式设计
-          stageInfoId = `stage-info-${Date.now()}`;
-          writer.write({ type: "text-start", id: stageInfoId });
-          writer.write({
-            type: "text-delta",
-            id: stageInfoId,
-            delta: `[STYLE]: Style generation...`
-          });
+          writeStageInfo("[STYLE]: Style generation...");
           const styleResp = await callStyleAgent(
             typeof levelTWOoutput.uiTree === 'string' ? levelTWOoutput.uiTree : JSON.stringify(levelTWOoutput.uiTree),
             levelTWOoutput.styleSummary
           );
           // 透传样式代理流式输出
           await writer.merge(styleResp.stream());
-          writer.write({ type: "text-end", id: stageInfoId });
 
           const styles = (await styleResp.resp.output).styles;
           console.log("generated styles", styles);
