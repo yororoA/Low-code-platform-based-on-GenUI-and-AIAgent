@@ -23,6 +23,7 @@ export default function BasicUI() {
   const thisDetailRef = useRef<{ id: string, topic: string, timestamp: Date }>({
     id: '', topic: 'New Conversation', timestamp: new Date()
   });
+  const [topic, setTopic] = useState<string>('New Conversation');
   const { messages, setMessages, sendMessage, status, stop, error } = useChat<AdminAgentMessage>({
     onFinish: (event) => {
       const { message } = event;
@@ -33,6 +34,7 @@ export default function BasicUI() {
           thisDetailRef.current.topic = payload.topic;
           thisDetailRef.current.id = strToHexStr(thisDetailRef.current.topic + (new Date()).toString());
           thisDetailRef.current.timestamp = new Date();
+          setTopic(payload.topic);
         }
       }
       (async () => {
@@ -65,10 +67,11 @@ export default function BasicUI() {
             topic: history.topic,
             timestamp: history.timestamp
           };
+          setTopic(history.topic);
         }
       }
     })()
-  }, [setMessages, searchParams])
+  }, [setMessages, searchParams]);
 
   // 更新
   useEffect(() => {
@@ -84,6 +87,7 @@ export default function BasicUI() {
         const payload = getShowResponsePayload(assistantMessages[i]);
         if (payload?.topic) {
           extractedTopic = payload.topic;
+          setTopic(extractedTopic);
           break;
         }
       }
@@ -93,7 +97,16 @@ export default function BasicUI() {
         d.topic = extractedTopic || 'New Conversation';
         d.id = strToHexStr(d.topic + Date.now().toString());
         d.timestamp = new Date();
-      } else if (extractedTopic && d.topic === 'New Conversation') {
+        window.dispatchEvent(
+          new CustomEvent('newConversation', {
+            detail: {
+              id: d.id,
+              topic: d.topic,
+              timestamp: d.timestamp
+            }
+          })
+        );
+      } else if (extractedTopic) {
         // 更新 topic
         d.topic = extractedTopic;
       }
@@ -110,7 +123,7 @@ export default function BasicUI() {
     };
 
     saveToDB();
-  }, [messages])
+  }, [messages]);
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -150,7 +163,7 @@ export default function BasicUI() {
     <div className="h-full p-4 md:p-6 flex flex-col">
       <Card className="flex flex-1 flex-col min-h-0">
         <CardHeader>
-          <CardTitle>Conversation</CardTitle>
+          <CardTitle>{topic}</CardTitle>
           <CardDescription>输入需求并实时接收 Agent 流式输出。</CardDescription>
         </CardHeader>
 
@@ -161,11 +174,11 @@ export default function BasicUI() {
                 还没有消息，输入内容后点击 Send 开始对话。
               </div>
             ) : (
-              messages.map((message) => {
+              messages.map((message, index) => {
                 const isUser = message.role === "user"
                 return (
                   <div
-                    key={message.id}
+                    key={`${message.id}-${index}`}
                     className={`flex ${isUser ? "justify-end" : "justify-start"}`}
                   >
                     <div
