@@ -117,8 +117,8 @@ export default function BasicUI() {
     const text = input.trim()
     if (!text) return
 
-    await sendMessage({ text })
     setInput("")
+    await sendMessage({ text })
   }
 
   const handleInputChange = (event: ChangeEvent<HTMLTextAreaElement>) => {

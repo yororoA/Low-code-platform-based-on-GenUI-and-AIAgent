@@ -14,6 +14,11 @@ import {
   TrashIcon,
   UserIcon,
 } from "lucide-react"
+import {
+  socialFeedAdminOutputMock,
+  socialFeedStructureOutputMock,
+  socialFeedStyleOutputMock,
+} from "./socialFeedMock"
 
 import { ThreeOutputPreviewCard } from "../../lib/renderByAST"
 import {
@@ -394,9 +399,9 @@ export default function TestPage() {
     <div className="min-h-screen bg-zinc-50 p-8 font-sans dark:bg-black">
       <div className="mx-auto grid max-w-7xl grid-cols-1 gap-6 md:grid-cols-2">
         <ThreeOutputPreviewCard
-          adminOutput={adminOutputMock}
-          structureOutput={structureOutputMock}
-          styleOutput={styleOutputMock}
+          adminOutput={socialFeedAdminOutputMock}
+          structureOutput={socialFeedStructureOutputMock}
+          styleOutput={socialFeedStyleOutputMock}
         />
 
         <Card>
