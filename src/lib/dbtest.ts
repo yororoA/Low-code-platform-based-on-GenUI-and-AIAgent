@@ -154,19 +154,18 @@ class DBManager {
         }
         case 'getSummary': {
           const index = store.index(indexName!);
-          const results: { id: string, [indexName: string]: unknown }[] = [];
+          const results: { id: string, timestamp: Date, topic: string }[] = [];
           const request = index.openCursor();
           return new Promise((resolve, reject) => {
             request.onsuccess = (event) => {
-              const cursor = (event.target as IDBRequest<IDBCursor>).result;
+              const cursor = (event.target as IDBRequest<IDBCursor>).result as IDBCursorWithValue;
               if (cursor) {
-                results.push({
-                  id: cursor.primaryKey as string,
-                  [index.keyPath as string]: cursor.key
-                });
+                // eslint-disable-next-line @typescript-eslint/no-unused-vars
+                const rest = (({messages, ...rest})=>rest)(cursor.value);
+                results.push(rest);
                 cursor.continue();
               } else {
-                resolve(results);
+                resolve(results.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime()));
               }
             }
             request.onerror = () => {
