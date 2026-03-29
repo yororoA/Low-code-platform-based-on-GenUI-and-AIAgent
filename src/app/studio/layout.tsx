@@ -13,7 +13,7 @@ import { DBManager } from "@/lib/dbtest"
 import { cn } from "@/lib/utils"
 
 export default function StudioLayout({ children }: { children: ReactNode }) {
-  const [details, setDetails] = useState<{ id: string, topic: string }[]>([]);
+  const [details, setDetails] = useState<{ id: string, topic: string, timestamp: Date }[]>([]);
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const selectedPromptId = searchParams.get("id");
@@ -29,16 +29,24 @@ export default function StudioLayout({ children }: { children: ReactNode }) {
       if (isCanceled) await DBManager.execute({ operationType: 'close' });
       else {
         const allTopix = await DBManager.execute({ operationType: 'getSummary', indexName: 'topicIndex' });
-        setDetails(allTopix as { id: string, topic: string }[]);
+        setDetails(allTopix as { id: string, topic: string, timestamp: Date }[]);
       }
     })();
+    window.addEventListener('newConversation', (event) => {
+      const { id, topic, timestamp } = (event as CustomEvent).detail;
+      setDetails([{ id, topic, timestamp }, ...details]);
+    });
     return () => {
       isCanceled = true;
       (async () => {
         await DBManager.execute({ operationType: 'close' });
       })();
+      window.removeEventListener('newConversation', (event) => {
+        const { id, topic, timestamp } = (event as CustomEvent).detail;
+        setDetails([{ id, topic, timestamp }, ...details]);
+      });
     }
-  }, [setDetails]);
+  }, [setDetails, details]);
 
 
   return (
