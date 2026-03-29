@@ -161,11 +161,11 @@ export default function BasicUI() {
                 还没有消息，输入内容后点击 Send 开始对话。
               </div>
             ) : (
-              messages.map((message) => {
+              messages.map((message, index) => {
                 const isUser = message.role === "user"
                 return (
                   <div
-                    key={message.id}
+                    key={`${message.id}-${index}`}
                     className={`flex ${isUser ? "justify-end" : "justify-start"}`}
                   >
                     <div
