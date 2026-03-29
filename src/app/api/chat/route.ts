@@ -144,9 +144,20 @@ export async function POST(req: Request) {
     stream: createUIMessageStream({
       execute: async ({ writer }) => {
         // 结构代理最多重试次数（包含首次生成）
-        const MAX_STRUCTURE_ATTEMPTS = 3;
+        const MAX_STRUCTURE_ATTEMPTS = 10;
+
+        let stageCounter = 0;
+        const getStageId = () => `stage-info-${Date.now()}-${stageCounter++}`;
+        const writeStageInfo = (delta: string) => {
+          const id = getStageId();
+          writer.write({ type: "text-start", id });
+          writer.write({ type: "text-delta", id, delta });
+          writer.write({ type: "text-end", id });
+        };
 
         // Level 1: admin 代理决定是否需要 UI，以及候选组件
+        writeStageInfo("[ADMIN]: Thinking for response...");
+
         const levelONEresp = await adminAgent.stream({
           messages: modelMessages,
         });
@@ -165,16 +176,10 @@ export async function POST(req: Request) {
           writer.write({ type: "text-end", id: parseFailId });
           return;
         }
+
         // Level 2: 仅在必要时进入结构设计
         if (levelONEoutput.necessary && levelONEoutput.uiNeeds.length > 0) {
-          const adminInfoId = `admin-info-${Date.now()}`;
-          writer.write({ type: "text-start", id: adminInfoId });
-          writer.write({
-            type: "text-delta",
-            id: adminInfoId,
-            delta: `Admin agent determined that UI is necessary with needs: ${levelONEoutput.uiNeeds.join(", ")}`,
-          });
-          writer.write({ type: "text-end", id: adminInfoId });
+          writeStageInfo(`Admin agent determined that UI is necessary with needs: ${levelONEoutput.uiNeeds.join(", ")}`);
 
           // 初始结构提示词：来自 admin 的 uiDescription
           let structurePrompt = levelONEoutput.uiDescription;
@@ -183,6 +188,8 @@ export async function POST(req: Request) {
 
           // 结构生成 + 对齐审查闭环
           for (let attempt = 1; attempt <= MAX_STRUCTURE_ATTEMPTS; attempt++) {
+            writeStageInfo(`[STRUCTURE]: Structure generation attempt ${attempt} of ${MAX_STRUCTURE_ATTEMPTS}...`);
+
             const structureResp = await callStructureAgent_Stream({
               textDescription: structurePrompt,
               uiNeeds: levelONEoutput.uiNeeds
@@ -199,6 +206,8 @@ export async function POST(req: Request) {
             const currentUiTree = levelTWOoutput?.uiTree
               ? (typeof levelTWOoutput.uiTree === 'string' ? levelTWOoutput.uiTree : JSON.stringify(levelTWOoutput.uiTree))
               : "";
+
+            writeStageInfo(`[ALIGNMENT]: Alignment analysis attempt ${attempt} of ${MAX_STRUCTURE_ATTEMPTS}...`);
 
             let rawAlignment: AlignmentResult;
             try {
@@ -250,25 +259,29 @@ export async function POST(req: Request) {
 
             // 结构通过则结束重试
             if (alignment.verdict === "pass") {
+              writeStageInfo(`[STRUCTURE]: Structure generation passed after ${attempt} attempts.`);
               break;
             }
 
             if (attempt < MAX_STRUCTURE_ATTEMPTS) {
+              writeStageInfo("[ALIGNMENT]: Alignment determined to retry.");
+              
               // 把“上一版 uiTree + 违规详情 + retryPrompt”拼成下一轮修复提示
               const violationHints = alignment.violations
                 ?.map((v, idx) => `${idx + 1}. (${v.code}/${v.severity}) ${v.message} -> ${v.suggestion}`)
                 .join("\n");
 
               structurePrompt = `${levelONEoutput.uiDescription}
+              
+                    [Previous uiTree - revise instead of rewriting blindly]
+                    ${currentUiTree || "No valid uiTree generated."}
 
-[Previous uiTree - revise instead of rewriting blindly]
-${currentUiTree || "No valid uiTree generated."}
+                    [Alignment Violations - must fix all]
+                    ${violationHints || "None"}
 
-[Alignment Violations - must fix all]
-${violationHints || "None"}
-
-[Alignment Fix Guidance]
-${alignment.retryPrompt || "Please generate a valid structure."}`;
+                    [Alignment Fix Guidance]
+                    ${alignment.retryPrompt || "Please generate a valid structure."}
+                    `;
             }
           }
 
@@ -290,6 +303,7 @@ ${alignment.retryPrompt || "Please generate a valid structure."}`;
           }
 
           // Level 3: 结构通过后再进入样式设计
+          writeStageInfo("[STYLE]: Style generation...");
           const styleResp = await callStyleAgent(
             typeof levelTWOoutput.uiTree === 'string' ? levelTWOoutput.uiTree : JSON.stringify(levelTWOoutput.uiTree),
             levelTWOoutput.styleSummary
@@ -298,58 +312,11 @@ ${alignment.retryPrompt || "Please generate a valid structure."}`;
           await writer.merge(styleResp.stream());
 
           const styles = (await styleResp.resp.output).styles;
-          // TODO: persist/apply generated styles to storage or downstream renderer.
           console.log("generated styles", styles);
         }
 
 
       }
     })
-  })
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-  // return levelONEresp.toUIMessageStreamResponse({
-  //   originalMessages: messages,
-  //   onFinish: async ({ messages: uiMessages, responseMessage, isAborted, finishReason }) => {
-  //     if (isAborted) {
-  //       return
-  //     }
-  //     // 取出agent的输出，判断是否需要UI
-  //     // const agentOutput = uiMessages[uiMessages.length - 1];
-  //     // if (agentOutput?.necessary && agentOutput.uiNeeds.length > 0) {
-  //     //   // 如果需要UI，则调用structure agent进行设计
-  //     //   const structureResp = await structureAgent.generate({
-  //     //     prompt: `
-  //     //       - It is determined that the boss needs a UI for better understanding.
-  //     //       - The following is the text response and the list of needed UI components that the boss requires:
-  //     //         - text: ${agentOutput.text}
-  //     //         - uiNeeds: ${agentOutput.uiNeeds.join(", ")}
-  //     //       - Based on this information, please call the structure agent to design the structure of the UI and the layout of the components.
-  //     //     `,
-  //     //   options: {                       
-  //     //     agentLevel: "admin",
-  //     //   }
-  //     //   });
-  //     // }
-
-  //     // Stream is fully generated at this point. Place persistence/logging/analytics here.
-  //     console.log("agent stream finished", {
-  //       finishReason,
-  //       responseMessageId: responseMessage.id,
-  //       totalMessages: uiMessages.length,
-  //     })
-  //   },
-  // });
+  });
 }
