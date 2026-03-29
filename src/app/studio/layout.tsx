@@ -45,15 +45,14 @@ export default function StudioLayout({ children }: { children: ReactNode }) {
           <Accordion type="single" collapsible className="w-full">
             <AccordionItem value="home" className="border-b-0">
               <AccordionTrigger className="rounded-md px-2 py-2 text-sm hover:no-underline hover:bg-accent">
-                Home
+                <Link href="/studio" className="rounded-md px-2 py-1.5 text-sm hover:bg-accent">
+                  Home
+                </Link>
               </AccordionTrigger>
               <AccordionContent className="pb-0">
                 <div className="flex flex-col gap-1 pl-2">
-                  <Link href="/studio" className="rounded-md px-2 py-1.5 text-sm hover:bg-accent">
-                    Home
-                  </Link>
                   {details.map(({ id, topic }) => (
-                    <Link key={id} href={`/studio?id=${id}`} className="rounded-md px-2 py-1.5 text-sm text-muted-foreground">
+                    <Link key={id} href={`/studio/prompts?id=${id}`} className="rounded-md px-2 py-1.5 text-sm text-muted-foreground">
                       {topic}
                     </Link>
                   ))}
