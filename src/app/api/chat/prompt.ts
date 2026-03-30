@@ -1,4 +1,4 @@
-import { componentsMetaByName } from "./components-meta";
+import { componentsMetaByName } from "../../../components/components-meta";
 
 // 用于提前返回文字并对UI进行筛选
 export const textAgentInstructions = `

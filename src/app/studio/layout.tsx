@@ -8,7 +8,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion"
-import { Separator } from "@/components/ui/separator"
+import { Separator } from "@/components/ui"
 import { DBManager } from "@/lib/dbtest"
 import { cn } from "@/lib/utils"
 import { DataItemSummary } from "@/types"
@@ -22,6 +22,7 @@ export default function StudioLayout({ children }: { children: ReactNode }) {
   const selectedPrompt = details.find((item) => item.id === selectedPromptId);
   const isHomeSelected = pathname === "/studio";
   const isPromptSectionSelected = pathname?.startsWith("/studio/prompts");
+  const isHistorySelected = pathname === "/studio/prompts/history";
 
   useEffect(() => {
     let isCanceled = false;
@@ -29,6 +30,11 @@ export default function StudioLayout({ children }: { children: ReactNode }) {
       const customEvent = event as CustomEvent<DataItemSummary>;
       const { id, topic, timestamp } = customEvent.detail;
       setDetails((prevDetails) => [{ id, topic, timestamp }, ...prevDetails]);
+    }
+    const handleDeleteConversation: EventListener = event => {
+      const customEvent = event as CustomEvent<{ id: string }>;
+      const { id } = customEvent.detail;
+      setDetails((prevDetails) => prevDetails.filter((detail) => detail.id !== id));
     }
     (async () => {
       // 连接数据库并初始化历史列表
@@ -40,12 +46,14 @@ export default function StudioLayout({ children }: { children: ReactNode }) {
       }
     })();
     window.addEventListener('newConversation', handleNewConversation);
+    window.addEventListener('deleteConversation', handleDeleteConversation);
     return () => {
       isCanceled = true;
       (async () => {
         await DBManager.execute({ operationType: 'close' });
       })();
       window.removeEventListener('newConversation', handleNewConversation);
+      window.removeEventListener('deleteConversation', handleDeleteConversation);
     }
   }, [setDetails]);
 
@@ -102,12 +110,15 @@ export default function StudioLayout({ children }: { children: ReactNode }) {
                       ) : null}
                     </Link>
                   ))}
+                  <Separator/>
                   <Link
                     key={"historyPrompts"}
                     href={`/studio/prompts/history`}
                     className={cn(
-                      "group flex items-center justify-between rounded-md border px-2 py-1.5 text-sm transition-colors",
-                      "border-transparent text-muted-foreground hover:border-border hover:bg-accent hover:text-foreground",
+                      "group flex items-center justify-between rounded-md border px-2 py-1.5 text-sm transition-colors font-medium",
+                      isHistorySelected
+                        ? "border-primary/50 bg-primary/10 text-primary"
+                        : "border-primary/20 bg-primary/5 text-primary hover:border-primary/40 hover:bg-primary/10 hover:text-primary",
                     )}
                   >
                     所有历史记录

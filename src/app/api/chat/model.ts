@@ -5,7 +5,7 @@ import * as z from 'zod';
 // import { chatTools } from './tools';
 import { interfaceStructureDesignAgentInstructions, textAgentInstructions, interfaceStylingAgentInstructions, interfaceAlignmentCriticInstructions } from './prompt';
 import { outputSchemas } from './schema';
-import { componentsMeta } from './components-meta';
+import { componentsMeta } from '../../../components/components-meta';
 
 
 const model = wrapLanguageModel({
