@@ -79,6 +79,17 @@ export const componentsMeta: ComponentMeta[] = [
     },
   },
   {
+    name: "CardAction",
+    description: "卡片头部右上角的操作区域。放在 CardHeader 内部，自动定位到右上角。",
+    propsSchema: {
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "CardAction",
+      props: {},
+    },
+  },
+  {
     name: "Button",
     description: "基础按钮组件。适合作为触控操作入口。",
     propsSchema: {
@@ -182,6 +193,39 @@ export const componentsMeta: ComponentMeta[] = [
     dslExample: {
       type: "AvatarFallback",
       props: { className: "bg-gray-200 text-gray-800" },
+    },
+  },
+  {
+    name: "AvatarBadge",
+    description: "头像角标。显示在 Avatar 右下角，常用于在线状态指示。放在 Avatar 内部。",
+    propsSchema: {
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "AvatarBadge",
+      props: {},
+    },
+  },
+  {
+    name: "AvatarGroup",
+    description: "头像组容器。将多个 Avatar 重叠排列显示。",
+    propsSchema: {
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "AvatarGroup",
+      props: {},
+    },
+  },
+  {
+    name: "AvatarGroupCount",
+    description: "头像组中的数量提示。当头像过多时显示剩余数量（如 +3）。放在 AvatarGroup 内部。",
+    propsSchema: {
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "AvatarGroupCount",
+      props: {},
     },
   },
   {
@@ -402,6 +446,17 @@ export const componentsMeta: ComponentMeta[] = [
     },
     dslExample: {
       type: "AlertDialogDescription",
+      props: {},
+    },
+  },
+  {
+    name: "AlertDialogMedia",
+    description: "AlertDialog 头部的媒体/图标展示区域。放在 AlertDialogHeader 内部最前面，用于显示警告图标等。",
+    propsSchema: {
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "AlertDialogMedia",
       props: {},
     },
   },
@@ -841,6 +896,15 @@ export const componentsMeta: ComponentMeta[] = [
     },
     dslExample: {
       type: "ContextMenuLabel",
+      props: {},
+    },
+  },
+  {
+    name: "ContextMenuGroup",
+    description: "右键菜单的选项分组容器。内部放置多个 ContextMenuItem。",
+    propsSchema: {},
+    dslExample: {
+      type: "ContextMenuGroup",
       props: {},
     },
   },
