@@ -26,6 +26,24 @@ export default function StudioLayout({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let isCanceled = false;
+    (async () => {
+      // 连接数据库并初始化历史列表
+      await DBManager.execute({ operationType: 'open' });
+      if (isCanceled) await DBManager.execute({ operationType: 'close' });
+      else {
+        const allTopix = await DBManager.execute({ operationType: 'getSummary', indexName: 'topicIndex' });
+        setDetails(allTopix as DataItemSummary[]);
+      }
+    })();
+    return () => {
+      isCanceled = true;
+      (async () => {
+        await DBManager.execute({ operationType: 'close' });
+      })();
+    }
+  }, [setDetails]);
+
+  useEffect(() => {
     const handleNewConversation: EventListener = (event) => {
       const customEvent = event as CustomEvent<DataItemSummary>;
       const { id, topic, timestamp } = customEvent.detail;
@@ -36,26 +54,22 @@ export default function StudioLayout({ children }: { children: ReactNode }) {
       const { id } = customEvent.detail;
       setDetails((prevDetails) => prevDetails.filter((detail) => detail.id !== id));
     }
-    (async () => {
-      // 连接数据库并初始化历史列表
-      await DBManager.execute({ operationType: 'open' });
-      if (isCanceled) await DBManager.execute({ operationType: 'close' });
-      else {
-        const allTopix = await DBManager.execute({ operationType: 'getSummary', indexName: 'topicIndex' });
-        setDetails(allTopix as DataItemSummary[]);
-      }
-    })();
+    const handleUpdateConversation: EventListener = event => {
+      const customEvent = event as CustomEvent<DataItemSummary>;
+      const { id, topic, timestamp } = customEvent.detail;
+      setDetails((prevDetails) => prevDetails.map((detail) => detail.id === id ? { id, topic, timestamp } : detail));
+    }
+
     window.addEventListener('newConversation', handleNewConversation);
     window.addEventListener('deleteConversation', handleDeleteConversation);
+    window.addEventListener('updateConversation', handleUpdateConversation);
+
     return () => {
-      isCanceled = true;
-      (async () => {
-        await DBManager.execute({ operationType: 'close' });
-      })();
       window.removeEventListener('newConversation', handleNewConversation);
       window.removeEventListener('deleteConversation', handleDeleteConversation);
+      window.removeEventListener('updateConversation', handleUpdateConversation);
     }
-  }, [setDetails]);
+  }, []);
 
 
   return (
@@ -110,7 +124,7 @@ export default function StudioLayout({ children }: { children: ReactNode }) {
                       ) : null}
                     </Link>
                   ))}
-                  <Separator/>
+                  <Separator />
                   <Link
                     key={"historyPrompts"}
                     href={`/studio/prompts/history`}

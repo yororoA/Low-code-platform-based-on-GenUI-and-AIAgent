@@ -16,7 +16,9 @@ import { AdminAgentMessage } from "../api/chat/model"
 import { DBManager } from "@/lib/dbtest"
 import { getShowResponsePayload, strToHexStr } from "@/lib/utils"
 import { useSearchParams } from "next/navigation"
-import {DataItem, DataItemSummary} from "@/types"
+import { DataItem, DataItemSummary } from "@/types"
+
+const STAGE_INFO_RE = /^\[(ADMIN|STRUCTURE|ALIGNMENT|STYLE)\]:\s*(.+)$/i
 
 
 export default function BasicUI() {
@@ -49,7 +51,7 @@ export default function BasicUI() {
       })();
     },
   });
-  
+
   // 初始
   const searchParams = useSearchParams();
   useEffect(() => {
@@ -93,33 +95,51 @@ export default function BasicUI() {
         }
       }
 
-      if (!d.id) {
+      const isNew = !d.id;
+
+      if (isNew) {
         // 初始化 ID
         d.topic = extractedTopic || 'New Conversation';
         d.id = strToHexStr(d.topic + Date.now().toString());
         d.timestamp = new Date();
-        window.dispatchEvent(
-          new CustomEvent<DataItemSummary>('newConversation', {
-            detail: {
-              id: d.id,
-              topic: d.topic,
-              timestamp: d.timestamp
-            }
-          })
-        );
       } else if (extractedTopic) {
         // 更新 topic
         d.topic = extractedTopic;
       }
 
       if (d.id) {
-        await DBManager.execute({
-          operationType: 'update',
-          data: {
-            ...d,
-            messages
+        try {
+          await DBManager.execute({
+            operationType: 'update',
+            data: {
+              ...d,
+              messages
+            }
+          });
+          if (isNew) {
+            window.dispatchEvent(
+              new CustomEvent<DataItemSummary>('newConversation', {
+                detail: {
+                  id: d.id,
+                  topic: d.topic,
+                  timestamp: d.timestamp
+                }
+              })
+            );
+          }else{
+            window.dispatchEvent(
+              new CustomEvent<DataItemSummary>('updateConversation', {
+                detail: {
+                  id: d.id,
+                  topic: d.topic,
+                  timestamp: d.timestamp
+                }
+              })
+            );
           }
-        });
+        } catch (error) {
+          console.error(error);
+        }
       }
     };
 
@@ -148,6 +168,30 @@ export default function BasicUI() {
       .join("")
       .trim()
 
+  const getStageInfos = (message: AdminAgentMessage) => {
+    if (message.role !== "assistant") return []
+    const text = getMessageText(message)
+    if (!text) return []
+
+    return text
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .flatMap((line) => {
+        const matched = line.match(STAGE_INFO_RE)
+        if (!matched) return []
+        return [{ stage: matched[1].toUpperCase(), text: matched[2] }]
+      })
+  }
+
+  const stripStageInfoFromText = (text: string) =>
+    text
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line && !STAGE_INFO_RE.test(line))
+      .join("\n")
+      .trim()
+
   const getDisplayText = (message: AdminAgentMessage) => {
     if (message.role === "user") {
       return getMessageText(message) || "(empty user message)"
@@ -157,7 +201,13 @@ export default function BasicUI() {
       .find((part) => part.type === "tool-showResponse")
       ?.input?.text
 
-    return toolText || getMessageText(message) || "(non-text message)"
+    if (toolText) return toolText
+
+    const text = getMessageText(message)
+    const strippedText = stripStageInfoFromText(text)
+    if (strippedText) return strippedText
+
+    return getStageInfos(message).length > 0 ? "" : "(non-text message)"
   }
 
   return (
@@ -177,18 +227,37 @@ export default function BasicUI() {
             ) : (
               messages.map((message, index) => {
                 const isUser = message.role === "user"
+                const stageInfos = getStageInfos(message)
+                const displayText = getDisplayText(message)
                 return (
                   <div
                     key={`${message.id}-${index}`}
                     className={`flex ${isUser ? "justify-end" : "justify-start"}`}
                   >
-                    <div
-                      className={`max-w-[80%] whitespace-pre-wrap break-words rounded-lg px-3 py-2 text-sm ${isUser
-                        ? "bg-primary text-primary-foreground"
-                        : "bg-card border text-card-foreground"
-                        }`}
-                    >
-                      {getDisplayText(message)}
+                    <div className="max-w-[80%] space-y-2">
+                      {!isUser && stageInfos.length > 0 && (
+                        <div className="space-y-1">
+                          {stageInfos.map((item, stageIndex) => (
+                            <div
+                              key={`${message.id}-stage-${stageIndex}`}
+                              className="rounded-md border bg-amber-50 px-3 py-2 text-xs text-amber-900"
+                            >
+                              <span className="font-semibold">[{item.stage}]</span> {item.text}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {displayText && (
+                        <div
+                          className={`whitespace-pre-wrap break-words rounded-lg px-3 py-2 text-sm ${isUser
+                            ? "bg-primary text-primary-foreground"
+                            : "bg-card border text-card-foreground"
+                            }`}
+                        >
+                          {displayText}
+                        </div>
+                      )}
                     </div>
                   </div>
                 )
