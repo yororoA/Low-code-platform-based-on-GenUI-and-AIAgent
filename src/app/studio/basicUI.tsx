@@ -13,9 +13,10 @@ import {
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { AlertCircle } from "lucide-react"
 import { AdminAgentMessage } from "../api/chat/model"
-import { DBManager, DataItem } from "@/lib/dbtest"
+import { DBManager } from "@/lib/dbtest"
 import { getShowResponsePayload, strToHexStr } from "@/lib/utils"
 import { useSearchParams } from "next/navigation"
+import {DataItem, DataItemSummary} from "@/types"
 
 
 export default function BasicUI() {
@@ -98,7 +99,7 @@ export default function BasicUI() {
         d.id = strToHexStr(d.topic + Date.now().toString());
         d.timestamp = new Date();
         window.dispatchEvent(
-          new CustomEvent('newConversation', {
+          new CustomEvent<DataItemSummary>('newConversation', {
             detail: {
               id: d.id,
               topic: d.topic,

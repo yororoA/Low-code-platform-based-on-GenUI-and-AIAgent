@@ -11,9 +11,11 @@ import {
 import { Separator } from "@/components/ui/separator"
 import { DBManager } from "@/lib/dbtest"
 import { cn } from "@/lib/utils"
+import { DataItemSummary } from "@/types"
+import { ChatDetailsContext } from "@/contexts";
 
 export default function StudioLayout({ children }: { children: ReactNode }) {
-  const [details, setDetails] = useState<{ id: string, topic: string, timestamp: Date }[]>([]);
+  const [details, setDetails] = useState<DataItemSummary[]>([]);
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const selectedPromptId = searchParams.get("id");
@@ -23,28 +25,26 @@ export default function StudioLayout({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let isCanceled = false;
+    const handleNewConversation = (event: CustomEvent<DataItemSummary>) => {
+      const { id, topic, timestamp } = event.detail;
+      setDetails([{ id, topic, timestamp }, ...details]);
+    }
     (async () => {
       // 连接数据库并初始化历史列表
       await DBManager.execute({ operationType: 'open' });
       if (isCanceled) await DBManager.execute({ operationType: 'close' });
       else {
         const allTopix = await DBManager.execute({ operationType: 'getSummary', indexName: 'topicIndex' });
-        setDetails(allTopix as { id: string, topic: string, timestamp: Date }[]);
+        setDetails(allTopix as DataItemSummary[]);
       }
     })();
-    window.addEventListener('newConversation', (event) => {
-      const { id, topic, timestamp } = (event as CustomEvent).detail;
-      setDetails([{ id, topic, timestamp }, ...details]);
-    });
+    window.addEventListener('newConversation', handleNewConversation);
     return () => {
       isCanceled = true;
       (async () => {
         await DBManager.execute({ operationType: 'close' });
       })();
-      window.removeEventListener('newConversation', (event) => {
-        const { id, topic, timestamp } = (event as CustomEvent).detail;
-        setDetails([{ id, topic, timestamp }, ...details]);
-      });
+      window.removeEventListener('newConversation', handleNewConversation);
     }
   }, [setDetails, details]);
 
@@ -82,7 +82,7 @@ export default function StudioLayout({ children }: { children: ReactNode }) {
               </AccordionTrigger>
               <AccordionContent className="pb-0">
                 <div className="flex flex-col gap-1 pl-2">
-                  {details.map(({ id, topic }) => (
+                  {details.slice(0, 5).map(({ id, topic }) => (
                     <Link
                       key={id}
                       href={`/studio/prompts?id=${id}`}
@@ -101,6 +101,16 @@ export default function StudioLayout({ children }: { children: ReactNode }) {
                       ) : null}
                     </Link>
                   ))}
+                  <Link
+                    key={"historyPrompts"}
+                    href={`/studio/prompts/history`}
+                    className={cn(
+                      "group flex items-center justify-between rounded-md border px-2 py-1.5 text-sm transition-colors",
+                      "border-transparent text-muted-foreground hover:border-border hover:bg-accent hover:text-foreground",
+                    )}
+                  >
+                    所有历史记录
+                  </Link>
                 </div>
               </AccordionContent>
             </AccordionItem>
@@ -113,7 +123,9 @@ export default function StudioLayout({ children }: { children: ReactNode }) {
         </aside>
         <main className="flex-1 min-w-0 h-full overflow-hidden">
           <div className="h-full overflow-y-auto">
-            {children}
+            <ChatDetailsContext.Provider value={details}>
+              {children}
+            </ChatDetailsContext.Provider>
           </div>
         </main>
         <aside className="hidden border-l p-3 lg:block overflow-y-auto">
