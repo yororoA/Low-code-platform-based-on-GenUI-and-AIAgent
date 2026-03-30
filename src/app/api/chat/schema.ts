@@ -34,7 +34,6 @@ export const outputSchemas = {
   }),
   style: Output.object({
     schema: z.object({
-      temp: z.string(),
       styles: z.array(
         z.object({
           id: z.string()

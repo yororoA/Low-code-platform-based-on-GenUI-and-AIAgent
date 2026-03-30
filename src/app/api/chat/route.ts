@@ -2,6 +2,7 @@ import { convertToModelMessages, createUIMessageStreamResponse, createUIMessageS
 import { adminAgent } from "./model"
 import { callAlignmentAgent, callStructureAgent_Stream, callStyleAgent } from "./tools";
 import { z } from "zod";
+import { componentsMetaByName } from "@/components/components-meta";
 
 type AlignmentResult = Awaited<ReturnType<typeof callAlignmentAgent>>;
 type AdminToolOutput = {
@@ -11,12 +12,49 @@ type AdminToolOutput = {
   uiNeeds: string[];
 };
 
+type NormalizedUiNeeds = {
+  validNeeds: string[];
+  droppedNeeds: string[];
+};
+
 const adminToolOutputSchema = z.object({
   text: z.string(),
   necessary: z.boolean(),
   uiDescription: z.string(),
   uiNeeds: z.array(z.string()),
 });
+
+const supportedComponentNameSet = new Set(Object.keys(componentsMetaByName));
+const lowerCaseToComponentName = new Map(
+  Object.keys(componentsMetaByName).map((name) => [name.toLowerCase(), name]),
+);
+
+function normalizeUiNeedsAgainstMeta(uiNeeds: string[]): NormalizedUiNeeds {
+  const validNeeds: string[] = [];
+  const droppedNeeds: string[] = [];
+  const seen = new Set<string>();
+
+  for (const rawNeed of uiNeeds) {
+    const trimmedNeed = rawNeed.trim();
+    if (!trimmedNeed) {
+      droppedNeeds.push(rawNeed);
+      continue;
+    }
+
+    const canonicalNeed = lowerCaseToComponentName.get(trimmedNeed.toLowerCase()) ?? trimmedNeed;
+    if (!supportedComponentNameSet.has(canonicalNeed)) {
+      droppedNeeds.push(rawNeed);
+      continue;
+    }
+
+    if (!seen.has(canonicalNeed)) {
+      seen.add(canonicalNeed);
+      validNeeds.push(canonicalNeed);
+    }
+  }
+
+  return { validNeeds, droppedNeeds };
+}
 
 function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
   return !!value && typeof (value as PromiseLike<unknown>).then === "function";
@@ -164,7 +202,7 @@ export async function POST(req: Request) {
         // 把 admin 代理的流式输出直接透传给前端
         await writer.merge(levelONEresp.toUIMessageStream());
 
-        const levelONEoutput = await extractAdminToolOutput(levelONEresp);
+        let levelONEoutput = await extractAdminToolOutput(levelONEresp);
         if (!levelONEoutput) {
           const parseFailId = `admin-parse-failed-${Date.now()}`;
           writer.write({ type: "text-start", id: parseFailId });
@@ -177,9 +215,51 @@ export async function POST(req: Request) {
           return;
         }
 
+        let { validNeeds: normalizedUiNeeds, droppedNeeds } = normalizeUiNeedsAgainstMeta(
+          levelONEoutput.uiNeeds,
+        );
+        if (levelONEoutput.necessary && droppedNeeds.length > 0) {
+          writeStageInfo(
+            `[ADMIN]: Found unsupported uiNeeds: ${droppedNeeds.join(", ")}. Retrying admin once for strict supported-component output...`,
+          );
+
+          const supportedNames = Object.keys(componentsMetaByName).join(", ");
+          const adminRetryConstraint = `
+STRICT RETRY FIX FOR uiNeeds:
+- Your previous uiNeeds included unsupported names: ${droppedNeeds.join(", ")}.
+- Re-run selection and output uiNeeds using ONLY exact names from supported components.
+- uiNeeds must contain concrete composable components, not abstract feature names.
+- If an abstract feature is requested, decompose it into supported component names.
+- Supported component names (exact): ${supportedNames}
+`;
+          const adminRetryResp = await adminAgent.stream({
+            messages: [
+              ...modelMessages,
+              { role: "system", content: adminRetryConstraint },
+            ],
+          });
+          await writer.merge(adminRetryResp.toUIMessageStream());
+
+          const retryOutput = await extractAdminToolOutput(adminRetryResp);
+          if (retryOutput) {
+            levelONEoutput = retryOutput;
+            ({ validNeeds: normalizedUiNeeds, droppedNeeds } = normalizeUiNeedsAgainstMeta(
+              levelONEoutput.uiNeeds,
+            ));
+          } else {
+            writeStageInfo("[ADMIN]: Retry output parse failed. Falling back to previous validated subset.");
+          }
+        }
+
+        if (droppedNeeds.length > 0) {
+          writeStageInfo(
+            `[ADMIN]: Dropped unsupported uiNeeds after validation: ${droppedNeeds.join(", ")}.`,
+          );
+        }
+
         // Level 2: 仅在必要时进入结构设计
-        if (levelONEoutput.necessary && levelONEoutput.uiNeeds.length > 0) {
-          writeStageInfo(`Admin agent determined that UI is necessary with needs: ${levelONEoutput.uiNeeds.join(", ")}`);
+        if (levelONEoutput.necessary && normalizedUiNeeds.length > 0) {
+          writeStageInfo(`[ADMIN]: UI is necessary with needs: ${normalizedUiNeeds.join(", ")}`);
 
           // 初始结构提示词：来自 admin 的 uiDescription
           let structurePrompt = levelONEoutput.uiDescription;
@@ -192,7 +272,7 @@ export async function POST(req: Request) {
 
             const structureResp = await callStructureAgent_Stream({
               textDescription: structurePrompt,
-              uiNeeds: levelONEoutput.uiNeeds
+              uiNeeds: normalizedUiNeeds
             });
             // 透传结构代理流式输出
             await writer.merge(structureResp.stream());
@@ -215,7 +295,7 @@ export async function POST(req: Request) {
               // Level 2.5: critic 对 uiDescription 与 uiTree 做一致性评估
               rawAlignment = await callAlignmentAgent({
                 uiDescription: levelONEoutput.uiDescription,
-                uiNeeds: levelONEoutput.uiNeeds,
+                uiNeeds: normalizedUiNeeds,
                 uiTree: currentUiTree,
               });
             } catch (error) {
@@ -311,8 +391,25 @@ export async function POST(req: Request) {
           // 透传样式代理流式输出
           await writer.merge(styleResp.stream());
 
-          const styles = (await styleResp.resp.output).styles;
-          console.log("generated styles", styles);
+          try {
+            const styles = (await styleResp.resp.output).styles;
+            console.log("generated styles", styles);
+          } catch (error) {
+            const styleParseFailId = `style-parse-failed-${Date.now()}`;
+            writer.write({ type: "text-start", id: styleParseFailId });
+            writer.write({
+              type: "text-delta",
+              id: styleParseFailId,
+              delta: `[STYLE]: Style output schema parse failed: ${error instanceof Error ? error.message : "unknown error"}`,
+            });
+            writer.write({ type: "text-end", id: styleParseFailId });
+            return;
+          }
+        }
+        if (levelONEoutput.necessary && normalizedUiNeeds.length === 0) {
+          writeStageInfo(
+            "[ADMIN]: UI was requested but no supported uiNeeds remained after validation. Skipping structure/style stages.",
+          );
         }
 
 

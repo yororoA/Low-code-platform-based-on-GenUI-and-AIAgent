@@ -7,6 +7,9 @@ import { interfaceStructureDesignAgentInstructions, textAgentInstructions, inter
 import { outputSchemas } from './schema';
 import { componentsMeta } from '../../../components/components-meta';
 
+const supportedUiNames = componentsMeta.map(({ name }) => name) as [string, ...string[]];
+const strictUiNeedSchema = z.enum(supportedUiNames);
+
 
 const model = wrapLanguageModel({
   model: deepseek("deepseek-chat"),
@@ -31,7 +34,7 @@ export const adminAgent = new ToolLoopAgent({
         topic: z.string().describe("The topic of the conversation."),
         necessary: z.boolean().describe("Whether the ui is necessary for the boss understanding."),
         uiDescription: z.string().describe("The description of the interface needed."),
-        uiNeeds: z.array(z.string()).describe("A list of required business-intent components selected from supported metadata names."),
+        uiNeeds: z.array(strictUiNeedSchema).describe("A list of required business-intent components selected from supported metadata names."),
       }),
     })
   },
