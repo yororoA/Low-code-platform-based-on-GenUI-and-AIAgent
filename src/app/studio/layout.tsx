@@ -25,9 +25,10 @@ export default function StudioLayout({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let isCanceled = false;
-    const handleNewConversation = (event: CustomEvent<DataItemSummary>) => {
-      const { id, topic, timestamp } = event.detail;
-      setDetails([{ id, topic, timestamp }, ...details]);
+    const handleNewConversation: EventListener = (event) => {
+      const customEvent = event as CustomEvent<DataItemSummary>;
+      const { id, topic, timestamp } = customEvent.detail;
+      setDetails((prevDetails) => [{ id, topic, timestamp }, ...prevDetails]);
     }
     (async () => {
       // 连接数据库并初始化历史列表
@@ -46,7 +47,7 @@ export default function StudioLayout({ children }: { children: ReactNode }) {
       })();
       window.removeEventListener('newConversation', handleNewConversation);
     }
-  }, [setDetails, details]);
+  }, [setDetails]);
 
 
   return (
