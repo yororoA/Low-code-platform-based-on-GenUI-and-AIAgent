@@ -8,18 +8,21 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion"
-import { Separator } from "@/components/ui/separator"
+import { Separator } from "@/components/ui"
 import { DBManager } from "@/lib/dbtest"
 import { cn } from "@/lib/utils"
+import { DataItemSummary } from "@/types"
+import { ChatDetailsContext } from "@/contexts";
 
 export default function StudioLayout({ children }: { children: ReactNode }) {
-  const [details, setDetails] = useState<{ id: string, topic: string, timestamp: Date }[]>([]);
+  const [details, setDetails] = useState<DataItemSummary[]>([]);
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const selectedPromptId = searchParams.get("id");
   const selectedPrompt = details.find((item) => item.id === selectedPromptId);
   const isHomeSelected = pathname === "/studio";
   const isPromptSectionSelected = pathname?.startsWith("/studio/prompts");
+  const isHistorySelected = pathname === "/studio/prompts/history";
 
   useEffect(() => {
     let isCanceled = false;
@@ -29,24 +32,44 @@ export default function StudioLayout({ children }: { children: ReactNode }) {
       if (isCanceled) await DBManager.execute({ operationType: 'close' });
       else {
         const allTopix = await DBManager.execute({ operationType: 'getSummary', indexName: 'topicIndex' });
-        setDetails(allTopix as { id: string, topic: string, timestamp: Date }[]);
+        setDetails(allTopix as DataItemSummary[]);
       }
     })();
-    window.addEventListener('newConversation', (event) => {
-      const { id, topic, timestamp } = (event as CustomEvent).detail;
-      setDetails([{ id, topic, timestamp }, ...details]);
-    });
     return () => {
       isCanceled = true;
       (async () => {
         await DBManager.execute({ operationType: 'close' });
       })();
-      window.removeEventListener('newConversation', (event) => {
-        const { id, topic, timestamp } = (event as CustomEvent).detail;
-        setDetails([{ id, topic, timestamp }, ...details]);
-      });
     }
-  }, [setDetails, details]);
+  }, [setDetails]);
+
+  useEffect(() => {
+    const handleNewConversation: EventListener = (event) => {
+      const customEvent = event as CustomEvent<DataItemSummary>;
+      const { id, topic, timestamp } = customEvent.detail;
+      setDetails((prevDetails) => [{ id, topic, timestamp }, ...prevDetails]);
+    }
+    const handleDeleteConversation: EventListener = event => {
+      const customEvent = event as CustomEvent<{ id: string }>;
+      const { id } = customEvent.detail;
+      setDetails((prevDetails) => prevDetails.filter((detail) => detail.id !== id));
+    }
+    const handleUpdateConversation: EventListener = event => {
+      const customEvent = event as CustomEvent<DataItemSummary>;
+      const { id, topic, timestamp } = customEvent.detail;
+      setDetails((prevDetails) => prevDetails.map((detail) => detail.id === id ? { id, topic, timestamp } : detail));
+    }
+
+    window.addEventListener('newConversation', handleNewConversation);
+    window.addEventListener('deleteConversation', handleDeleteConversation);
+    window.addEventListener('updateConversation', handleUpdateConversation);
+
+    return () => {
+      window.removeEventListener('newConversation', handleNewConversation);
+      window.removeEventListener('deleteConversation', handleDeleteConversation);
+      window.removeEventListener('updateConversation', handleUpdateConversation);
+    }
+  }, []);
 
 
   return (
@@ -82,7 +105,7 @@ export default function StudioLayout({ children }: { children: ReactNode }) {
               </AccordionTrigger>
               <AccordionContent className="pb-0">
                 <div className="flex flex-col gap-1 pl-2">
-                  {details.map(({ id, topic }) => (
+                  {details.slice(0, 5).map(({ id, topic }) => (
                     <Link
                       key={id}
                       href={`/studio/prompts?id=${id}`}
@@ -101,6 +124,19 @@ export default function StudioLayout({ children }: { children: ReactNode }) {
                       ) : null}
                     </Link>
                   ))}
+                  <Separator />
+                  <Link
+                    key={"historyPrompts"}
+                    href={`/studio/prompts/history`}
+                    className={cn(
+                      "group flex items-center justify-between rounded-md border px-2 py-1.5 text-sm transition-colors font-medium",
+                      isHistorySelected
+                        ? "border-primary/50 bg-primary/10 text-primary"
+                        : "border-primary/20 bg-primary/5 text-primary hover:border-primary/40 hover:bg-primary/10 hover:text-primary",
+                    )}
+                  >
+                    所有历史记录
+                  </Link>
                 </div>
               </AccordionContent>
             </AccordionItem>
@@ -113,7 +149,9 @@ export default function StudioLayout({ children }: { children: ReactNode }) {
         </aside>
         <main className="flex-1 min-w-0 h-full overflow-hidden">
           <div className="h-full overflow-y-auto">
-            {children}
+            <ChatDetailsContext.Provider value={details}>
+              {children}
+            </ChatDetailsContext.Provider>
           </div>
         </main>
         <aside className="hidden border-l p-3 lg:block overflow-y-auto">

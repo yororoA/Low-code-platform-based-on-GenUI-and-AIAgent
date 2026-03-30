@@ -1,26 +1,7 @@
-import { AdminAgentMessage } from "@/app/api/chat/model";
-
-
-interface DataItem {
-  id: string;
-  timestamp: Date;
-  topic: string;
-  messages: AdminAgentMessage[];
-}
-
-type OperationType = 'new_store' | 'open' | 'close' | 'add' | 'update' | 'delete' | 'get' | 'getByIndex' | 'getAllByIndex' | 'getAllIndexValue' | 'getAllIds' | 'getSummary';
-
-interface ExecuteOptions {
-  operationType: OperationType;
-  store_name?: string;
-  data?: DataItem;
-  id?: string;
-  indexName?: string;
-  indexValue?: string,
-}
+import { ExecuteOptions } from "@/types";
 
 // 使用类封装以维持数据库连接状态，或使用外部变量
-class DBManager {
+export class DBManager {
   private static db: IDBDatabase | null = null;
   private static DB_NAME = 'test-db';
 
@@ -127,6 +108,7 @@ class DBManager {
       let request: IDBRequest;
 
       switch (operationType) {
+        case 'delete': request = store.delete(id!); break;
         case 'add': request = store.add(data!); break;
         case 'update': request = store.put(data!); break;
         case 'delete': request = store.delete(id!); break;
@@ -189,5 +171,3 @@ class DBManager {
     }
   }
 }
-
-export { type DataItem, DBManager, type OperationType, type ExecuteOptions };

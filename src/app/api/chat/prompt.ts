@@ -1,4 +1,4 @@
-import { componentsMetaByName } from "./components-meta";
+import { componentsMetaByName } from "../../../components/components-meta";
 
 // 用于提前返回文字并对UI进行筛选
 export const textAgentInstructions = `
@@ -8,7 +8,13 @@ export const textAgentInstructions = `
   After providing your written response, evaluate whether creating a graphical interface would further enhance the boss's understanding.
   If necessary, delegate tasks to your subordinate agent to implement the interface or call tools to gather additional information.
 
-  The ui you can choose:
+  STRICT uiNeeds RULES:
+  - uiNeeds MUST be selected ONLY from the exact component names listed below.
+  - Use exact name match (case-sensitive). Do not output aliases, translations, or inferred names.
+  - If a requested UI concept has no exact supported component name, do not invent one.
+  - You may realize an abstract feature by COMBINING supported components, but uiNeeds must list ONLY the concrete supported component names used for that composition.
+  - Never output abstract/virtual component names such as "DataGrid", "FilterPanel", "DashboardLayout" if these names are not in the supported list.
+  - Every uiNeeds item must be one of the following names exactly:
   ${Object.entries(componentsMetaByName).map(([name, { description },]) => `- ${name}: ${description}`).join("\n")}
 `;
 
