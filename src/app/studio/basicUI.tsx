@@ -14,7 +14,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { AlertCircle } from "lucide-react"
 import { AdminAgentMessage } from "../api/chat/model"
 import { DBManager } from "@/lib/dbtest"
-import { getShowResponsePayload, strToHexStr } from "@/lib/utils"
+import { getShowResponsePayload, strToHexStr, dispatchEvent } from "@/lib/utils"
 import { useSearchParams } from "next/navigation"
 import { DataItem, DataItemSummary } from "@/types"
 
@@ -128,25 +128,9 @@ export default function BasicUI() {
             }
           });
           if (isNew) {
-            window.dispatchEvent(
-              new CustomEvent<DataItemSummary>('newConversation', {
-                detail: {
-                  id: d.id,
-                  topic: d.topic,
-                  timestamp: d.timestamp
-                }
-              })
-            );
+            dispatchEvent<DataItemSummary>('newConversation', d);
           }else{
-            window.dispatchEvent(
-              new CustomEvent<DataItemSummary>('updateConversation', {
-                detail: {
-                  id: d.id,
-                  topic: d.topic,
-                  timestamp: d.timestamp
-                }
-              })
-            );
+            dispatchEvent<DataItemSummary>('updateConversation', d);
           }
         } catch (error) {
           console.error(error);
