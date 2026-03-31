@@ -338,10 +338,7 @@ STRICT RETRY FIX FOR uiNeeds:
             writer.write({ type: "text-end", id: alignmentId });
 
             // 结构通过则结束重试
-            if (alignment.verdict === "pass") {
-              writeStageInfo(`[STRUCTURE]: Structure generation passed after ${attempt} attempts.`);
-              break;
-            }
+            if (alignment.verdict === "pass") break;
 
             if (attempt < MAX_STRUCTURE_ATTEMPTS) {
               writeStageInfo("[ALIGNMENT]: Alignment determined to retry.");

@@ -11,17 +11,22 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion"
 import { AlertCircle } from "lucide-react"
 import { AdminAgentMessage } from "../api/chat/model"
 import { DBManager } from "@/lib/dbtest"
-import { getShowResponsePayload, strToHexStr } from "@/lib/utils"
+import { getShowResponsePayload, strToHexStr, dispatchEvent } from "@/lib/utils"
 import { useSearchParams } from "next/navigation"
 import { DataItem, DataItemSummary } from "@/types"
 
 const STAGE_INFO_RE = /^\[(ADMIN|STRUCTURE|ALIGNMENT|STYLE)\]:\s*(.+)$/i
 
 function getMessageSignature(message: AdminAgentMessage): string {
-  // assistant 消息按内容去重（避免同一阶段提示被不同 id 重复记录）
   if (message.role === "assistant") {
     return JSON.stringify({
       role: message.role,
@@ -47,115 +52,117 @@ function dedupeMessages(list: AdminAgentMessage[]): AdminAgentMessage[] {
   return result
 }
 
+type DisplayInfo =
+  | { type: "stage"; stage: string; text: string; details: string[] }
+  | { type: "tool"; text: string }
+  | { type: "text"; text: string }
+
+type StagePreviewPayload = {
+  topic: string
+  structureText: string
+  styleText: string
+}
 
 export default function BasicUI() {
   const [input, setInput] = useState<string>("")
-  const thisDetailRef = useRef<{ id: string, topic: string, timestamp: Date }>({
-    id: '', topic: 'New Conversation', timestamp: new Date()
-  });
-  const [topic, setTopic] = useState<string>('New Conversation');
-  const { messages, setMessages, sendMessage, status, stop, error } = useChat<AdminAgentMessage>();
+  const thisDetailRef = useRef<{ id: string; topic: string; timestamp: Date }>({
+    id: "",
+    topic: "New Conversation",
+    timestamp: new Date(),
+  })
+  const [topic, setTopic] = useState<string>("New Conversation")
+  const { messages, setMessages, sendMessage, status, stop, error } =
+    useChat<AdminAgentMessage>()
+    
   const normalizedMessages = useMemo(() => dedupeMessages(messages), [messages])
 
+  // 初始化获取历史数据
+  const searchParams = useSearchParams()
   useEffect(() => {
-    if (normalizedMessages.length !== messages.length) {
-      setMessages(normalizedMessages)
-    }
-  }, [messages.length, normalizedMessages, setMessages])
-
-  // 初始
-  const searchParams = useSearchParams();
-  useEffect(() => {
-    // 从库中读取历史记录
-    (async () => {
-      const id = searchParams.get('id');
+    ;(async () => {
+      const id = searchParams.get("id")
       if (id) {
-        const history = await DBManager.execute({
-          operationType: 'get',
-          id: id
-        }) as DataItem;
+        const history = (await DBManager.execute({
+          operationType: "get",
+          id: id,
+        })) as DataItem
         if (history) {
           setMessages(dedupeMessages(history.messages))
           thisDetailRef.current = {
             id: history.id,
             topic: history.topic,
-            timestamp: history.timestamp
-          };
-          setTopic(history.topic);
+            timestamp: history.timestamp,
+          }
+          setTopic(history.topic)
         }
       }
     })()
-  }, [setMessages, searchParams]);
+  }, [setMessages, searchParams])
 
-  // 更新
+  // 更新逻辑：采用防抖策略 (Debounce) 避免高频操作
   useEffect(() => {
-    if (normalizedMessages.length === 0) return;
+    if (normalizedMessages.length === 0) return
 
-    const saveToDB = async () => {
-      const d = thisDetailRef.current;
+    // 设置 800ms 防抖，流式输出时（极度高频修改）不会立刻执行，流出停顿时才会集中执行一次
+    const updateTimer = setTimeout(async () => {
+      const d = thisDetailRef.current
 
       // 尝试从最新的 assistant 消息中提取 topic
-      let extractedTopic = "";
-      const assistantMessages = normalizedMessages.filter(m => m.role === 'assistant');
+      let extractedTopic = ""
+      const assistantMessages = normalizedMessages.filter(
+        (m) => m.role === "assistant"
+      )
       for (let i = assistantMessages.length - 1; i >= 0; i--) {
-        const payload = getShowResponsePayload(assistantMessages[i]);
+        const payload = getShowResponsePayload(assistantMessages[i])
         if (payload?.topic) {
-          extractedTopic = payload.topic;
-          setTopic(extractedTopic);
-          break;
+          extractedTopic = payload.topic
+          break // 取到最新的直接退出循环
         }
       }
 
-      const isNew = !d.id;
+      const isNew = !d.id
 
       if (isNew) {
         // 初始化 ID
-        d.topic = extractedTopic || 'New Conversation';
-        d.id = strToHexStr(d.topic + Date.now().toString());
-        d.timestamp = new Date();
+        d.topic = extractedTopic || "New Conversation"
+        d.id = strToHexStr(d.topic + Date.now().toString())
+        d.timestamp = new Date()
       } else if (extractedTopic) {
         // 更新 topic
-        d.topic = extractedTopic;
+        d.topic = extractedTopic
       }
+
+      // 安全 setState: 只有在值真实改变时才会触发视图重新渲染
+      setTopic((prevTopic) => {
+        if (prevTopic !== d.topic) {
+          return d.topic
+        }
+        return prevTopic
+      })
 
       if (d.id) {
         try {
           await DBManager.execute({
-            operationType: 'update',
+            operationType: "update",
             data: {
               ...d,
-              messages: normalizedMessages
-            }
-          });
+              messages: normalizedMessages,
+            },
+          })
           if (isNew) {
-            window.dispatchEvent(
-              new CustomEvent<DataItemSummary>('newConversation', {
-                detail: {
-                  id: d.id,
-                  topic: d.topic,
-                  timestamp: d.timestamp
-                }
-              })
-            );
-          }else{
-            window.dispatchEvent(
-              new CustomEvent<DataItemSummary>('updateConversation', {
-                detail: {
-                  id: d.id,
-                  topic: d.topic,
-                  timestamp: d.timestamp
-                }
-              })
-            );
+            dispatchEvent<DataItemSummary>("newConversation", d)
+          } else {
+            dispatchEvent<DataItemSummary>("updateConversation", d)
           }
         } catch (error) {
-          console.error(error);
+          console.error("DB Update Error: ", error)
         }
       }
-    };
+    }, 800) 
 
-    saveToDB();
-  }, [normalizedMessages]);
+    // 清理函数：如果下一次 token 渲染极快地进来，就清除刚才预定的操作
+    return () => clearTimeout(updateTimer)
+  }, [normalizedMessages])
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -179,56 +186,97 @@ export default function BasicUI() {
       .join("\n")
       .trim()
 
-  const getStageInfos = (message: AdminAgentMessage) => {
-    if (message.role !== "assistant") return []
-    const all = message.parts
-      .filter((part): part is Extract<(typeof message.parts)[number], { type: "text" }> => part.type === "text")
-      .flatMap((part) =>
-        part.text
+  const getAssistantInfos = (message: AdminAgentMessage): DisplayInfo[] => {
+    const infos: DisplayInfo[] = []
+    if (message.role !== "assistant" || !message.parts) return infos
+
+    const seenStage = new Set<string>()
+    const stageIndexByKey = new Map<string, number>()
+    let activeStageIndex: number | null = null
+
+    for (const part of message.parts) {
+      if (part.type === "tool-showResponse") {
+        const toolText = (part as unknown as { input?: { text?: string } }).input?.text
+        if (toolText) {
+          infos.push({ type: "tool", text: toolText })
+        }
+        activeStageIndex = null
+      } else if (part.type === "text") {
+        const lines = part.text
           .split("\n")
           .map((line) => line.trim())
           .filter(Boolean)
-          .flatMap((line) => {
-            const matched = line.match(STAGE_INFO_RE)
-            if (!matched) return []
-            return [{ stage: matched[1].toUpperCase(), text: matched[2] }]
-          })
-      )
 
-    // 去重：同一条 assistant 消息里，重复的 stageInfo 只显示一次
-    const seen = new Set<string>()
-    return all.filter((item) => {
-      const key = `${item.stage}|${item.text}`
-      if (seen.has(key)) return false
-      seen.add(key)
-      return true
-    })
-  }
+        for (const line of lines) {
+          const matched = line.match(STAGE_INFO_RE)
+          if (matched) {
+            const stage = matched[1].toUpperCase()
+            const text = matched[2]
+            const key = `${stage}|${text}`
 
-  const stripStageInfoFromText = (text: string) =>
-    text
-      .split("\n")
-      .map((line) => line.trim())
-      .filter((line) => line && !STAGE_INFO_RE.test(line))
-      .join("\n")
-      .trim()
+            if (seenStage.has(key)) {
+              activeStageIndex = stageIndexByKey.get(key) ?? null
+              continue
+            }
 
-  const getDisplayText = (message: AdminAgentMessage) => {
-    if (message.role === "user") {
-      return getMessageText(message) || "(empty user message)"
+            const nextInfo: DisplayInfo = { type: "stage", stage, text, details: [] }
+            const nextInfoIndex = infos.length
+            infos.push(nextInfo)
+            stageIndexByKey.set(key, nextInfoIndex)
+            activeStageIndex = nextInfoIndex
+            if (!seenStage.has(key)) {
+              seenStage.add(key)
+            }
+          } else {
+            if (activeStageIndex != null && infos[activeStageIndex]?.type === "stage") {
+              const stageInfo = infos[activeStageIndex]
+              if (stageInfo.type === "stage") {
+                stageInfo.details.push(line)
+              }
+            } else {
+              infos.push({ type: "text", text: line })
+            }
+          }
+        }
+      }
     }
 
-    const toolText = message.parts
-      .find((part) => part.type === "tool-showResponse")
-      ?.input?.text
+    if (infos.length === 0) {
+      infos.push({ type: "text", text: "(non-text message)" })
+    }
 
-    if (toolText) return toolText
+    return infos
+  }
 
-    const text = getMessageText(message)
-    const strippedText = stripStageInfoFromText(text)
-    if (strippedText) return strippedText
+  const getDisplayText = (message: AdminAgentMessage): DisplayInfo[] => {
+    if (message.role === "user") {
+      const text = getMessageText(message) || "(empty user message)"
+      return [{ type: "text", text }]
+    }
+    return getAssistantInfos(message)
+  }
 
-    return getStageInfos(message).length > 0 ? "" : "(non-text message)"
+  const getPreviewPayload = (
+    message: AdminAgentMessage,
+    displayInfos: DisplayInfo[],
+  ): StagePreviewPayload | null => {
+    if (message.role !== "assistant") return null
+    const payload = getShowResponsePayload(message) as { topic?: string } | undefined
+    const topic = payload?.topic?.trim()
+    if (!topic) return null
+
+    const lastStructure = [...displayInfos].reverse().find(
+      (info): info is Extract<DisplayInfo, { type: "stage" }> =>
+        info.type === "stage" && info.stage === "STRUCTURE",
+    )
+    const lastStyle = [...displayInfos].reverse().find(
+      (info): info is Extract<DisplayInfo, { type: "stage" }> =>
+        info.type === "stage" && info.stage === "STYLE",
+    )
+    const structureText = lastStructure?.details.join("\n").trim() ?? ""
+    const styleText = lastStyle?.details.join("\n").trim() ?? ""
+    if (!structureText || !styleText) return null
+    return { topic, structureText, styleText }
   }
 
   return (
@@ -248,37 +296,75 @@ export default function BasicUI() {
             ) : (
               normalizedMessages.map((message, index) => {
                 const isUser = message.role === "user"
-                const stageInfos = getStageInfos(message)
-                const displayText = getDisplayText(message)
+                const displayInfos = getDisplayText(message)
+                const previewPayload = getPreviewPayload(message, displayInfos)
+
                 return (
                   <div
                     key={`${message.id}-${index}`}
                     className={`flex ${isUser ? "justify-end" : "justify-start"}`}
                   >
                     <div className="max-w-[80%] space-y-2">
-                      {!isUser && stageInfos.length > 0 && (
-                        <div className="space-y-1">
-                          {stageInfos.map((item, stageIndex) => (
-                            <div
-                              key={`${message.id}-stage-${stageIndex}`}
-                              className="rounded-md border bg-amber-50 px-3 py-2 text-xs text-amber-900"
+                      {displayInfos.map((info, idx) => {
+                        if (info.type === "stage") {
+                          return (
+                            <Accordion
+                              key={`${message.id}-info-${idx}`}
+                              type="single"
+                              collapsible
+                              className="rounded-md border bg-amber-50 px-3 text-xs text-amber-900"
                             >
-                              <span className="font-semibold">[{item.stage}]</span> {item.text}
-                            </div>
-                          ))}
-                        </div>
-                      )}
+                              <AccordionItem value={`${message.id}-stage-${idx}`} className="border-b-0">
+                                <AccordionTrigger className="py-2 text-xs text-amber-900 hover:no-underline">
+                                  <span className="text-left">
+                                    <span className="font-semibold">[{info.stage}]</span>{" "}
+                                    {info.text}
+                                  </span>
+                                </AccordionTrigger>
+                                <AccordionContent className="pt-1 pb-2">
+                                  {info.details.length > 0 ? (
+                                    <div className="whitespace-pre-wrap break-words text-xs text-amber-950/90">
+                                      {info.details.join("\n")}
+                                    </div>
+                                  ) : (
+                                    <div className="text-xs text-amber-800/80">(no detail)</div>
+                                  )}
+                                </AccordionContent>
+                              </AccordionItem>
+                            </Accordion>
+                          )
+                        }
 
-                      {displayText && (
-                        <div
-                          className={`whitespace-pre-wrap break-words rounded-lg px-3 py-2 text-sm ${isUser
-                            ? "bg-primary text-primary-foreground"
-                            : "bg-card border text-card-foreground"
-                            }`}
+                        if (info.text) {
+                          return (
+                            <div
+                              key={`${message.id}-info-${idx}`}
+                              className={`whitespace-pre-wrap break-words rounded-lg px-3 py-2 text-sm ${
+                                isUser
+                                  ? "bg-primary text-primary-foreground"
+                                  : "bg-card border text-card-foreground"
+                              }`}
+                            >
+                              {info.text}
+                            </div>
+                          )
+                        }
+
+                        return null
+                      })}
+                      {!isUser && previewPayload ? (
+                        <Card
+                          className="cursor-pointer border-primary/30 bg-primary/5 transition-colors hover:bg-primary/10"
+                          onClick={() => {
+                            dispatchEvent<StagePreviewPayload>("studioPreviewOpen", previewPayload)
+                          }}
                         >
-                          {displayText}
-                        </div>
-                      )}
+                          <CardHeader className="py-3">
+                            <CardTitle className="text-sm">{previewPayload.topic}</CardTitle>
+                            <CardDescription>点击查看本轮结构/样式渲染预览</CardDescription>
+                          </CardHeader>
+                        </Card>
+                      ) : null}
                     </div>
                   </div>
                 )

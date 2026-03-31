@@ -115,9 +115,8 @@ export default function TestPage() {
     <div className="min-h-screen bg-zinc-50 p-8 font-sans dark:bg-black">
       <div className="mx-auto grid max-w-7xl grid-cols-1 gap-6 md:grid-cols-2">
         {/* <ThreeOutputPreviewCard
-          adminOutput={ecommerceDashboardAdminOutputMock}
-          structureOutput={ecommerceDashboardStructureOutputMock}
-          styleOutput={ecommerceDashboardStyleOutputMock}
+          structureOutput={}
+          styleOutput={}
         /> */}
 
         <Card>

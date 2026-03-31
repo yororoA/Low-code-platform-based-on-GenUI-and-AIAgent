@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, type ReactNode, useState } from "react"
+import { useEffect, type ReactNode, useMemo, useState } from "react"
 import Link from "next/link"
 import { usePathname, useSearchParams } from "next/navigation"
 import {
@@ -8,14 +8,68 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Separator } from "@/components/ui"
 import { DBManager } from "@/lib/dbtest"
 import { cn } from "@/lib/utils"
 import { DataItemSummary } from "@/types"
 import { ChatDetailsContext } from "@/contexts";
+import { isUiTreeNode, renderNode, type UiTreeNode } from "@/lib/renderByAST"
+
+type StudioPreviewPayload = {
+  topic: string
+  structureText: string
+  styleText: string
+}
+
+function extractJsonObjectByKey(raw: string, key: string): Record<string, unknown> | null {
+  if (!raw) return null
+  const keyMark = `"${key}"`
+  for (let start = 0; start < raw.length; start++) {
+    if (raw[start] !== "{") continue
+    let depth = 0
+    let inString = false
+    let escaped = false
+    for (let end = start; end < raw.length; end++) {
+      const ch = raw[end]
+      if (inString) {
+        if (escaped) {
+          escaped = false
+        } else if (ch === "\\") {
+          escaped = true
+        } else if (ch === "\"") {
+          inString = false
+        }
+        continue
+      }
+      if (ch === "\"") {
+        inString = true
+        continue
+      }
+      if (ch === "{") depth++
+      if (ch === "}") {
+        depth--
+        if (depth === 0) {
+          const candidate = raw.slice(start, end + 1)
+          if (!candidate.includes(keyMark)) break
+          try {
+            const parsed = JSON.parse(candidate) as Record<string, unknown>
+            if (Object.prototype.hasOwnProperty.call(parsed, key)) return parsed
+          } catch {
+            // continue scanning
+          }
+          break
+        }
+      }
+    }
+  }
+  return null
+}
 
 export default function StudioLayout({ children }: { children: ReactNode }) {
   const [details, setDetails] = useState<DataItemSummary[]>([]);
+  const [previewPayload, setPreviewPayload] = useState<StudioPreviewPayload | null>(null);
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const selectedPromptId = searchParams.get("id");
@@ -71,6 +125,60 @@ export default function StudioLayout({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  useEffect(() => {
+    const handleOpenPreview: EventListener = (event) => {
+      const customEvent = event as CustomEvent<StudioPreviewPayload>
+      setPreviewPayload(customEvent.detail)
+    }
+    window.addEventListener("studioPreviewOpen", handleOpenPreview)
+    return () => {
+      window.removeEventListener("studioPreviewOpen", handleOpenPreview)
+    }
+  }, [])
+
+  const parsedPreview = useMemo(() => {
+    if (!previewPayload) return null
+    const structureObj = extractJsonObjectByKey(previewPayload.structureText, "uiTree")
+    const styleObj = extractJsonObjectByKey(previewPayload.styleText, "styles")
+    const rawUiTree = structureObj?.uiTree
+    const rawStyles = styleObj?.styles
+
+    let parsedTree: UiTreeNode | null = null
+    let parseError = ""
+    if (typeof rawUiTree === "string") {
+      try {
+        const parsed = JSON.parse(rawUiTree) as unknown
+        parsedTree = isUiTreeNode(parsed) ? parsed : null
+      } catch {
+        parsedTree = null
+      }
+    } else if (isUiTreeNode(rawUiTree)) {
+      parsedTree = rawUiTree
+    }
+    if (!parsedTree) {
+      parseError = "未能从 STRUCTURE 展开内容中解析 uiTree。"
+    }
+
+    const styleClassById = Array.isArray(rawStyles)
+      ? Object.fromEntries(
+          rawStyles
+            .filter((item): item is { id: string; className?: string } =>
+              !!item && typeof item === "object" && "id" in item && typeof (item as { id: unknown }).id === "string",
+            )
+            .map((item) => [item.id, item.className ?? ""]),
+        )
+      : {}
+
+    return {
+      topic: previewPayload.topic,
+      parsedTree,
+      styleClassById,
+      parseError,
+    }
+  }, [previewPayload])
+
+  const isPreviewMode = previewPayload !== null
+
 
   return (
     <div className="min-h-dvh w-full bg-background">
@@ -79,8 +187,9 @@ export default function StudioLayout({ children }: { children: ReactNode }) {
         <div className="ml-auto flex gap-2">{/* actions */}</div>
       </div>
 
-      <div className="grid h-[calc(100dvh-56px)] grid-cols-1 lg:grid-cols-[240px_1fr_300px]">
-        <aside className="border-b p-3 flex flex-col gap-2 lg:border-b-0 lg:border-r overflow-y-auto">
+      <div className={cn("grid h-[calc(100dvh-56px)]", isPreviewMode ? "grid-cols-1" : "grid-cols-1 lg:grid-cols-[240px_1fr_300px]")}>
+        {!isPreviewMode ? (
+          <aside className="border-b p-3 flex flex-col gap-2 lg:border-b-0 lg:border-r overflow-y-auto">
           <Accordion type="single" collapsible className="w-full">
             <AccordionItem value="home" className="border-b-0">
               <AccordionTrigger className="rounded-md px-2 py-2 text-sm hover:no-underline hover:bg-accent">
@@ -146,17 +255,46 @@ export default function StudioLayout({ children }: { children: ReactNode }) {
           <Link href="/studio/workflows">Workflows</Link>
           <Separator className="my-2" />
           <div className="text-xs text-muted-foreground">Workspace Navigation</div>
-        </aside>
+          </aside>
+        ) : null}
         <main className="flex-1 min-w-0 h-full overflow-hidden">
-          <div className="h-full overflow-y-auto">
+          <div className={cn("h-full", isPreviewMode ? "grid grid-cols-1 lg:grid-cols-[minmax(480px,58%)_1fr]" : "overflow-y-auto")}>
             <ChatDetailsContext.Provider value={details}>
-              {children}
+              <div className={cn("h-full", isPreviewMode ? "overflow-y-auto border-r" : "")}>{children}</div>
             </ChatDetailsContext.Provider>
+            {isPreviewMode ? (
+              <div className="h-full overflow-y-auto bg-muted/20 p-4">
+                <Card className="h-full">
+                  <CardHeader className="flex flex-row items-start justify-between gap-3">
+                    <div>
+                      <CardTitle className="text-base">{parsedPreview?.topic ?? "渲染预览"}</CardTitle>
+                      {/* <CardDescription>来自最后一条 STRUCTURE / STYLE 展开内容</CardDescription> */}
+                    </div>
+                    <Button variant="outline" size="sm" onClick={() => setPreviewPayload(null)}>
+                      关闭预览
+                    </Button>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    {parsedPreview?.parsedTree ? (
+                      <div className="rounded-md border bg-background p-3">
+                        {renderNode(parsedPreview.parsedTree, parsedPreview.styleClassById)}
+                      </div>
+                    ) : (
+                      <div className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
+                        {parsedPreview?.parseError || "暂无可渲染内容。"}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
+            ) : null}
           </div>
         </main>
-        <aside className="hidden border-l p-3 lg:block overflow-y-auto">
+        {!isPreviewMode ? (
+          <aside className="hidden border-l p-3 lg:block overflow-y-auto">
           <div className="text-sm text-muted-foreground">Inspector</div>
-        </aside>
+          </aside>
+        ) : null}
       </div>
     </div>
   )
