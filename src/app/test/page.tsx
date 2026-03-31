@@ -117,67 +117,57 @@ export default function TestPage() {
         <ThreeOutputPreviewCard
           adminOutput={{
   "necessary": true,
-  "uiDescription": "一个简单的记事本应用界面，包含笔记列表和编辑区域。左侧显示所有笔记的标题列表，右侧显示当前选中的笔记内容编辑区域。用户可以创建新笔记、编辑现有笔记、保存和删除笔记。",
+  "uiDescription": "一个简洁的记事本应用界面，左侧为笔记列表区域，右侧为笔记编辑区域。笔记列表显示所有笔记的标题和最后修改时间，支持点击选择笔记进行编辑。编辑区域包含标题输入框和内容文本区域，底部有保存和删除按钮。",
   "uiNeeds": [
+    "div",
     "Card",
     "CardHeader",
     "CardTitle",
     "CardContent",
     "CardFooter",
     "Button",
-    "Input",
     "Textarea",
-    "div",
-    "span",
-    "Separator",
+    "Input",
     "Table",
     "TableHeader",
     "TableBody",
     "TableRow",
     "TableCell",
-    "Badge"
+    "Separator",
+    "Badge",
+    "Alert",
+    "AlertTitle",
+    "AlertDescription"
   ]
 }}
           structureOutput={{
-    "uiTree": "{\"type\": \"div\", \"id\": \"root\", \"props\": {\"className\": \"flex h-screen\"}, \"children\": [{\"type\": \"div\", \"id\": \"sidebar-container\", \"props\": {\"className\": \"w-1/4 border-r flex flex-col\"}, \"children\": [{\"type\": \"Card\", \"id\": \"sidebar-card\", \"props\": {\"className\": \"flex-1\"}, \"children\": [{\"type\": \"CardHeader\", \"id\": \"sidebar-header\", \"props\": {\"className\": \"p-4 border-b\"}, \"children\": [{\"type\": \"CardTitle\", \"id\": \"sidebar-title\", \"props\": {\"className\": \"text-lg font-bold\"}, \"children\": [{\"type\": \"text\", \"id\": \"sidebar-title-text\", \"props\": {\"content\": \"笔记列表\"}}]}, {\"type\": \"Button\", \"id\": \"new-note-button\", \"props\": {\"variant\": \"default\", \"size\": \"sm\", \"className\": \"mt-2\"}, \"children\": [{\"type\": \"text\", \"id\": \"new-note-button-text\", \"props\": {\"content\": \"新建笔记\"}}]}]}, {\"type\": \"CardContent\", \"id\": \"sidebar-content\", \"props\": {\"className\": \"flex-1 p-4 overflow-y-auto\"}, \"children\": [{\"type\": \"Table\", \"id\": \"notes-table\", \"props\": {\"className\": \"w-full\"}, \"children\": [{\"type\": \"TableHeader\", \"id\": \"notes-table-header\", \"props\": {}, \"children\": [{\"type\": \"TableRow\", \"id\": \"notes-table-header-row\", \"props\": {}, \"children\": [{\"type\": \"TableHead\", \"id\": \"notes-table-header-title\", \"props\": {\"className\": \"text-left\"}, \"children\": [{\"type\": \"text\", \"id\": \"notes-table-header-title-text\", \"props\": {\"content\": \"标题\"}}]}, {\"type\": \"TableHead\", \"id\": \"notes-table-header-status\", \"props\": {\"className\": \"text-left w-20\"}, \"children\": [{\"type\": \"text\", \"id\": \"notes-table-header-status-text\", \"props\": {\"content\": \"状态\"}}]}]}]}, {\"type\": \"TableBody\", \"id\": \"notes-table-body\", \"props\": {}, \"children\": [{\"type\": \"TableRow\", \"id\": \"note-item-1\", \"props\": {\"className\": \"cursor-pointer hover:bg-gray-50\"}, \"children\": [{\"type\": \"TableCell\", \"id\": \"note-item-1-title\", \"props\": {\"className\": \"py-3\"}, \"children\": [{\"type\": \"text\", \"id\": \"note-item-1-title-text\", \"props\": {\"content\": \"示例笔记 1\"}}]}, {\"type\": \"TableCell\", \"id\": \"note-item-1-status\", \"props\": {\"className\": \"py-3\"}, \"children\": [{\"type\": \"Badge\", \"id\": \"note-item-1-badge\", \"props\": {\"variant\": \"default\", \"className\": \"text-xs\"}, \"children\": [{\"type\": \"text\", \"id\": \"note-item-1-badge-text\", \"props\": {\"content\": \"已保存\"}}]}]}]}, {\"type\": \"Separator\", \"id\": \"separator-1\", \"props\": {\"orientation\": \"horizontal\", \"className\": \"my-2\"}}, {\"type\": \"TableRow\", \"id\": \"note-item-2\", \"props\": {\"className\": \"cursor-pointer hover:bg-gray-50\"}, \"children\": [{\"type\": \"TableCell\", \"id\": \"note-item-2-title\", \"props\": {\"className\": \"py-3\"}, \"children\": [{\"type\": \"text\", \"id\": \"note-item-2-title-text\", \"props\": {\"content\": \"示例笔记 2\"}}]}, {\"type\": \"TableCell\", \"id\": \"note-item-2-status\", \"props\": {\"className\": \"py-3\"}, \"children\": [{\"type\": \"Badge\", \"id\": \"note-item-2-badge\", \"props\": {\"variant\": \"outline\", \"className\": \"text-xs\"}, \"children\": [{\"type\": \"text\", \"id\": \"note-item-2-badge-text\", \"props\": {\"content\": \"未保存\"}}]}]}]}]}]}]}]}]}, {\"type\": \"div\", \"id\": \"main-container\", \"props\": {\"className\": \"flex-1 flex flex-col\"}, \"children\": [{\"type\": \"Card\", \"id\": \"main-card\", \"props\": {\"className\": \"flex-1\"}, \"children\": [{\"type\": \"CardHeader\", \"id\": \"editor-header\", \"props\": {\"className\": \"p-4 border-b flex justify-between items-center\"}, \"children\": [{\"type\": \"Input\", \"id\": \"note-title-input\", \"props\": {\"type\": \"text\", \"placeholder\": \"笔记标题\", \"className\": \"flex-1\"}}, {\"type\": \"div\", \"id\": \"editor-actions\", \"props\": {\"className\": \"flex gap-2\"}, \"children\": [{\"type\": \"Button\", \"id\": \"save-button\", \"props\": {\"variant\": \"default\", \"size\": \"sm\"}, \"children\": [{\"type\": \"text\", \"id\": \"save-button-text\", \"props\": {\"content\": \"保存\"}}]}, {\"type\": \"Button\", \"id\": \"delete-button\", \"props\": {\"variant\": \"destructive\", \"size\": \"sm\"}, \"children\": [{\"type\": \"text\", \"id\": \"delete-button-text\", \"props\": {\"content\": \"删除\"}}]}]}]}, {\"type\": \"Separator\", \"id\": \"separator-2\", \"props\": {\"orientation\": \"horizontal\", \"className\": \"my-4\"}}, {\"type\": \"CardContent\", \"id\": \"editor-content\", \"props\": {\"className\": \"flex-1 p-4\"}, \"children\": [{\"type\": \"Textarea\", \"id\": \"note-content-textarea\", \"props\": {\"placeholder\": \"输入笔记内容...\", \"className\": \"w-full h-full min-h-[300px]\"}}]}]}]}]}",
+    "uiTree": "{\"type\":\"div\",\"id\":\"root\",\"props\":{\"className\":\"flex h-screen\"},\"children\":[{\"type\":\"Card\",\"id\":\"notes-list-card\",\"props\":{\"className\":\"w-1/3 border-r rounded-none\"},\"children\":[{\"type\":\"CardHeader\",\"id\":\"notes-list-header\",\"props\":{\"className\":\"p-4 border-b\"},\"children\":[{\"type\":\"CardTitle\",\"id\":\"notes-list-title\",\"props\":{\"className\":\"text-lg font-semibold\"},\"children\":[{\"type\":\"text\",\"id\":\"notes-list-title-text\",\"props\":{\"content\":\"笔记列表\"}}]}]},{\"type\":\"CardContent\",\"id\":\"notes-list-content\",\"props\":{\"className\":\"p-0\"},\"children\":[{\"type\":\"Table\",\"id\":\"notes-table\",\"props\":{\"className\":\"w-full\"},\"children\":[{\"type\":\"TableHeader\",\"id\":\"notes-table-header\",\"props\":{\"className\":\"bg-gray-50\"},\"children\":[{\"type\":\"TableRow\",\"id\":\"notes-table-header-row\",\"children\":[{\"type\":\"TableHead\",\"id\":\"notes-table-header-title\",\"props\":{\"className\":\"font-medium\"},\"children\":[{\"type\":\"text\",\"id\":\"notes-table-header-title-text\",\"props\":{\"content\":\"标题\"}}]},{\"type\":\"TableHead\",\"id\":\"notes-table-header-time\",\"props\":{\"className\":\"font-medium text-right\"},\"children\":[{\"type\":\"text\",\"id\":\"notes-table-header-time-text\",\"props\":{\"content\":\"修改时间\"}}]}]}]},{\"type\":\"TableBody\",\"id\":\"notes-table-body\",\"children\":[{\"type\":\"TableRow\",\"id\":\"notes-table-row-1\",\"props\":{\"className\":\"cursor-pointer hover:bg-gray-50\",\"onClick\":\"selectNote(1)\"},\"children\":[{\"type\":\"TableCell\",\"id\":\"notes-table-cell-title-1\",\"props\":{\"className\":\"font-medium\"},\"children\":[{\"type\":\"text\",\"id\":\"notes-table-cell-title-text-1\",\"props\":{\"content\":\"示例笔记\"}}]},{\"type\":\"TableCell\",\"id\":\"notes-table-cell-time-1\",\"props\":{\"className\":\"text-gray-500 text-right\"},\"children\":[{\"type\":\"text\",\"id\":\"notes-table-cell-time-text-1\",\"props\":{\"content\":\"2023-10-01\"}}]}]},{\"type\":\"TableRow\",\"id\":\"notes-table-row-2\",\"props\":{\"className\":\"cursor-pointer hover:bg-gray-50\",\"onClick\":\"selectNote(2)\"},\"children\":[{\"type\":\"TableCell\",\"id\":\"notes-table-cell-title-2\",\"props\":{\"className\":\"font-medium\"},\"children\":[{\"type\":\"text\",\"id\":\"notes-table-cell-title-text-2\",\"props\":{\"content\":\"另一个笔记\"}}]},{\"type\":\"TableCell\",\"id\":\"notes-table-cell-time-2\",\"props\":{\"className\":\"text-gray-500 text-right\"},\"children\":[{\"type\":\"text\",\"id\":\"notes-table-cell-time-text-2\",\"props\":{\"content\":\"2023-09-28\"}}]}]}]}]}]}]},{\"type\":\"Card\",\"id\":\"editor-card\",\"props\":{\"className\":\"w-2/3 rounded-none\"},\"children\":[{\"type\":\"CardHeader\",\"id\":\"editor-header\",\"props\":{\"className\":\"p-4 border-b\"},\"children\":[{\"type\":\"CardTitle\",\"id\":\"editor-title\",\"props\":{\"className\":\"text-lg font-semibold\"},\"children\":[{\"type\":\"text\",\"id\":\"editor-title-text\",\"props\":{\"content\":\"编辑笔记\"}}]}]},{\"type\":\"CardContent\",\"id\":\"editor-content\",\"props\":{\"className\":\"p-4 space-y-4\"},\"children\":[{\"type\":\"div\",\"id\":\"title-input-container\",\"props\":{\"className\":\"space-y-2\"},\"children\":[{\"type\":\"text\",\"id\":\"title-label\",\"props\":{\"content\":\"标题\"}},{\"type\":\"Input\",\"id\":\"title-input\",\"props\":{\"type\":\"text\",\"placeholder\":\"输入笔记标题\",\"className\":\"w-full\"}}]},{\"type\":\"div\",\"id\":\"content-textarea-container\",\"props\":{\"className\":\"space-y-2\"},\"children\":[{\"type\":\"text\",\"id\":\"content-label\",\"props\":{\"content\":\"内容\"}},{\"type\":\"Textarea\",\"id\":\"content-textarea\",\"props\":{\"placeholder\":\"输入笔记内容\",\"className\":\"w-full min-h-64\"}}]}]},{\"type\":\"CardFooter\",\"id\":\"editor-footer\",\"props\":{\"className\":\"p-4 border-t flex justify-end space-x-2\"},\"children\":[{\"type\":\"Button\",\"id\":\"save-button\",\"props\":{\"variant\":\"default\",\"size\":\"default\",\"className\":\"\"},\"children\":[{\"type\":\"text\",\"id\":\"save-button-text\",\"props\":{\"content\":\"保存\"}}]},{\"type\":\"Button\",\"id\":\"delete-button\",\"props\":{\"variant\":\"destructive\",\"size\":\"default\",\"className\":\"\"},\"children\":[{\"type\":\"text\",\"id\":\"delete-button-text\",\"props\":{\"content\":\"删除\"}}]}]}]}]}",
 }}
           styleOutput={{
     "styles": [
         {
             "id": "root",
-            "className": "flex h-screen bg-gradient-to-br from-amber-50 to-orange-50"
+            "className": "flex h-screen bg-gray-50"
         },
         {
-            "id": "sidebar-container",
-            "className": "w-1/4 border-r border-amber-200 bg-white shadow-lg flex flex-col"
+            "id": "notes-list-card",
+            "className": "w-1/3 border-r border-gray-200 rounded-none bg-white shadow-sm"
         },
         {
-            "id": "sidebar-card",
-            "className": "flex-1 bg-transparent"
+            "id": "notes-list-header",
+            "className": "p-4 border-b border-gray-200 bg-gray-50"
         },
         {
-            "id": "sidebar-header",
-            "className": "p-4 border-b border-amber-100 bg-gradient-to-r from-amber-50 to-orange-50"
+            "id": "notes-list-title",
+            "className": "text-lg font-semibold text-gray-800"
         },
         {
-            "id": "sidebar-title",
-            "className": "text-lg font-bold text-amber-900"
-        },
-        {
-            "id": "sidebar-title-text",
+            "id": "notes-list-title-text",
             "className": ""
         },
         {
-            "id": "new-note-button",
-            "className": "mt-2 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white font-medium shadow-md"
-        },
-        {
-            "id": "new-note-button-text",
-            "className": ""
-        },
-        {
-            "id": "sidebar-content",
-            "className": "flex-1 p-4 overflow-y-auto bg-white"
+            "id": "notes-list-content",
+            "className": "p-0"
         },
         {
             "id": "notes-table",
@@ -185,26 +175,26 @@ export default function TestPage() {
         },
         {
             "id": "notes-table-header",
-            "className": ""
+            "className": "bg-gray-50"
         },
         {
             "id": "notes-table-header-row",
-            "className": "bg-amber-50"
+            "className": ""
         },
         {
             "id": "notes-table-header-title",
-            "className": "text-left text-amber-800 font-semibold py-3"
+            "className": "font-medium text-gray-700 px-4 py-3"
         },
         {
             "id": "notes-table-header-title-text",
             "className": ""
         },
         {
-            "id": "notes-table-header-status",
-            "className": "text-left w-20 text-amber-800 font-semibold py-3"
+            "id": "notes-table-header-time",
+            "className": "font-medium text-gray-700 text-right px-4 py-3"
         },
         {
-            "id": "notes-table-header-status-text",
+            "id": "notes-table-header-time-text",
             "className": ""
         },
         {
@@ -212,80 +202,96 @@ export default function TestPage() {
             "className": ""
         },
         {
-            "id": "note-item-1",
-            "className": "cursor-pointer hover:bg-amber-50 transition-colors duration-200"
+            "id": "notes-table-row-1",
+            "className": "cursor-pointer hover:bg-gray-50 border-b border-gray-100"
         },
         {
-            "id": "note-item-1-title",
-            "className": "py-3 text-amber-900"
+            "id": "notes-table-cell-title-1",
+            "className": "font-medium text-gray-800 px-4 py-3"
         },
         {
-            "id": "note-item-1-title-text",
+            "id": "notes-table-cell-title-text-1",
             "className": ""
         },
         {
-            "id": "note-item-1-status",
-            "className": "py-3"
+            "id": "notes-table-cell-time-1",
+            "className": "text-gray-500 text-right px-4 py-3"
         },
         {
-            "id": "note-item-1-badge",
-            "className": "text-xs bg-gradient-to-r from-green-100 to-emerald-100 text-green-800 border border-green-200"
-        },
-        {
-            "id": "note-item-1-badge-text",
+            "id": "notes-table-cell-time-text-1",
             "className": ""
         },
         {
-            "id": "separator-1",
-            "className": "my-2 bg-amber-100"
+            "id": "notes-table-row-2",
+            "className": "cursor-pointer hover:bg-gray-50 border-b border-gray-100"
         },
         {
-            "id": "note-item-2",
-            "className": "cursor-pointer hover:bg-amber-50 transition-colors duration-200"
+            "id": "notes-table-cell-title-2",
+            "className": "font-medium text-gray-800 px-4 py-3"
         },
         {
-            "id": "note-item-2-title",
-            "className": "py-3 text-amber-900"
-        },
-        {
-            "id": "note-item-2-title-text",
+            "id": "notes-table-cell-title-text-2",
             "className": ""
         },
         {
-            "id": "note-item-2-status",
-            "className": "py-3"
+            "id": "notes-table-cell-time-2",
+            "className": "text-gray-500 text-right px-4 py-3"
         },
         {
-            "id": "note-item-2-badge",
-            "className": "text-xs bg-gradient-to-r from-amber-100 to-orange-100 text-amber-800 border border-amber-200"
-        },
-        {
-            "id": "note-item-2-badge-text",
+            "id": "notes-table-cell-time-text-2",
             "className": ""
         },
         {
-            "id": "main-container",
-            "className": "flex-1 flex flex-col p-6"
-        },
-        {
-            "id": "main-card",
-            "className": "flex-1 bg-white rounded-xl shadow-lg border border-amber-100"
+            "id": "editor-card",
+            "className": "w-2/3 rounded-none bg-white shadow-sm"
         },
         {
             "id": "editor-header",
-            "className": "p-4 border-b border-amber-100 bg-gradient-to-r from-amber-50 to-orange-50 flex justify-between items-center"
+            "className": "p-4 border-b border-gray-200 bg-gray-50"
         },
         {
-            "id": "note-title-input",
-            "className": "flex-1 bg-white border border-amber-200 text-amber-900 placeholder-amber-400 focus:ring-2 focus:ring-amber-300 focus:border-amber-400 rounded-lg px-4 py-2 shadow-sm"
+            "id": "editor-title",
+            "className": "text-lg font-semibold text-gray-800"
         },
         {
-            "id": "editor-actions",
-            "className": "flex gap-2"
+            "id": "editor-title-text",
+            "className": ""
+        },
+        {
+            "id": "editor-content",
+            "className": "p-4 space-y-4"
+        },
+        {
+            "id": "title-input-container",
+            "className": "space-y-2"
+        },
+        {
+            "id": "title-label",
+            "className": "text-sm font-medium text-gray-700"
+        },
+        {
+            "id": "title-input",
+            "className": "w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+        },
+        {
+            "id": "content-textarea-container",
+            "className": "space-y-2"
+        },
+        {
+            "id": "content-label",
+            "className": "text-sm font-medium text-gray-700"
+        },
+        {
+            "id": "content-textarea",
+            "className": "w-full min-h-64 px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+        },
+        {
+            "id": "editor-footer",
+            "className": "p-4 border-t border-gray-200 flex justify-end space-x-2"
         },
         {
             "id": "save-button",
-            "className": "bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white font-medium shadow-md"
+            "className": "bg-amber-600 hover:bg-amber-700 text-white font-medium py-2 px-4 rounded-md shadow-sm transition-colors duration-200"
         },
         {
             "id": "save-button-text",
@@ -293,23 +299,11 @@ export default function TestPage() {
         },
         {
             "id": "delete-button",
-            "className": "bg-gradient-to-r from-red-500 to-pink-500 hover:from-red-600 hover:to-pink-600 text-white font-medium shadow-md"
+            "className": "bg-red-600 hover:bg-red-700 text-white font-medium py-2 px-4 rounded-md shadow-sm transition-colors duration-200"
         },
         {
             "id": "delete-button-text",
             "className": ""
-        },
-        {
-            "id": "separator-2",
-            "className": "my-4 bg-amber-100"
-        },
-        {
-            "id": "editor-content",
-            "className": "flex-1 p-4 bg-white"
-        },
-        {
-            "id": "note-content-textarea",
-            "className": "w-full h-full min-h-[300px] bg-white border border-amber-200 text-amber-900 placeholder-amber-400 focus:ring-2 focus:ring-amber-300 focus:border-amber-400 rounded-lg px-4 py-3 shadow-sm resize-none"
         }
     ]
 }}
