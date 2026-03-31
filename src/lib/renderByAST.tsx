@@ -13,12 +13,6 @@ type UiTreeNode = {
   children?: UiTreeNode[]
 }
 
-type AdminOutput = {
-  necessary: boolean
-  uiDescription: string
-  uiNeeds: string[]
-}
-
 type StructureOutput = {
   uiTree: string
 }
@@ -32,7 +26,6 @@ type StyleOutput = {
 }
 
 type ThreeOutputPreviewCardProps = {
-  adminOutput: AdminOutput
   structureOutput: StructureOutput
   styleOutput: StyleOutput
 }
@@ -714,10 +707,9 @@ function renderNode(
 // ── 对外导出 ──
 
 export { isUiTreeNode, collectIds, getNodeChildren, renderNode }
-export type { UiTreeNode, AdminOutput, StructureOutput, StyleOutput }
+export type { UiTreeNode, StructureOutput, StyleOutput }
 
 export function ThreeOutputPreviewCard({
-  adminOutput,
   structureOutput,
   styleOutput,
 }: ThreeOutputPreviewCardProps) {
@@ -759,11 +751,6 @@ export function ThreeOutputPreviewCard({
       </Ui.CardHeader>
       <Ui.CardContent>
         <div className="space-y-4">
-          <div className="rounded-md border bg-white p-3">
-            <p className="text-sm font-medium text-slate-900">admin.necessary: {String(adminOutput.necessary)}</p>
-            <p className="mt-2 text-sm text-slate-700">uiNeeds: {adminOutput.uiNeeds.join(", ")}</p>
-            <p className="mt-2 text-sm text-slate-600 whitespace-pre-wrap">{adminOutput.uiDescription}</p>
-          </div>
 
           <div className="rounded-md border bg-white p-3 space-y-2">
             <p className="text-sm font-medium text-slate-900">structure.uiTree 解析结果</p>

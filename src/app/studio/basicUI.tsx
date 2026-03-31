@@ -11,6 +11,12 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion"
 import { AlertCircle } from "lucide-react"
 import { AdminAgentMessage } from "../api/chat/model"
 import { DBManager } from "@/lib/dbtest"
@@ -47,9 +53,15 @@ function dedupeMessages(list: AdminAgentMessage[]): AdminAgentMessage[] {
 }
 
 type DisplayInfo =
-  | { type: "stage"; stage: string; text: string }
+  | { type: "stage"; stage: string; text: string; details: string[] }
   | { type: "tool"; text: string }
   | { type: "text"; text: string }
+
+type StagePreviewPayload = {
+  topic: string
+  structureText: string
+  styleText: string
+}
 
 export default function BasicUI() {
   const [input, setInput] = useState<string>("")
@@ -179,6 +191,8 @@ export default function BasicUI() {
     if (message.role !== "assistant" || !message.parts) return infos
 
     const seenStage = new Set<string>()
+    const stageIndexByKey = new Map<string, number>()
+    let activeStageIndex: number | null = null
 
     for (const part of message.parts) {
       if (part.type === "tool-showResponse") {
@@ -186,37 +200,44 @@ export default function BasicUI() {
         if (toolText) {
           infos.push({ type: "tool", text: toolText })
         }
+        activeStageIndex = null
       } else if (part.type === "text") {
         const lines = part.text
           .split("\n")
           .map((line) => line.trim())
           .filter(Boolean)
-        
-        let currentText: string[] = []
-
-        const flushText = () => {
-          if (currentText.length > 0) {
-            infos.push({ type: "text", text: currentText.join("\n") })
-            currentText = []
-          }
-        }
 
         for (const line of lines) {
           const matched = line.match(STAGE_INFO_RE)
           if (matched) {
-            flushText() 
             const stage = matched[1].toUpperCase()
             const text = matched[2]
             const key = `${stage}|${text}`
+
+            if (seenStage.has(key)) {
+              activeStageIndex = stageIndexByKey.get(key) ?? null
+              continue
+            }
+
+            const nextInfo: DisplayInfo = { type: "stage", stage, text, details: [] }
+            const nextInfoIndex = infos.length
+            infos.push(nextInfo)
+            stageIndexByKey.set(key, nextInfoIndex)
+            activeStageIndex = nextInfoIndex
             if (!seenStage.has(key)) {
               seenStage.add(key)
-              infos.push({ type: "stage", stage, text })
             }
           } else {
-            currentText.push(line) 
+            if (activeStageIndex != null && infos[activeStageIndex]?.type === "stage") {
+              const stageInfo = infos[activeStageIndex]
+              if (stageInfo.type === "stage") {
+                stageInfo.details.push(line)
+              }
+            } else {
+              infos.push({ type: "text", text: line })
+            }
           }
         }
-        flushText() 
       }
     }
 
@@ -233,6 +254,29 @@ export default function BasicUI() {
       return [{ type: "text", text }]
     }
     return getAssistantInfos(message)
+  }
+
+  const getPreviewPayload = (
+    message: AdminAgentMessage,
+    displayInfos: DisplayInfo[],
+  ): StagePreviewPayload | null => {
+    if (message.role !== "assistant") return null
+    const payload = getShowResponsePayload(message) as { topic?: string } | undefined
+    const topic = payload?.topic?.trim()
+    if (!topic) return null
+
+    const lastStructure = [...displayInfos].reverse().find(
+      (info): info is Extract<DisplayInfo, { type: "stage" }> =>
+        info.type === "stage" && info.stage === "STRUCTURE",
+    )
+    const lastStyle = [...displayInfos].reverse().find(
+      (info): info is Extract<DisplayInfo, { type: "stage" }> =>
+        info.type === "stage" && info.stage === "STYLE",
+    )
+    const structureText = lastStructure?.details.join("\n").trim() ?? ""
+    const styleText = lastStyle?.details.join("\n").trim() ?? ""
+    if (!structureText || !styleText) return null
+    return { topic, structureText, styleText }
   }
 
   return (
@@ -253,6 +297,7 @@ export default function BasicUI() {
               normalizedMessages.map((message, index) => {
                 const isUser = message.role === "user"
                 const displayInfos = getDisplayText(message)
+                const previewPayload = getPreviewPayload(message, displayInfos)
 
                 return (
                   <div
@@ -263,13 +308,30 @@ export default function BasicUI() {
                       {displayInfos.map((info, idx) => {
                         if (info.type === "stage") {
                           return (
-                            <div
+                            <Accordion
                               key={`${message.id}-info-${idx}`}
-                              className="rounded-md border bg-amber-50 px-3 py-2 text-xs text-amber-900"
+                              type="single"
+                              collapsible
+                              className="rounded-md border bg-amber-50 px-3 text-xs text-amber-900"
                             >
-                              <span className="font-semibold">[{info.stage}]</span>{" "}
-                              {info.text}
-                            </div>
+                              <AccordionItem value={`${message.id}-stage-${idx}`} className="border-b-0">
+                                <AccordionTrigger className="py-2 text-xs text-amber-900 hover:no-underline">
+                                  <span className="text-left">
+                                    <span className="font-semibold">[{info.stage}]</span>{" "}
+                                    {info.text}
+                                  </span>
+                                </AccordionTrigger>
+                                <AccordionContent className="pt-1 pb-2">
+                                  {info.details.length > 0 ? (
+                                    <div className="whitespace-pre-wrap break-words text-xs text-amber-950/90">
+                                      {info.details.join("\n")}
+                                    </div>
+                                  ) : (
+                                    <div className="text-xs text-amber-800/80">(no detail)</div>
+                                  )}
+                                </AccordionContent>
+                              </AccordionItem>
+                            </Accordion>
                           )
                         }
 
@@ -290,6 +352,19 @@ export default function BasicUI() {
 
                         return null
                       })}
+                      {!isUser && previewPayload ? (
+                        <Card
+                          className="cursor-pointer border-primary/30 bg-primary/5 transition-colors hover:bg-primary/10"
+                          onClick={() => {
+                            dispatchEvent<StagePreviewPayload>("studioPreviewOpen", previewPayload)
+                          }}
+                        >
+                          <CardHeader className="py-3">
+                            <CardTitle className="text-sm">{previewPayload.topic}</CardTitle>
+                            <CardDescription>点击查看本轮结构/样式渲染预览</CardDescription>
+                          </CardHeader>
+                        </Card>
+                      ) : null}
                     </div>
                   </div>
                 )
