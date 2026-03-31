@@ -70,6 +70,15 @@ src/
 
 ## Motions
 
-1. UI 查询:
-  - 方法一: 通过 Router Agent 筛选 UI 数组 (待实现)
-  - 方法二: LLM 规划 + RAG 检索 (挂起)
+### 1. UI 查询
+
+- 方法一: 通过 Router Agent 筛选 UI 数组 (done ✔️)
+- 方法二: LLM 规划 + RAG 检索 (挂起)
+
+### 2. 切换会话后保持原会话的流入库 (待处理)
+
+### 3. stageInfo 与 message 逐条渲染 (待处理)
+
+### 4. chat 内嵌预览 (待处理)
+
+### 5. inspector 时间线/事件链 (待处理)
