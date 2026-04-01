@@ -23,6 +23,7 @@ import { DBManager } from "@/lib/dbtest"
 import { getShowResponsePayload, strToHexStr, dispatchEvent, dedupeMessages } from "@/lib/utils"
 import { useSearchParams, useRouter } from "next/navigation"
 import { DataItem, DataItemSummary } from "@/types";
+import { todo } from "node:test"
 
 const STAGE_INFO_RE = /^\[(ADMIN|STRUCTURE|ALIGNMENT|STYLE)\]:\s*(.+)$/i
 
@@ -128,6 +129,7 @@ export default function BasicUI() {
     }
   }, [setMessages, searchParams])
 
+  todo('更新worker');
   // 更新逻辑：采用防抖策略 (Debounce) 避免高频操作
   useEffect(() => {
     if (normalizedMessages.length === 0) return
