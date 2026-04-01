@@ -1,6 +1,6 @@
 "use client"
 
-import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react"
+import { ChangeEvent, FormEvent, useEffect, useRef, useMemo, useState } from "react"
 import { useChat } from "@ai-sdk/react"
 import { Button } from "@/components/ui/button"
 import {
@@ -22,8 +22,7 @@ import { AdminAgentMessage } from "../api/chat/model"
 import { DBManager } from "@/lib/dbtest"
 import { getShowResponsePayload, strToHexStr, dispatchEvent, dedupeMessages } from "@/lib/utils"
 import { useSearchParams, useRouter } from "next/navigation"
-import { DataItem, DataItemSummary } from "@/types"
-import { todo } from "node:test"
+import { DataItem, DataItemSummary } from "@/types";
 
 const STAGE_INFO_RE = /^\[(ADMIN|STRUCTURE|ALIGNMENT|STYLE)\]:\s*(.+)$/i
 
@@ -49,33 +48,30 @@ export default function BasicUI() {
     timestamp: new Date(),
   })
   const CACHE_DEBOUNCE_TIMEOUT = 1000;
+  const CAN_USE_WORKER = useMemo(() => !!window.Worker, []);
   const [topic, setTopic] = useState<string>("New Conversation")
   const { messages, setMessages, sendMessage, status, stop, error } =
     useChat<AdminAgentMessage>();
 
-  todo('web worker', () => {
-    if (window.Worker) {
-      const dedupeMessagesWorker = new Worker(new URL("./chatMessagesDedupeWorker.ts", import.meta.url));
-      dedupeMessagesWorker.onmessage = (event: MessageEvent<AdminAgentMessage[]>) => {
-        const messages = event.data as AdminAgentMessage[]
-        setMessages(messages)
-      }
-    }
-  })
-  const normalizedMessages = useMemo(() => dedupeMessages(messages), [messages]);
-
-  // 初始化获取历史数据
-  const searchParams = useSearchParams()
+  const [normalizedMessages, setNormalizedMessages] = useState<AdminAgentMessage[]>([]);
+  const dedupeMessageWorkerRef = useRef<Worker | null>(null);
+  const getDBMessagesWorkerRef = useRef<Worker | null>(null);
+  // 初始化工作线程
   useEffect(() => {
-    (async () => {
-      const id = searchParams.get("id")
-      if (id) {
-        const history = (await DBManager.execute({
-          operationType: "get",
-          id: id,
-        })) as DataItem
+    if (CAN_USE_WORKER) {
+      // worker for 消息去重
+      dedupeMessageWorkerRef.current = new Worker(new URL("./chatMessagesDedupeWorker.ts", import.meta.url));
+      dedupeMessageWorkerRef.current.onmessage = (event: MessageEvent<AdminAgentMessage[]>) => {
+        const messages = event.data as AdminAgentMessage[]
+        setNormalizedMessages(messages);
+      }
+
+      // worker for 获取本页历史数据
+      getDBMessagesWorkerRef.current = new Worker(new URL("./chatDBWorker.ts", import.meta.url));
+      getDBMessagesWorkerRef.current.onmessage = (event: MessageEvent<DataItem>) => {
+        const history = event.data as DataItem;
         if (history) {
-          setMessages(dedupeMessages(history.messages))
+          setMessages(history.messages);
           thisDetailRef.current = {
             id: history.id,
             topic: history.topic,
@@ -84,7 +80,52 @@ export default function BasicUI() {
           setTopic(history.topic)
         }
       }
-    })();
+    }
+    // 清理worker
+    return () => {
+      if (CAN_USE_WORKER) {
+        dedupeMessageWorkerRef.current?.terminate();
+        dedupeMessageWorkerRef.current = null;
+
+        getDBMessagesWorkerRef.current?.terminate();
+        getDBMessagesWorkerRef.current = null;
+      }
+    }
+  }, [CAN_USE_WORKER, setMessages]);
+  // 监听消息变化，发送到工作线程进行去重处理，减少主线程压力；如果不支持Worker，则直接在主线程处理
+  useEffect(() => {
+    if (messages.length) {
+      if (dedupeMessageWorkerRef.current) {
+        dedupeMessageWorkerRef.current.postMessage(messages);
+      } else setNormalizedMessages(dedupeMessages(messages));
+    } else setNormalizedMessages([]);
+  }, [messages]);
+
+  // 初始化获取历史数据
+  const searchParams = useSearchParams();
+  useEffect(() => {
+    const id = searchParams.get("id");
+    if (id) {
+      if (getDBMessagesWorkerRef.current) {
+        getDBMessagesWorkerRef.current.postMessage({ operationType: "get", id });
+      }else{
+        (async () => {
+        const history = (await DBManager.execute({
+          operationType: "get",
+          id: id,
+        })) as DataItem;
+        if (history) {
+          setMessages(history.messages);
+          thisDetailRef.current = {
+            id: history.id,
+            topic: history.topic,
+            timestamp: history.timestamp,
+          }
+          setTopic(history.topic);
+        }
+      })();
+      }
+    }
   }, [setMessages, searchParams])
 
   // 更新逻辑：采用防抖策略 (Debounce) 避免高频操作
