@@ -1,4 +1,4 @@
-import { ExecuteOptions } from "@/types";
+import { DataItemSummary, ExecuteOptions } from "@/types";
 
 // 使用类封装以维持数据库连接状态，或使用外部变量
 export class DBManager {
@@ -136,14 +136,14 @@ export class DBManager {
         }
         case 'getSummary': {
           const index = store.index(indexName!);
-          const results: { id: string, timestamp: Date, topic: string }[] = [];
+          const results: DataItemSummary[] = [];
           const request = index.openCursor();
           return new Promise((resolve, reject) => {
             request.onsuccess = (event) => {
               const cursor = (event.target as IDBRequest<IDBCursor>).result as IDBCursorWithValue;
               if (cursor) {
                 // eslint-disable-next-line @typescript-eslint/no-unused-vars
-                const rest = (({messages, ...rest})=>rest)(cursor.value);
+                const rest = (({messages, ...rest})=>rest as DataItemSummary)(cursor.value);
                 results.push(rest);
                 cursor.continue();
               } else {

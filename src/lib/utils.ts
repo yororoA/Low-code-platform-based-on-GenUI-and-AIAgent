@@ -10,3 +10,4 @@ export * from "./getShowResponsePayload";
 export * from "./dispatchEvent";
 export * from "./strToHexStr";
 export * from "./dbtest";
+export * from "./chatMessagesProcessing";
