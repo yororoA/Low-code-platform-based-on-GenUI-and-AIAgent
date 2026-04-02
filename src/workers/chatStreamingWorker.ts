@@ -25,6 +25,23 @@ const TaskRegistry = new Map<string, {
   messageBuffer: AdminAgentMessage[];
 }>();
 
+type chunkSchemaInfo = {
+  type: "outputSchema" | "tool-input";
+  status: 'WAITING_FOR_KEY'
+  | 'READING_KEY' // 拼接键名
+  | 'WAITING_FOR_COLON' // 键名闭合，等待冒号
+  | 'READING_VALUE' // 冒号之后读取对应值, 值结束后根据解析结果决定是否继续解析下一个键值对
+  readCache?: string;
+  key_value: {
+    keyBuffer?: string; // 用于拼接键名
+    valueBuffer?: string; // 用于拼接键值
+  }[]
+}
+type stageInfo = {
+  stage: string;
+  message: string;
+}
+
 /**
  * 手动解析 UI 消息流，替代 useChat 的 sendMessage
  * @param messages - 消息数组
@@ -41,7 +58,7 @@ async function* parseUIMessageStream(
     if (apiBaseUrl) return new URL("/api/chat", apiBaseUrl).toString();
     return new URL("/api/chat", self.location.href).toString();
   })();
-  
+
   try {
     const response = await fetch(apiUrl, {
       method: "POST",
@@ -67,7 +84,7 @@ async function* parseUIMessageStream(
 
     while (true) {
       const { done, value } = await reader.read();
-      
+
       if (done) {
         // 处理最后剩余的数据
         if (buffer.trim()) {
@@ -80,21 +97,22 @@ async function* parseUIMessageStream(
       }
 
       buffer += decoder.decode(value, { stream: true });
-      console.log(buffer)
-      
+      // console.log(buffer)
+
       // 按行分割处理 SSE 格式数据
       const lines = buffer.split("\n");
       buffer = lines[lines.length - 1]; // 保留最后不完整的行
 
       for (let i = 0; i < lines.length - 1; i++) {
         const line = lines[i];
-        
+
         if (line.startsWith("data:")) {
           try {
             const jsonStr = line.slice(5).trim();
             if (jsonStr) {
               const chunk = JSON.parse(jsonStr);
               if (chunk) {
+                console.log("Parsed chunk:", chunk);
                 parsedMessages.push(chunk);
                 // 可以在这里定期 yield，而不是等到全部完成
                 if (parsedMessages.length >= 1) {
@@ -140,6 +158,45 @@ function parseServerSentEvent(eventStr: string): AdminAgentMessage | null {
     return null;
   }
 }
+
+/**
+ * 解析chunk中存在的outputSchema|tool-input的delta
+ */
+function parseChunkForSchemaInfo(
+  chunk: object & {
+    type?: string,
+    id?: string,
+    delta?: string,
+    inputTextDelta?: string,
+  }, chunkSchemaCached?: chunkSchemaInfo
+): chunkSchemaInfo | stageInfo | null {
+  const { type, ...rest } = chunk;
+  let dataType: 'schema' | 'tool-input' | null = null;
+  if (type === 'text-delta') {
+    if (rest.id?.includes("stage-info") || rest.id?.includes("alignment-info")) {
+      const reg = /\[([^\]]*)\]/g;
+      const stage = rest.delta?.match(reg)?.[0]?.slice(1, -1) || '';
+      const message = rest.delta?.replace(reg, '').trim() || '';
+      return {
+        stage,
+        message,
+      } as stageInfo;
+    } else dataType = 'schema';
+  } else if (type?.includes('tool-input')) {
+    if (type === 'tool-input-start') return {
+      type: 'tool-input',
+      status: 'WAITING_FOR_KEY',
+      key_value: [],
+    }; else if (type === 'tool-input-delta') {
+      const data = rest.inputTextDelta as string;
+      
+    }
+  }
+
+
+  return null;
+}
+
 
 /**
  * 处理来自主线程的消息

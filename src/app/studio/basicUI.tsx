@@ -215,13 +215,6 @@ export default function BasicUI() {
     if (!CAN_USE_WORKER) await sendMessage({ text });
     else {
       const taskId = `task_${Date.now()}`;
-      const resp = await fetch("/api/chat", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ messages }),
-      })
       const worker = new Worker(new URL("@/workers/chatStreamingWorker.ts", import.meta.url));
 
       worker.postMessage({
