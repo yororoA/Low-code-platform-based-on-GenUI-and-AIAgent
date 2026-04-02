@@ -23,7 +23,7 @@ import { DBManager } from "@/lib/dbtest"
 import { getShowResponsePayload, strToHexStr, dispatchEvent, dedupeMessages } from "@/lib/utils"
 import { useSearchParams, useRouter } from "next/navigation"
 import { DataItem, DataItemSummary } from "@/types";
-import { todo } from "node:test"
+// import { todo } from "node:test"
 
 const STAGE_INFO_RE = /^\[(ADMIN|STRUCTURE|ALIGNMENT|STYLE)\]:\s*(.+)$/i
 
@@ -61,14 +61,14 @@ export default function BasicUI() {
   useEffect(() => {
     if (CAN_USE_WORKER) {
       // worker for 消息去重
-      dedupeMessageWorkerRef.current = new Worker(new URL("./chatMessagesDedupeWorker.ts", import.meta.url));
+      dedupeMessageWorkerRef.current = new Worker(new URL("@/workers/chatMessagesDedupeWorker.ts", import.meta.url));
       dedupeMessageWorkerRef.current.onmessage = (event: MessageEvent<AdminAgentMessage[]>) => {
         const messages = event.data as AdminAgentMessage[]
         setNormalizedMessages(messages);
       }
 
       // worker for 获取本页历史数据
-      getDBMessagesWorkerRef.current = new Worker(new URL("./chatDBWorker.ts", import.meta.url));
+      getDBMessagesWorkerRef.current = new Worker(new URL("@/workers/chatDBWorker.ts", import.meta.url));
       getDBMessagesWorkerRef.current.onmessage = (event: MessageEvent<DataItem>) => {
         const history = event.data as DataItem;
         if (history) {
@@ -109,27 +109,27 @@ export default function BasicUI() {
     if (id) {
       if (getDBMessagesWorkerRef.current) {
         getDBMessagesWorkerRef.current.postMessage({ operationType: "get", id });
-      }else{
+      } else {
         (async () => {
-        const history = (await DBManager.execute({
-          operationType: "get",
-          id: id,
-        })) as DataItem;
-        if (history) {
-          setMessages(history.messages);
-          thisDetailRef.current = {
-            id: history.id,
-            topic: history.topic,
-            timestamp: history.timestamp,
+          const history = (await DBManager.execute({
+            operationType: "get",
+            id: id,
+          })) as DataItem;
+          if (history) {
+            setMessages(history.messages);
+            thisDetailRef.current = {
+              id: history.id,
+              topic: history.topic,
+              timestamp: history.timestamp,
+            }
+            setTopic(history.topic);
           }
-          setTopic(history.topic);
-        }
-      })();
+        })();
       }
     }
   }, [setMessages, searchParams])
 
-  todo('更新worker');
+  // todo('更新worker');
   // 更新逻辑：采用防抖策略 (Debounce) 避免高频操作
   useEffect(() => {
     if (normalizedMessages.length === 0) return
@@ -207,12 +207,34 @@ export default function BasicUI() {
 
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    const text = input.trim()
-    if (!text) return
+    event.preventDefault();
+    const text = input.trim();
+    if (!text) return;
 
-    setInput("")
-    await sendMessage({ text })
+    setInput("");
+    if (!CAN_USE_WORKER) await sendMessage({ text });
+    else {
+      const taskId = `task_${Date.now()}`;
+      const worker = new Worker(new URL("@/workers/chatStreamingWorker.ts", import.meta.url));
+
+      worker.postMessage({
+        type: "send",
+        id: taskId,
+        apiBaseUrl: window.location.origin,
+        messages: [...messages, { role: "user", parts: [{ type: "text", text }] }]
+      });
+
+      worker.onmessage = (event) => {
+        if (event.data.type === "message") {
+          setMessages(event.data.data);
+        } else if (event.data.type === "complete") {
+          worker.terminate();
+        } else if (event.data.type === "error") {
+          console.error("Stream error:", event.data.error);
+        }
+      };
+    }
+
   }
 
   const handleInputChange = (event: ChangeEvent<HTMLTextAreaElement>) => {

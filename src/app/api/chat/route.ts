@@ -324,13 +324,13 @@ STRICT RETRY FIX FOR uiNeeds:
             writer.write({
               type: "text-delta",
               id: alignmentId,
-              delta: `Alignment critic score: ${alignment.alignmentScore}/100, verdict: ${alignment.verdict}, violations: ${alignment.violations.length}`,
+              delta: `[ALIGNMENT]Alignment critic score: ${alignment.alignmentScore}/100, verdict: ${alignment.verdict}, violations: ${alignment.violations.length}`,
             });
             if (alignment.violations.length > 0) {
               writer.write({
                 type: "text-delta",
                 id: alignmentId,
-                delta: `\nViolations: ${alignment.violations
+                delta: `[ALIGNMENT]\nViolations: ${alignment.violations
                   .map((v, idx) => `${idx + 1}) [${v.severity}] ${v.code}: ${v.message}`)
                   .join(" | ")}`,
               });
