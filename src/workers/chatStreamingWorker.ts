@@ -33,9 +33,13 @@ type chunkSchemaInfo = {
   | 'READING_VALUE' // 冒号之后读取对应值, 值结束后根据解析结果决定是否继续解析下一个键值对
   readCache?: string;
   key_value: {
-    keyBuffer?: string; // 用于拼接键名
-    valueBuffer?: string; // 用于拼接键值
-  }[]
+    keyBuffer: string; // 用于拼接键名
+    valueBuffer: string; // 用于拼接键值
+  }[];
+  // 状态机追踪
+  _inString?: boolean; // 当前是否正处于被双引号包裹的字符串内部
+  _nestingDepth?: number; // 括号嵌套深度
+  _escapeNext?: boolean; // 是否遇到转义符 \
 }
 type stageInfo = {
   stage: string;
@@ -174,6 +178,7 @@ function parseChunkForSchemaInfo(
   let dataType: 'schema' | 'tool-input' | null = null;
   if (type === 'text-delta') {
     if (rest.id?.includes("stage-info") || rest.id?.includes("alignment-info")) {
+      // stageInfo
       const reg = /\[([^\]]*)\]/g;
       const stage = rest.delta?.match(reg)?.[0]?.slice(1, -1) || '';
       const message = rest.delta?.replace(reg, '').trim() || '';
@@ -187,9 +192,78 @@ function parseChunkForSchemaInfo(
       type: 'tool-input',
       status: 'WAITING_FOR_KEY',
       key_value: [],
+      _inString: false,
+      _nestingDepth: 0,
+      _escapeNext: false,
     }; else if (type === 'tool-input-delta') {
       const data = rest.inputTextDelta as string;
-      
+      if (!chunkSchemaCached) return null;
+      const state = chunkSchemaCached;
+      for (let i = 0; i < data.length; i++) {
+        const char = data[i];
+
+        // 1. 寻 key
+        if (state.status === 'WAITING_FOR_KEY') {
+          if (char === '"') {
+            state.status = "READING_KEY";
+            state.key_value.push({ keyBuffer: '', valueBuffer: '' });
+          }
+          continue; // 忽略遇到首个双引号之前的 空格/逗号/{ 等
+        }
+        const currentTarget = state.key_value.at(-1) as { keyBuffer: string, valueBuffer: string };
+        // 2. 读 key
+        if (state.status === "READING_KEY") {
+          if (state._escapeNext) {
+            currentTarget.keyBuffer += char;
+            state._escapeNext = false;
+          } else if (char === '\\') state._escapeNext = true;
+          else if (char === '"') state.status = "WAITING_FOR_COLON";
+          else currentTarget.keyBuffer += char;
+          continue;
+        }
+        // 3. 等冒号
+        if (state.status === "WAITING_FOR_COLON") {
+          if (char === ':') {
+            state.status = 'READING_VALUE';
+            state._inString = false;
+            state._nestingDepth = 0;
+          }
+          continue;
+        }
+        // 4. 读 value
+        if (state.status === "READING_VALUE") {
+          if (state._escapeNext) {
+            currentTarget.valueBuffer += char;
+            state._escapeNext = false;
+            continue;
+          }
+          if (char === '\\') {
+            currentTarget.valueBuffer += char;
+            state._escapeNext = true;
+            continue;
+          }
+          // 引号切换字符串内外状态
+          if (char === '"') {
+            state._inString = !state._inString;
+            currentTarget.valueBuffer += char;
+            continue;
+          }
+          // 不在字符串内部追踪括号深度
+          if (!state._inString) {
+            if (char === '{' || '[') state._nestingDepth!++;
+            else if (char === '}' || ']') state._nestingDepth!--;
+            // 边界深度 0 且逗号则结束当前 value
+            if (state._nestingDepth === 0 && char === ',') {
+              state.status = 'WAITING_FOR_KEY';
+              continue; // 丢弃逗号， 等待下一轮 key_value
+            }
+            // 根边界 json 闭合， 整轮 tool-input 结束
+            if(state._nestingDepth! < 0 && char === '}')continue;
+          }
+          currentTarget.valueBuffer += char;
+        }
+      }
+      return state;
     }
   }
 
