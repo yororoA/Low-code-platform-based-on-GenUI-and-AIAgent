@@ -1,5 +1,6 @@
 import { AdminAgentMessage } from "@/app/api/chat/model";
 import * as z from "zod";
+import {generateHexId} from "@/lib/utils";
 
 type StreamMessageEvent = {
   type: "send";
@@ -27,7 +28,7 @@ const TaskRegistry = new Map<string, {
 }>();
 
 const chunkSchemaInfo_TYPESCHEMA = z.object({
-  type: z.enum(["outputSchema", "tool-input"]),
+  type: z.enum(["outputSchema", "tool-input", "pure-text"]),
   status: z.enum(['WAITING_FOR_KEY', 'READING_KEY', 'WAITING_FOR_COLON', 'READING_VALUE'])
     .describe('WAITING_FOR_KEY: 等待 key, READING_KEY: 读取 key, WAITING_FOR_COLON: 等待冒号, READING_VALUE: 读取 value'),
   key_value: z.array(z.object({
@@ -35,6 +36,7 @@ const chunkSchemaInfo_TYPESCHEMA = z.object({
     valueBuffer: z.string().describe('用于拼接键值'),
   })),
   finalData: z.object({
+    id: z.string(),
     type: z.enum(['tool-input-start', 'tool-input-delta', 'tool-input-available', 'text']),
     text: z.string().optional().describe('非键值对形式的纯文本text'),
     output: z.object().optional().describe('以键值对形式存在的text'),
@@ -49,6 +51,7 @@ const chunkSchemaInfo_TYPESCHEMA = z.object({
   _done: z.boolean().describe('是否解析完成'),
 });
 const stageInfo_TYPESCHEMA = z.object({
+  id: z.string(),
   stage: z.string().describe('stage name'),
   message: z.string().describe('message'),
 });
@@ -131,24 +134,31 @@ async function* parseUIMessageStream(
               if (chunk) {
                 console.log(chunk);
                 const parsedChunk__Typed = parse_classifyChunk(chunk, chunkSchemaCached);
-                if(!parsedChunk__Typed)continue;
-                else{
-                  if(parsedChunk__Typed.type === 'stageInfo') {
+                if (!parsedChunk__Typed) continue;
+                else {
+                  // stageInfo 在服务端为直接 write 写入, 初始即为 done 状态, 解析出后可直接抛出
+                  if (parsedChunk__Typed.type === 'stageInfo') {
                     const state = parsedChunk__Typed.infos as stageInfo;
                     parsedMessages.push({
                       id: chunk.id,
                       role: 'assistant',
                       parts: [{ type: 'text', text: `[${state.stage}] ${state.message}` }],
                     } as AdminAgentMessage);
-                  }else{
+                  } else {
+                    // 非 stageInfo 需要经过流拼接 并显式识别到 done 后才能抛出
                     const state = parsedChunk__Typed.infos as chunkSchemaInfo;
-                    if(!state._done) chunkSchemaCached = state; // 仅当状态机未完成时才更新缓存，避免已完成的状态被后续不相关的chunk覆盖
-                    else{
-                      chunkSchemaCached = null; // 状态机完成后重置缓存
-                      if(state.type === 'outputSchema') {
-
-                      }else{
+                    if (!state._done) {
+                      // 非 done 覆盖更新缓存, 检测是否已有可抛出的 finalData
+                      // todo: 根据 id 推入或者更新 parsedMessages 中对应缓存
+                      chunkSchemaCached = state; // 仅当状态机未完成时才更新缓存，避免已完成的状态被后续不相关的chunk覆盖
+                    }
+                    else { // todo: 根据 id 更新 parsedMessages 中对应缓存
+                      // 检测到 done 时对 finalData 进行处理后抛出
+                      chunkSchemaCached = null; // 状态机重置缓存
+                      if (state.type === 'outputSchema') {
                         
+                      } else {
+
                       }
                     }
                   }
@@ -317,6 +327,7 @@ function parseChunkForSchemaInfo(
       status: 'WAITING_FOR_KEY',
       key_value: [],
       finalData: {
+        id: generateHexId(),
         type: 'text',
         text: '',
         output: {},
@@ -333,7 +344,7 @@ function parseChunkForSchemaInfo(
       const reg = /\[([^\]]*)\]/g;
       const stage = rest.delta?.match(reg)?.[0]?.slice(1, -1) || '';
       const message = rest.delta?.replace(reg, '').trim() || '';
-      return { stage, message } as stageInfo;
+      return { stage, message, id:rest.id } as stageInfo;
     } else {
       // output-schema 状态机解析
       const data = rest.delta as string;
@@ -347,6 +358,7 @@ function parseChunkForSchemaInfo(
       status: 'WAITING_FOR_KEY',
       key_value: [],
       finalData: {
+        id: generateHexId(),
         type,
         toolCallId: rest.toolCallId,
         toolName: rest.toolName,
