@@ -18,6 +18,14 @@ const model = wrapLanguageModel({
   ]
 });
 
+export const ShowResponseInput_Schema = z.object({
+  text: z.string().describe("The text to be sent back to the boss."),
+  topic: z.string().describe("The topic of the conversation."),
+  necessary: z.boolean().describe("Whether the ui is necessary for the boss understanding."),
+  uiDescription: z.string().describe("The description of the interface needed."),
+  uiNeeds: z.array(strictUiNeedSchema).describe("A list of required business-intent components selected from supported metadata names."),
+});
+
 // admin agent
 export const adminAgent = new ToolLoopAgent({
   model,
@@ -29,13 +37,7 @@ export const adminAgent = new ToolLoopAgent({
     // 'call-structure-agent(stream)': callStructureAgent_Stream,
     showResponse: tool({
       description: "Show the response to the user.",
-      inputSchema: z.object({
-        text: z.string().describe("The text to be sent back to the boss."),
-        topic: z.string().describe("The topic of the conversation."),
-        necessary: z.boolean().describe("Whether the ui is necessary for the boss understanding."),
-        uiDescription: z.string().describe("The description of the interface needed."),
-        uiNeeds: z.array(strictUiNeedSchema).describe("A list of required business-intent components selected from supported metadata names."),
-      }),
+      inputSchema: ShowResponseInput_Schema,
     })
   },
   toolChoice: 'required'

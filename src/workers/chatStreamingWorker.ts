@@ -1,11 +1,12 @@
-import { AdminAgentMessage } from "@/app/api/chat/model";
+import { AdminAgentMessage, ShowResponseInput_Schema } from "@/app/api/chat/model";
+import * as z from "zod";
+import { generateHexId } from "@/lib/utils";
 
 type StreamMessageEvent = {
   type: "send";
   id: string;
   messages: AdminAgentMessage[];
-  apiBaseUrl?: string;
-  signal?: AbortSignal;
+  apiBaseUrl: string;
 } | {
   type: "cancel";
   id: string;
@@ -25,26 +26,43 @@ const TaskRegistry = new Map<string, {
   messageBuffer: AdminAgentMessage[];
 }>();
 
-type chunkSchemaInfo = {
-  type: "outputSchema" | "tool-input";
-  status: 'WAITING_FOR_KEY'
-  | 'READING_KEY' // 拼接键名
-  | 'WAITING_FOR_COLON' // 键名闭合，等待冒号
-  | 'READING_VALUE' // 冒号之后读取对应值, 值结束后根据解析结果决定是否继续解析下一个键值对
-  readCache?: string;
-  key_value: {
-    keyBuffer: string; // 用于拼接键名
-    valueBuffer: string; // 用于拼接键值
-  }[];
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+const chunkSchemaInfo_TYPESCHEMA = z.object({
+  type: z.enum(["outputSchema", "tool-input"]),
+  status: z.enum(['WAITING_FOR_KEY', 'READING_KEY', 'WAITING_FOR_COLON', 'READING_VALUE'])
+    .describe('WAITING_FOR_KEY: 等待 key, READING_KEY: 读取 key, WAITING_FOR_COLON: 等待冒号, READING_VALUE: 读取 value'),
+  key_value: z.array(z.object({
+    keyBuffer: z.string().describe('用于拼接键名'),
+    valueBuffer: z.string().describe('用于拼接键值'),
+  })),
+  finalData: z.object({
+    id: z.string(),
+    type: z.enum(['text', 'tool-showResponse']),
+    state: z.enum(['input-streaming', 'input-available']).optional(),
+    text: z.string().optional().describe('非键值对形式的纯文本text'),
+    output: z.record(z.string(), z.any()).optional().describe('以键值对形式存在的text'),
+    toolCallId: z.string().optional().describe('tool call id'),
+    toolName: z.string().optional().describe('tool name'),
+    input: z.record(z.string(), z.any()).optional().describe('tool input')
+  }),
   // 状态机追踪
-  _inString?: boolean; // 当前是否正处于被双引号包裹的字符串内部
-  _nestingDepth?: number; // 括号嵌套深度
-  _escapeNext?: boolean; // 是否遇到转义符 \
-}
-type stageInfo = {
-  stage: string;
-  message: string;
-}
+  _inString: z.boolean().optional().describe('当前是否正处于被双引号包裹的字符串内部'),
+  _nestingDepth: z.number().optional().describe('括号嵌套深度'),
+  _escapeNext: z.boolean().optional().describe('是否遇到转义符 \\'),
+  _done: z.boolean().describe('是否解析完成'),
+});
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+const stageInfo_TYPESCHEMA = z.object({
+  id: z.string(),
+  stage: z.string().describe('stage name'),
+  message: z.string().describe('message'),
+});
+type chunkSchemaInfo = z.infer<typeof chunkSchemaInfo_TYPESCHEMA>;
+type stageInfo = z.infer<typeof stageInfo_TYPESCHEMA>;
+type classifiedParsedChunkInfo = {
+  type: 'tool^schema' | 'stageInfo',
+  infos: chunkSchemaInfo | stageInfo,
+};
 
 /**
  * 手动解析 UI 消息流，替代 useChat 的 sendMessage
@@ -54,10 +72,9 @@ type stageInfo = {
  */
 async function* parseUIMessageStream(
   messages: AdminAgentMessage[],
-  apiBaseUrl?: string,
-  signal?: AbortSignal
+  apiBaseUrl: string,
+  controller: AbortController,
 ): AsyncGenerator<AdminAgentMessage[], void, unknown> {
-  const controller = signal ? new AbortController() : new AbortController();
   const apiUrl = (() => {
     if (apiBaseUrl) return new URL("/api/chat", apiBaseUrl).toString();
     return new URL("/api/chat", self.location.href).toString();
@@ -70,7 +87,7 @@ async function* parseUIMessageStream(
         "Content-Type": "application/json",
       },
       body: JSON.stringify({ messages }),
-      signal: signal || controller.signal,
+      signal: controller.signal,
     });
 
     if (!response.ok) {
@@ -84,7 +101,9 @@ async function* parseUIMessageStream(
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
-    const parsedMessages: AdminAgentMessage[] = [];
+    // const parsedMessages: AdminAgentMessage[] = [];
+    const parsedMessagesMap = new Map<string, AdminAgentMessage>();
+    let chunkSchemaCached: chunkSchemaInfo | null = null;
 
     while (true) {
       const { done, value } = await reader.read();
@@ -94,14 +113,13 @@ async function* parseUIMessageStream(
         if (buffer.trim()) {
           const chunk = parseServerSentEvent(buffer);
           if (chunk) {
-            parsedMessages.push(chunk);
+            parsedMessagesMap.set(chunk.id, chunk);
           }
         }
         break;
       }
 
       buffer += decoder.decode(value, { stream: true });
-      // console.log(buffer)
 
       // 按行分割处理 SSE 格式数据
       const lines = buffer.split("\n");
@@ -116,12 +134,71 @@ async function* parseUIMessageStream(
             if (jsonStr) {
               const chunk = JSON.parse(jsonStr);
               if (chunk) {
-                console.log("Parsed chunk:", chunk);
-                parsedMessages.push(chunk);
+                console.log(chunk);
+                const parsedChunk__Typed = parse_classifyChunk(chunk, chunkSchemaCached);
+                if (!parsedChunk__Typed) continue;
+                else {
+                  // stageInfo 在服务端为直接 write 写入, 初始即为 done 状态, 解析出后可直接抛出
+                  if (parsedChunk__Typed.type === 'stageInfo') {
+                    const state = parsedChunk__Typed.infos as stageInfo;
+                    parsedMessagesMap.set(state.id, {
+                      id: chunk.id,
+                      role: 'assistant',
+                      parts: [{ type: 'text', text: `[${state.stage}] ${state.message}` }],
+                    } as AdminAgentMessage);
+                  } else {
+                    // 非 stageInfo 需要经过流拼接 并显式识别到 done 后才能抛出
+                    const state = parsedChunk__Typed.infos as chunkSchemaInfo;
+                    if (!state._done) {
+                      // 非 done 覆盖更新缓存, 检测是否已有可抛出的 finalData
+                      // 根据 id 推入或者更新 parsedMessages 中对应缓存
+                      chunkSchemaCached = state; // 仅当状态机未完成时才更新缓存，避免已完成的状态被后续不相关的chunk覆盖
+                      parsedMessagesMap.set(state.finalData.id, state.finalData as unknown as AdminAgentMessage);
+                    }
+                    else {
+                      // 根据 id 更新 parsedMessages 中对应缓存
+                      // 检测到 done 时对 finalData 进行处理后抛出
+                      chunkSchemaCached = null; // 状态机重置缓存
+                      if (state.type === 'outputSchema') {
+                        parsedMessagesMap.set(state.finalData.id, {
+                          id: state.finalData.id,
+                          role: 'assistant',
+                          parts: [{ type: 'text', text: JSON.stringify(state.finalData.output) }],
+                        });
+                      } else if (state.type === 'tool-input') {
+                        const fd = state.finalData;
+                        if (fd.type === 'tool-showResponse') {
+                          const toolCallId = fd.toolCallId ?? '';
+                          const st = fd.state ?? 'input-streaming';
+                          type ShowResponseInput = z.infer<typeof ShowResponseInput_Schema>;
+                          const showResponsePart =
+                            st === 'input-available'
+                              ? {
+                                type: 'tool-showResponse' as const,
+                                toolCallId,
+                                state: 'input-available' as const,
+                                input: fd.input as ShowResponseInput,
+                              }
+                              : {
+                                type: 'tool-showResponse' as const,
+                                toolCallId,
+                                state: 'input-streaming' as const,
+                                input: fd.input as Partial<ShowResponseInput> | undefined,
+                              };
+                          parsedMessagesMap.set(fd.id, {
+                            id: fd.id,
+                            role: 'assistant',
+                            parts: [showResponsePart],
+                          });
+                        }
+                      }
+                    }
+                  }
+                }
                 // 可以在这里定期 yield，而不是等到全部完成
-                if (parsedMessages.length >= 1) {
-                  yield [...parsedMessages];
-                  parsedMessages.length = 0;
+                if (parsedMessagesMap.size >= 1) {
+                  yield [...parsedMessagesMap.values()];
+                  parsedMessagesMap.clear();
                 }
               }
             }
@@ -133,8 +210,9 @@ async function* parseUIMessageStream(
     }
 
     // 最后产生剩余的消息
-    if (parsedMessages.length > 0) {
-      yield parsedMessages;
+    if (parsedMessagesMap.size > 0) {
+      yield [...parsedMessagesMap.values()];
+      parsedMessagesMap.clear();
     }
   } finally {
     controller.abort();
@@ -164,7 +242,101 @@ function parseServerSentEvent(eventStr: string): AdminAgentMessage | null {
 }
 
 /**
+ * output-schema 以及 tool-input-delta 的共享流式 JSON 状态机
+ * @param chunk - 当前的消息块
+ * @param chunkSchemaCached - 上一轮的解析缓存
+ */
+function processJSONFSM(state: chunkSchemaInfo, data: string): chunkSchemaInfo {
+  const isToolInput = state.type === 'tool-input';
+  // todo: 目前只解析了键值对形式的JSON输出, 应当添加对纯文本形式的解析
+  for (let i = 0; i < data.length; i++) {
+    const char = data[i];
+    // 1. 寻 key
+    if (state.status === 'WAITING_FOR_KEY') {
+      if (char === '"') {
+        state.status = "READING_KEY";
+        state.key_value.push({ keyBuffer: '', valueBuffer: '' });
+      }
+      continue; // 忽略遇到首个双引号之前的 空格/逗号/{ 等
+    }
+    const currentTarget = state.key_value.at(-1) as { keyBuffer: string, valueBuffer: string };
+    // 2. 读 key
+    if (state.status === "READING_KEY") {
+      if (state._escapeNext) {
+        // 处理 key 两侧的 \ , 如 \text\   \topic\, 当 escapeNext===true 时代表上轮 char 为 \ 且该轮 char 为 key部分
+        currentTarget.keyBuffer += char;
+        state._escapeNext = false;
+      } else if (char === '\\') state._escapeNext = true; // 标记 escapeNext 以供下轮使用
+      else if (char === '"') state.status = "WAITING_FOR_COLON"; // key 闭合, 等待冒号
+      else currentTarget.keyBuffer += char; // key 内容
+      continue;
+    }
+    // 3. 等冒号
+    if (state.status === "WAITING_FOR_COLON") {
+      if (char === ':') {
+        state.status = 'READING_VALUE';
+        if (isToolInput) state.finalData.input![currentTarget.keyBuffer] = ''; // 预先占位，方便前端增量展示
+        else state.finalData.output![currentTarget.keyBuffer] = ''; // 预先占位，方便前端增量展示
+        state._inString = false;
+        state._nestingDepth = 0;
+      }
+      continue;
+    }
+    // 4. 读 value
+    if (state.status === "READING_VALUE") {
+      if (state._escapeNext) {
+        // 同上 key 处理, 当标记为true时该轮char为value内容的开始
+        currentTarget.valueBuffer += char;
+        if (isToolInput) state.finalData.input![currentTarget.keyBuffer] = currentTarget.valueBuffer;
+        else state.finalData.output![currentTarget.keyBuffer] = currentTarget.valueBuffer;
+        state._escapeNext = false;
+        continue;
+      }
+      if (char === '\\') {
+        // 标记下轮char为value内容的开始
+        currentTarget.valueBuffer += char;
+        if (isToolInput) state.finalData.input![currentTarget.keyBuffer] = currentTarget.valueBuffer;
+        else state.finalData.output![currentTarget.keyBuffer] = currentTarget.valueBuffer;
+        state._escapeNext = true;
+        continue;
+      }
+      // 引号切换字符串内外状态
+      if (char === '"') {
+        state._inString = !state._inString;
+        currentTarget.valueBuffer += char;
+        if (isToolInput) state.finalData.input![currentTarget.keyBuffer] = currentTarget.valueBuffer;
+        else state.finalData.output![currentTarget.keyBuffer] = currentTarget.valueBuffer;
+        continue;
+      }
+      // 不在字符串内部追踪括号深度
+      if (!state._inString) {
+        if (char === '{' || char === '[') state._nestingDepth!++;
+        else if (char === '}' || char === ']') state._nestingDepth!--;
+        // 边界深度 0 且逗号则结束当前 value
+        if (state._nestingDepth === 0 && char === ',') {
+          state.status = 'WAITING_FOR_KEY';
+          continue; // 丢弃逗号， 等待下一轮 key_value
+        }
+        // 根边界 json 闭合， 整轮 json 结束
+        if (state._nestingDepth! < 0 && char === '}') {
+          state._done = true;
+          if (isToolInput) state.finalData.state = 'input-available'; // tool-input 从 delta 进入 available 状态
+          continue;
+        }
+        if (currentTarget.valueBuffer === '' && char.trim() === '') continue;
+      }
+      currentTarget.valueBuffer += char;
+      if (isToolInput) state.finalData.input![currentTarget.keyBuffer] = currentTarget.valueBuffer;
+      else state.finalData.output![currentTarget.keyBuffer] = currentTarget.valueBuffer;
+    }
+  }
+  return state;
+}
+
+/**
  * 解析chunk中存在的outputSchema|tool-input的delta
+ * @param chunk - 当前的消息块
+ * @param chunkSchemaCached - 上一轮的解析缓存
  */
 function parseChunkForSchemaInfo(
   chunk: object & {
@@ -172,105 +344,88 @@ function parseChunkForSchemaInfo(
     id?: string,
     delta?: string,
     inputTextDelta?: string,
-  }, chunkSchemaCached?: chunkSchemaInfo
+    toolCallId?: string,
+    toolName?: string,
+  }, chunkSchemaCached: chunkSchemaInfo | null = null
 ): chunkSchemaInfo | stageInfo | null {
   const { type, ...rest } = chunk;
-  let dataType: 'schema' | 'tool-input' | null = null;
+  const inStage = rest.id?.includes("stage-info") || rest.id?.includes("alignment-info");
+  // 初始化 output-schema 对应的 JSON-FSM 状态机
+  if (type === 'text-start') {
+    if (inStage) return null;
+    else return {
+      type: 'outputSchema',
+      status: 'WAITING_FOR_KEY',
+      key_value: [],
+      finalData: {
+        id: generateHexId(),
+        type: 'text',
+        text: '',
+        output: {},
+      },
+      _inString: false,
+      _nestingDepth: 0,
+      _escapeNext: false,
+      _done: false,
+    }
+  }
   if (type === 'text-delta') {
-    if (rest.id?.includes("stage-info") || rest.id?.includes("alignment-info")) {
+    if (inStage) {
       // stageInfo
       const reg = /\[([^\]]*)\]/g;
       const stage = rest.delta?.match(reg)?.[0]?.slice(1, -1) || '';
       const message = rest.delta?.replace(reg, '').trim() || '';
-      return {
-        stage,
-        message,
-      } as stageInfo;
-    } else dataType = 'schema';
+      return { stage, message, id: rest.id } as stageInfo;
+    } else {
+      // output-schema 状态机解析
+      const data = rest.delta as string;
+      if (!chunkSchemaCached || chunkSchemaCached.type !== 'outputSchema') return null;
+      return processJSONFSM(chunkSchemaCached, data);
+    }
   } else if (type?.includes('tool-input')) {
     if (type === 'tool-input-start') return {
+      // 初始化 tool-input-delta 对应的 JSON-FSM 状态机
       type: 'tool-input',
       status: 'WAITING_FOR_KEY',
       key_value: [],
+      finalData: {
+        id: generateHexId(),
+        type: `tool-showResponse`,
+        state: 'input-streaming',
+        toolCallId: rest.toolCallId,
+        toolName: rest.toolName,
+        input: {},
+      },
       _inString: false,
       _nestingDepth: 0,
       _escapeNext: false,
+      _done: false,
     }; else if (type === 'tool-input-delta') {
       const data = rest.inputTextDelta as string;
-      if (!chunkSchemaCached) return null;
-      const state = chunkSchemaCached;
-      for (let i = 0; i < data.length; i++) {
-        const char = data[i];
-
-        // 1. 寻 key
-        if (state.status === 'WAITING_FOR_KEY') {
-          if (char === '"') {
-            state.status = "READING_KEY";
-            state.key_value.push({ keyBuffer: '', valueBuffer: '' });
-          }
-          continue; // 忽略遇到首个双引号之前的 空格/逗号/{ 等
-        }
-        const currentTarget = state.key_value.at(-1) as { keyBuffer: string, valueBuffer: string };
-        // 2. 读 key
-        if (state.status === "READING_KEY") {
-          if (state._escapeNext) {
-            currentTarget.keyBuffer += char;
-            state._escapeNext = false;
-          } else if (char === '\\') state._escapeNext = true;
-          else if (char === '"') state.status = "WAITING_FOR_COLON";
-          else currentTarget.keyBuffer += char;
-          continue;
-        }
-        // 3. 等冒号
-        if (state.status === "WAITING_FOR_COLON") {
-          if (char === ':') {
-            state.status = 'READING_VALUE';
-            state._inString = false;
-            state._nestingDepth = 0;
-          }
-          continue;
-        }
-        // 4. 读 value
-        if (state.status === "READING_VALUE") {
-          if (state._escapeNext) {
-            currentTarget.valueBuffer += char;
-            state._escapeNext = false;
-            continue;
-          }
-          if (char === '\\') {
-            currentTarget.valueBuffer += char;
-            state._escapeNext = true;
-            continue;
-          }
-          // 引号切换字符串内外状态
-          if (char === '"') {
-            state._inString = !state._inString;
-            currentTarget.valueBuffer += char;
-            continue;
-          }
-          // 不在字符串内部追踪括号深度
-          if (!state._inString) {
-            if (char === '{' || '[') state._nestingDepth!++;
-            else if (char === '}' || ']') state._nestingDepth!--;
-            // 边界深度 0 且逗号则结束当前 value
-            if (state._nestingDepth === 0 && char === ',') {
-              state.status = 'WAITING_FOR_KEY';
-              continue; // 丢弃逗号， 等待下一轮 key_value
-            }
-            // 根边界 json 闭合， 整轮 tool-input 结束
-            if(state._nestingDepth! < 0 && char === '}')continue;
-          }
-          currentTarget.valueBuffer += char;
-        }
-      }
-      return state;
+      if (!chunkSchemaCached || chunkSchemaCached.type !== 'tool-input') return null;
+      return processJSONFSM(chunkSchemaCached, data);
     }
   }
-
-
   return null;
 }
 
+/**
+ * 解析并分类 chunk 类型，区分出 outputSchema、tool-input 以及 stageInfo 三种特殊类型的 chunk
+ * @param chunk - 当前的消息块
+ * @param chunkSchemaCached - 上一轮的解析缓存
+ */
+function parse_classifyChunk(chunk: unknown, chunkSchemaCached: chunkSchemaInfo | null): classifiedParsedChunkInfo | null {
+  if (typeof chunk !== 'object' || chunk === null) return null;
+  const parsedChunk_info = parseChunkForSchemaInfo(chunk as object, chunkSchemaCached);
+  if (!parsedChunk_info) return null;
+  if ('stage' in parsedChunk_info) return {
+    type: 'stageInfo',
+    infos: parsedChunk_info as stageInfo,
+  }; else return {
+    type: 'tool^schema',
+    infos: parsedChunk_info as chunkSchemaInfo,
+  };
+}
 
 /**
  * 处理来自主线程的消息
@@ -279,7 +434,7 @@ onmessage = async (event: MessageEvent<StreamMessageEvent>) => {
   const { type, id } = event.data;
 
   if (type === "send") {
-    const { messages, apiBaseUrl, signal } = event.data;
+    const { messages, apiBaseUrl } = event.data;
     const controller = new AbortController();
 
     TaskRegistry.set(id, {
@@ -290,7 +445,7 @@ onmessage = async (event: MessageEvent<StreamMessageEvent>) => {
     });
 
     try {
-      for await (const chunk of parseUIMessageStream(messages, apiBaseUrl, signal)) {
+      for await (const chunk of parseUIMessageStream(messages, apiBaseUrl, controller)) {
         const task = TaskRegistry.get(id);
         if (!task) break;
 
