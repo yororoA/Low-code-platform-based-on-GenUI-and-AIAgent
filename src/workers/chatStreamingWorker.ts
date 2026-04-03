@@ -35,8 +35,9 @@ const chunkSchemaInfo_TYPESCHEMA = z.object({
     valueBuffer: z.string().describe('用于拼接键值'),
   })),
   finalData: z.object({
-    type: z.enum(['tool-input-available', 'text']),
-    text: z.string().optional().describe('text'),
+    type: z.enum(['tool-input-start', 'tool-input-delta', 'tool-input-available', 'text']),
+    text: z.string().optional().describe('非键值对形式的纯文本text'),
+    output: z.object().optional().describe('以键值对形式存在的text'),
     toolCallId: z.string().optional().describe('tool call id'),
     toolName: z.string().optional().describe('tool name'),
     input: z.object().optional().describe('tool input')
@@ -53,6 +54,10 @@ const stageInfo_TYPESCHEMA = z.object({
 });
 type chunkSchemaInfo = z.infer<typeof chunkSchemaInfo_TYPESCHEMA>;
 type stageInfo = z.infer<typeof stageInfo_TYPESCHEMA>;
+type classifiedParsedChunkInfo = {
+  type: 'tool^schema' | 'stageInfo',
+  infos: chunkSchemaInfo | stageInfo,
+};
 
 /**
  * 手动解析 UI 消息流，替代 useChat 的 sendMessage
@@ -125,6 +130,7 @@ async function* parseUIMessageStream(
               const chunk = JSON.parse(jsonStr);
               if (chunk) {
                 console.log(chunk);
+                const parsedChunk__Typed = parse_classifyChunk(chunk, chunkSchemaCached);
                 if (chunkSchemaCached !== null) {
                   if (!(chunkSchemaCached as chunkSchemaInfo)._done) {
                     const parsedChunk = parseChunkForSchemaInfo(chunk, chunkSchemaCached);
@@ -155,10 +161,10 @@ async function* parseUIMessageStream(
                               parts: [
                                 {
                                   type: 'tool-showResponse',
-                                  input: state.key_value.reduce((res, item: { keyBuffer: string, valueBuffer: string })=>{
+                                  input: state.key_value.reduce((res, item: { keyBuffer: string, valueBuffer: string }) => {
                                     res[item.keyBuffer] = item.valueBuffer;
                                     return res;
-                                  }, {} as {text:string, topic:string, necessary:boolean, uiDescription:string, uiNeeds:string[]}),
+                                  }, {} as { text: string, topic: string, necessary: boolean, uiDescription: string, uiNeeds: string[] }),
                                   toolCallId: chunk.id,
                                   state: 'input-available',
                                   output: undefined,
@@ -238,8 +244,13 @@ function parseServerSentEvent(eventStr: string): AdminAgentMessage | null {
 
 /**
  * output-schema 以及 tool-input-delta 的共享流式 JSON 状态机
+ * @param chunk - 当前的消息块
+ * @param chunkSchemaCached - 上一轮的解析缓存
  */
 function processJSONFSM(state: chunkSchemaInfo, data: string): chunkSchemaInfo {
+  const isToolInput = state.type === 'tool-input';
+  if (isToolInput && state.finalData.type === 'tool-input-start') state.finalData.type = 'tool-input-delta'; // tool-input 从 start 进入 delta 状态
+  // todo: 目前只解析了键值对形式的JSON输出, 应当添加对纯文本形式的解析
   for (let i = 0; i < data.length; i++) {
     const char = data[i];
     // 1. 寻 key
@@ -266,6 +277,8 @@ function processJSONFSM(state: chunkSchemaInfo, data: string): chunkSchemaInfo {
     if (state.status === "WAITING_FOR_COLON") {
       if (char === ':') {
         state.status = 'READING_VALUE';
+        if (isToolInput) state.finalData.input[currentTarget.keyBuffer] = ''; // 预先占位，方便前端增量展示
+        else state.finalData.output[currentTarget.keyBuffer] = ''; // 预先占位，方便前端增量展示
         state._inString = false;
         state._nestingDepth = 0;
       }
@@ -276,12 +289,16 @@ function processJSONFSM(state: chunkSchemaInfo, data: string): chunkSchemaInfo {
       if (state._escapeNext) {
         // 同上 key 处理, 当标记为true时该轮char为value内容的开始
         currentTarget.valueBuffer += char;
+        if (isToolInput) state.finalData.input[currentTarget.keyBuffer] = currentTarget.valueBuffer;
+        else state.finalData.output[currentTarget.keyBuffer] = currentTarget.valueBuffer;
         state._escapeNext = false;
         continue;
       }
       if (char === '\\') {
         // 标记下轮char为value内容的开始
         currentTarget.valueBuffer += char;
+        if (isToolInput) state.finalData.input[currentTarget.keyBuffer] = currentTarget.valueBuffer;
+        else state.finalData.output[currentTarget.keyBuffer] = currentTarget.valueBuffer;
         state._escapeNext = true;
         continue;
       }
@@ -289,6 +306,8 @@ function processJSONFSM(state: chunkSchemaInfo, data: string): chunkSchemaInfo {
       if (char === '"') {
         state._inString = !state._inString;
         currentTarget.valueBuffer += char;
+        if (isToolInput) state.finalData.input[currentTarget.keyBuffer] = currentTarget.valueBuffer;
+        else state.finalData.output[currentTarget.keyBuffer] = currentTarget.valueBuffer;
         continue;
       }
       // 不在字符串内部追踪括号深度
@@ -303,11 +322,14 @@ function processJSONFSM(state: chunkSchemaInfo, data: string): chunkSchemaInfo {
         // 根边界 json 闭合， 整轮 json 结束
         if (state._nestingDepth! < 0 && char === '}') {
           state._done = true;
+          if (isToolInput) state.finalData.type = 'tool-input-available'; // tool-input 从 delta 进入 available 状态
           continue;
         }
         if (currentTarget.valueBuffer === '' && char.trim() === '') continue;
       }
       currentTarget.valueBuffer += char;
+      if (isToolInput) state.finalData.input[currentTarget.keyBuffer] = currentTarget.valueBuffer;
+      else state.finalData.output[currentTarget.keyBuffer] = currentTarget.valueBuffer;
     }
   }
   return state;
@@ -315,6 +337,8 @@ function processJSONFSM(state: chunkSchemaInfo, data: string): chunkSchemaInfo {
 
 /**
  * 解析chunk中存在的outputSchema|tool-input的delta
+ * @param chunk - 当前的消息块
+ * @param chunkSchemaCached - 上一轮的解析缓存
  */
 function parseChunkForSchemaInfo(
   chunk: object & {
@@ -322,7 +346,9 @@ function parseChunkForSchemaInfo(
     id?: string,
     delta?: string,
     inputTextDelta?: string,
-  }, chunkSchemaCached?: chunkSchemaInfo
+    toolCallId?: string,
+    toolName?: string,
+  }, chunkSchemaCached: chunkSchemaInfo | null = null
 ): chunkSchemaInfo | stageInfo | null {
   const { type, ...rest } = chunk;
   const inStage = rest.id?.includes("stage-info") || rest.id?.includes("alignment-info");
@@ -333,6 +359,11 @@ function parseChunkForSchemaInfo(
       type: 'outputSchema',
       status: 'WAITING_FOR_KEY',
       key_value: [],
+      finalData: {
+        type: 'text',
+        text: '',
+        output: {},
+      },
       _inString: false,
       _nestingDepth: 0,
       _escapeNext: false,
@@ -358,6 +389,12 @@ function parseChunkForSchemaInfo(
       type: 'tool-input',
       status: 'WAITING_FOR_KEY',
       key_value: [],
+      finalData: {
+        type,
+        toolCallId: rest.toolCallId,
+        toolName: rest.toolName,
+        input: {},
+      },
       _inString: false,
       _nestingDepth: 0,
       _escapeNext: false,
@@ -371,6 +408,23 @@ function parseChunkForSchemaInfo(
   return null;
 }
 
+/**
+ * 解析并分类 chunk 类型，区分出 outputSchema、tool-input 以及 stageInfo 三种特殊类型的 chunk
+ * @param chunk - 当前的消息块
+ * @param chunkSchemaCached - 上一轮的解析缓存
+ */
+function parse_classifyChunk(chunk: unknown, chunkSchemaCached: chunkSchemaInfo | null): classifiedParsedChunkInfo | null {
+  if (typeof chunk !== 'object' || chunk === null) return null;
+  const parsedChunk_info = parseChunkForSchemaInfo(chunk as object, chunkSchemaCached);
+  if (!parsedChunk_info) return null;
+  if (stageInfo_TYPESCHEMA.safeParse(parsedChunk_info).success) return {
+    type: 'stageInfo',
+    infos: parsedChunk_info as stageInfo,
+  }; else return {
+    type: 'tool^schema',
+    infos: parsedChunk_info as chunkSchemaInfo,
+  }
+}
 
 /**
  * 处理来自主线程的消息
