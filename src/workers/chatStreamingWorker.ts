@@ -131,68 +131,25 @@ async function* parseUIMessageStream(
               if (chunk) {
                 console.log(chunk);
                 const parsedChunk__Typed = parse_classifyChunk(chunk, chunkSchemaCached);
-                if (chunkSchemaCached !== null) {
-                  if (!(chunkSchemaCached as chunkSchemaInfo)._done) {
-                    const parsedChunk = parseChunkForSchemaInfo(chunk, chunkSchemaCached);
-                    console.log('parsedChunk', parsedChunk);
-                    if (parsedChunk) {
-                      if (chunkSchemaInfo_TYPESCHEMA.safeParse(parsedChunk).success) {
-                        const state = parsedChunk as chunkSchemaInfo;
-                        if (state._done) {
-                          chunkSchemaCached = null;
-                          if (state.type === 'outputSchema') {
-                            parsedMessages.push({
-                              id: chunk.id,
-                              role: 'assistant',
-                              parts: [
-                                {
-                                  type: 'text',
-                                  text: JSON.stringify(state.key_value.reduce((res, item) => {
-                                    res[item.keyBuffer] = item.valueBuffer;
-                                    return res;
-                                  }, {} as Record<string, string>))
-                                }
-                              ]
-                            } as AdminAgentMessage);
-                          } else {
-                            parsedMessages.push({
-                              id: chunk.id,
-                              role: 'assistant',
-                              parts: [
-                                {
-                                  type: 'tool-showResponse',
-                                  input: state.key_value.reduce((res, item: { keyBuffer: string, valueBuffer: string }) => {
-                                    res[item.keyBuffer] = item.valueBuffer;
-                                    return res;
-                                  }, {} as { text: string, topic: string, necessary: boolean, uiDescription: string, uiNeeds: string[] }),
-                                  toolCallId: chunk.id,
-                                  state: 'input-available',
-                                  output: undefined,
-                                  errorText: undefined,
-                                  title: undefined,
-                                  providerExecuted: undefined,
-                                }
-                              ]
-                            })
-                          }
-                        }
-                        chunkSchemaCached = parsedChunk as chunkSchemaInfo;
-                      } else if (stageInfo_TYPESCHEMA.safeParse(parsedChunk).success) {
-                        const state = parsedChunk as stageInfo;
-                        chunkSchemaCached = null;
-                        parsedMessages.push({
-                          id: chunk.id,
-                          role: 'assistant',
-                          parts: [{ type: 'text', text: `[${state.stage}] ${state.message}` }],
-                        } as AdminAgentMessage);
+                if(!parsedChunk__Typed)continue;
+                else{
+                  if(parsedChunk__Typed.type === 'stageInfo') {
+                    const state = parsedChunk__Typed.infos as stageInfo;
+                    parsedMessages.push({
+                      id: chunk.id,
+                      role: 'assistant',
+                      parts: [{ type: 'text', text: `[${state.stage}] ${state.message}` }],
+                    } as AdminAgentMessage);
+                  }else{
+                    const state = parsedChunk__Typed.infos as chunkSchemaInfo;
+                    if(!state._done) chunkSchemaCached = state; // 仅当状态机未完成时才更新缓存，避免已完成的状态被后续不相关的chunk覆盖
+                    else{
+                      chunkSchemaCached = null; // 状态机完成后重置缓存
+                      if(state.type === 'outputSchema') {
+
+                      }else{
+                        
                       }
-                    } else {
-                      chunkSchemaCached = null;
-                      parsedMessages.push({
-                        id: chunk.id,
-                        role: 'assistant',
-                        parts: [{ type: 'text', text: chunk.delta }],
-                      } as AdminAgentMessage);
                     }
                   }
                 }
