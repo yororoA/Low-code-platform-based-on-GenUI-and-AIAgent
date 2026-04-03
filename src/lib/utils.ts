@@ -8,6 +8,6 @@ export function cn(...inputs: ClassValue[]) {
 
 export * from "./getShowResponsePayload";
 export * from "./dispatchEvent";
-export * from "./strToHexStr";
+export * from "./hexStr";
 export * from "./dbtest";
 export * from "./chatMessagesProcessing";
