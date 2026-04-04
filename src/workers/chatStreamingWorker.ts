@@ -140,6 +140,7 @@ async function* parseUIMessageStream(
   })();
 
   try {
+    console.log(messages);
     const response = await fetch(apiUrl, {
       method: "POST",
       headers: {
@@ -363,12 +364,9 @@ function processJSONFSM(state: chunkSchemaInfo, data: string): void {
         state._escapeNext = true;
         continue;
       }
-      // 引号切换字符串内外状态
+      // 引号只用于切换字符串状态，不应写入最终 valueBuffer
       if (char === '"') {
         state._inString = !state._inString;
-        currentTarget.valueBuffer += char;
-        if (isToolInput) state.finalData.input![currentTarget.keyBuffer] = currentTarget.valueBuffer;
-        else state.finalData.output![currentTarget.keyBuffer] = currentTarget.valueBuffer;
         continue;
       }
       // 不在字符串内部追踪括号深度
