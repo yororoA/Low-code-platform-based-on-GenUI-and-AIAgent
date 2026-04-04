@@ -23,7 +23,7 @@ const TaskRegistry = new Map<string, {
   controller: AbortController;
   buffer: string;
   isFocused: boolean;
-  messageBuffer: AdminAgentMessage[];
+  messageBuffer: Map<string, AdminAgentMessage>;
 }>();
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -46,9 +46,9 @@ const chunkSchemaInfo_TYPESCHEMA = z.object({
     input: z.record(z.string(), z.any()).optional().describe('tool input')
   }),
   // 状态机追踪
-  _inString: z.boolean().optional().describe('当前是否正处于被双引号包裹的字符串内部'),
-  _nestingDepth: z.number().optional().describe('括号嵌套深度'),
-  _escapeNext: z.boolean().optional().describe('是否遇到转义符 \\'),
+  _inString: z.boolean().describe('当前是否正处于被双引号包裹的字符串内部'),
+  _nestingDepth: z.number().describe('括号嵌套深度'),
+  _escapeNext: z.boolean().describe('是否遇到转义符 \\'),
   _done: z.boolean().describe('是否解析完成'),
 });
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -61,8 +61,67 @@ type chunkSchemaInfo = z.infer<typeof chunkSchemaInfo_TYPESCHEMA>;
 type stageInfo = z.infer<typeof stageInfo_TYPESCHEMA>;
 type classifiedParsedChunkInfo = {
   type: 'tool^schema' | 'stageInfo',
+  new_cacheLeft: boolean,
   infos: chunkSchemaInfo | stageInfo,
 };
+
+function adminMessageFromStageInfo(s: stageInfo): AdminAgentMessage {
+  return {
+    id: s.id,
+    role: 'assistant',
+    parts: [{ type: 'text', text: `[${s.stage}] ${s.message}` }],
+  } as AdminAgentMessage;
+}
+
+/** outputSchema / tool-input 流式增量或尾部 flush 时的统一 UI 消息形态 */
+function adminMessageFromSchemaStreaming(state: chunkSchemaInfo): AdminAgentMessage {
+  if (state.type === 'outputSchema') {
+    return {
+      id: state.finalData.id,
+      role: 'assistant',
+      parts: [{ type: 'text', text: JSON.stringify(state.finalData.output) }],
+    } as AdminAgentMessage;
+  }
+  return {
+    id: state.finalData.id,
+    role: 'assistant',
+    parts: [{
+      type: 'tool-showResponse',
+      input: state.finalData.input,
+      toolCallId: state.finalData.toolCallId,
+      state: state.finalData.state,
+    }],
+  } as AdminAgentMessage;
+}
+
+/** FSM 已 done 且为 tool-showResponse 时的最终 part 形态（与流式占位区分） */
+function adminMessageFromCompletedToolInput(state: chunkSchemaInfo): AdminAgentMessage | null {
+  if (state.type !== 'tool-input') return null;
+  const fd = state.finalData;
+  if (fd.type !== 'tool-showResponse') return null;
+  type ShowResponseInput = z.infer<typeof ShowResponseInput_Schema>;
+  const toolCallId = fd.toolCallId ?? '';
+  const st = fd.state ?? 'input-streaming';
+  const showResponsePart =
+    st === 'input-available'
+      ? {
+        type: 'tool-showResponse' as const,
+        toolCallId,
+        state: 'input-available' as const,
+        input: fd.input as ShowResponseInput,
+      }
+      : {
+        type: 'tool-showResponse' as const,
+        toolCallId,
+        state: 'input-streaming' as const,
+        input: fd.input as Partial<ShowResponseInput> | undefined,
+      };
+  return {
+    id: fd.id,
+    role: 'assistant',
+    parts: [showResponsePart],
+  } as AdminAgentMessage;
+}
 
 /**
  * 手动解析 UI 消息流，替代 useChat 的 sendMessage
@@ -101,7 +160,6 @@ async function* parseUIMessageStream(
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
-    // const parsedMessages: AdminAgentMessage[] = [];
     const parsedMessagesMap = new Map<string, AdminAgentMessage>();
     let chunkSchemaCached: chunkSchemaInfo | null = null;
 
@@ -113,12 +171,45 @@ async function* parseUIMessageStream(
         if (buffer.trim()) {
           const chunk = parseServerSentEvent(buffer);
           if (chunk) {
-            parsedMessagesMap.set(chunk.id, chunk);
-          }
+            const typed = parse_classifyChunk(chunk, chunkSchemaCached);
+            if (typed) {
+              if (typed.new_cacheLeft && chunkSchemaCached && !chunkSchemaCached._done) {
+                parsedMessagesMap.set(
+                  chunkSchemaCached.finalData.id,
+                  adminMessageFromSchemaStreaming(chunkSchemaCached),
+                );
+                chunkSchemaCached = null;
+              }
+              if (typed.type === 'stageInfo') {
+                const state = typed.infos as stageInfo;
+                parsedMessagesMap.set(state.id, adminMessageFromStageInfo(state));
+              } else {
+                const state = typed.infos as chunkSchemaInfo;
+                if (!state._done) {
+                  chunkSchemaCached = state;
+                  parsedMessagesMap.set(state.finalData.id, adminMessageFromSchemaStreaming(state));
+                } else {
+                  chunkSchemaCached = null;
+                  if (state.type === 'outputSchema') {
+                    parsedMessagesMap.set(state.finalData.id, adminMessageFromSchemaStreaming(state));
+                  } else if (state.type === 'tool-input') {
+                    const completed = adminMessageFromCompletedToolInput(state);
+                    if (completed) parsedMessagesMap.set(completed.id, completed);
+                  }
+                }
+              }
+            }
+          } else console.warn("Unclassified chunk:", chunk); // todo: 未分类的 chunk 需要处理
+        }
+        // flush 未完成的 FSM（与 chunkSchemaCached 一致，避免 new_cacheLeft 已 flush 后重复）
+        if (chunkSchemaCached && !chunkSchemaCached._done) {
+          parsedMessagesMap.set(
+            chunkSchemaCached.finalData.id,
+            adminMessageFromSchemaStreaming(chunkSchemaCached),
+          );
         }
         break;
       }
-
       buffer += decoder.decode(value, { stream: true });
 
       // 按行分割处理 SSE 格式数据
@@ -138,59 +229,31 @@ async function* parseUIMessageStream(
                 const parsedChunk__Typed = parse_classifyChunk(chunk, chunkSchemaCached);
                 if (!parsedChunk__Typed) continue;
                 else {
+                  if (parsedChunk__Typed.new_cacheLeft && chunkSchemaCached && !chunkSchemaCached._done) {
+                    parsedMessagesMap.set(
+                      chunkSchemaCached.finalData.id,
+                      adminMessageFromSchemaStreaming(chunkSchemaCached),
+                    );
+                    chunkSchemaCached = null;
+                  }
                   // stageInfo 在服务端为直接 write 写入, 初始即为 done 状态, 解析出后可直接抛出
                   if (parsedChunk__Typed.type === 'stageInfo') {
                     const state = parsedChunk__Typed.infos as stageInfo;
-                    parsedMessagesMap.set(state.id, {
-                      id: chunk.id,
-                      role: 'assistant',
-                      parts: [{ type: 'text', text: `[${state.stage}] ${state.message}` }],
-                    } as AdminAgentMessage);
+                    parsedMessagesMap.set(state.id, adminMessageFromStageInfo(state));
                   } else {
                     // 非 stageInfo 需要经过流拼接 并显式识别到 done 后才能抛出
                     const state = parsedChunk__Typed.infos as chunkSchemaInfo;
                     if (!state._done) {
-                      // 非 done 覆盖更新缓存, 检测是否已有可抛出的 finalData
-                      // 根据 id 推入或者更新 parsedMessages 中对应缓存
-                      chunkSchemaCached = state; // 仅当状态机未完成时才更新缓存，避免已完成的状态被后续不相关的chunk覆盖
-                      parsedMessagesMap.set(state.finalData.id, state.finalData as unknown as AdminAgentMessage);
+                      chunkSchemaCached = state;
+                      parsedMessagesMap.set(state.finalData.id, adminMessageFromSchemaStreaming(state));
                     }
                     else {
-                      // 根据 id 更新 parsedMessages 中对应缓存
-                      // 检测到 done 时对 finalData 进行处理后抛出
-                      chunkSchemaCached = null; // 状态机重置缓存
+                      chunkSchemaCached = null;
                       if (state.type === 'outputSchema') {
-                        parsedMessagesMap.set(state.finalData.id, {
-                          id: state.finalData.id,
-                          role: 'assistant',
-                          parts: [{ type: 'text', text: JSON.stringify(state.finalData.output) }],
-                        });
+                        parsedMessagesMap.set(state.finalData.id, adminMessageFromSchemaStreaming(state));
                       } else if (state.type === 'tool-input') {
-                        const fd = state.finalData;
-                        if (fd.type === 'tool-showResponse') {
-                          const toolCallId = fd.toolCallId ?? '';
-                          const st = fd.state ?? 'input-streaming';
-                          type ShowResponseInput = z.infer<typeof ShowResponseInput_Schema>;
-                          const showResponsePart =
-                            st === 'input-available'
-                              ? {
-                                type: 'tool-showResponse' as const,
-                                toolCallId,
-                                state: 'input-available' as const,
-                                input: fd.input as ShowResponseInput,
-                              }
-                              : {
-                                type: 'tool-showResponse' as const,
-                                toolCallId,
-                                state: 'input-streaming' as const,
-                                input: fd.input as Partial<ShowResponseInput> | undefined,
-                              };
-                          parsedMessagesMap.set(fd.id, {
-                            id: fd.id,
-                            role: 'assistant',
-                            parts: [showResponsePart],
-                          });
-                        }
+                        const completed = adminMessageFromCompletedToolInput(state);
+                        if (completed) parsedMessagesMap.set(completed.id, completed);
                       }
                     }
                   }
@@ -208,21 +271,21 @@ async function* parseUIMessageStream(
         }
       }
     }
-
     // 最后产生剩余的消息
     if (parsedMessagesMap.size > 0) {
       yield [...parsedMessagesMap.values()];
       parsedMessagesMap.clear();
     }
-  } finally {
-    controller.abort();
-  }
+  } catch (error) {
+    console.warn("Failed to parse SSE data:", error);
+    throw error;
+  } finally { controller.abort(); }
 }
 
 /**
  * 解析单个 SSE 事件
  */
-function parseServerSentEvent(eventStr: string): AdminAgentMessage | null {
+function parseServerSentEvent(eventStr: string): Record<string, unknown> | null {
   const lines = eventStr.split("\n");
   let data = "";
 
@@ -246,7 +309,7 @@ function parseServerSentEvent(eventStr: string): AdminAgentMessage | null {
  * @param chunk - 当前的消息块
  * @param chunkSchemaCached - 上一轮的解析缓存
  */
-function processJSONFSM(state: chunkSchemaInfo, data: string): chunkSchemaInfo {
+function processJSONFSM(state: chunkSchemaInfo, data: string): void {
   const isToolInput = state.type === 'tool-input';
   // todo: 目前只解析了键值对形式的JSON输出, 应当添加对纯文本形式的解析
   for (let i = 0; i < data.length; i++) {
@@ -310,15 +373,15 @@ function processJSONFSM(state: chunkSchemaInfo, data: string): chunkSchemaInfo {
       }
       // 不在字符串内部追踪括号深度
       if (!state._inString) {
-        if (char === '{' || char === '[') state._nestingDepth!++;
-        else if (char === '}' || char === ']') state._nestingDepth!--;
+        if (char === '{' || char === '[') state._nestingDepth++;
+        else if (char === '}' || char === ']') state._nestingDepth--;
         // 边界深度 0 且逗号则结束当前 value
         if (state._nestingDepth === 0 && char === ',') {
           state.status = 'WAITING_FOR_KEY';
           continue; // 丢弃逗号， 等待下一轮 key_value
         }
         // 根边界 json 闭合， 整轮 json 结束
-        if (state._nestingDepth! < 0 && char === '}') {
+        if (state._nestingDepth < 0 && char === '}') {
           state._done = true;
           if (isToolInput) state.finalData.state = 'input-available'; // tool-input 从 delta 进入 available 状态
           continue;
@@ -330,7 +393,6 @@ function processJSONFSM(state: chunkSchemaInfo, data: string): chunkSchemaInfo {
       else state.finalData.output![currentTarget.keyBuffer] = currentTarget.valueBuffer;
     }
   }
-  return state;
 }
 
 /**
@@ -378,9 +440,11 @@ function parseChunkForSchemaInfo(
       return { stage, message, id: rest.id } as stageInfo;
     } else {
       // output-schema 状态机解析
-      const data = rest.delta as string;
+      const data = rest.delta ?? '';
       if (!chunkSchemaCached || chunkSchemaCached.type !== 'outputSchema') return null;
-      return processJSONFSM(chunkSchemaCached, data);
+      if (data === '') return chunkSchemaCached;
+      processJSONFSM(chunkSchemaCached, data);
+      return chunkSchemaCached;
     }
   } else if (type?.includes('tool-input')) {
     if (type === 'tool-input-start') return {
@@ -401,9 +465,11 @@ function parseChunkForSchemaInfo(
       _escapeNext: false,
       _done: false,
     }; else if (type === 'tool-input-delta') {
-      const data = rest.inputTextDelta as string;
+      const data = rest.inputTextDelta ?? '';
       if (!chunkSchemaCached || chunkSchemaCached.type !== 'tool-input') return null;
-      return processJSONFSM(chunkSchemaCached, data);
+      if (data === '') return chunkSchemaCached;
+      processJSONFSM(chunkSchemaCached, data);
+      return chunkSchemaCached;
     }
   }
   return null;
@@ -417,12 +483,19 @@ function parseChunkForSchemaInfo(
 function parse_classifyChunk(chunk: unknown, chunkSchemaCached: chunkSchemaInfo | null): classifiedParsedChunkInfo | null {
   if (typeof chunk !== 'object' || chunk === null) return null;
   const parsedChunk_info = parseChunkForSchemaInfo(chunk as object, chunkSchemaCached);
+  let new_cacheLeft = false;
+  if (chunkSchemaCached && parsedChunk_info) {
+    if ('stage' in parsedChunk_info) new_cacheLeft = true;
+    else if (parsedChunk_info.finalData.id !== chunkSchemaCached.finalData.id) new_cacheLeft = true;
+  }
   if (!parsedChunk_info) return null;
   if ('stage' in parsedChunk_info) return {
     type: 'stageInfo',
+    new_cacheLeft,
     infos: parsedChunk_info as stageInfo,
   }; else return {
     type: 'tool^schema',
+    new_cacheLeft,
     infos: parsedChunk_info as chunkSchemaInfo,
   };
 }
@@ -441,7 +514,7 @@ onmessage = async (event: MessageEvent<StreamMessageEvent>) => {
       controller,
       buffer: "",
       isFocused: true,
-      messageBuffer: [],
+      messageBuffer: new Map<string, AdminAgentMessage>(),
     });
 
     try {
@@ -449,13 +522,13 @@ onmessage = async (event: MessageEvent<StreamMessageEvent>) => {
         const task = TaskRegistry.get(id);
         if (!task) break;
 
-        task.messageBuffer.push(...chunk);
+        chunk.forEach(message => task.messageBuffer.set(message.id, message));
 
         // 将消息发送回主线程
         self.postMessage({
           type: "message",
           id,
-          data: task.messageBuffer,
+          data: Array.from(task.messageBuffer.values()),
         } as StreamMessageResponse);
       }
 
@@ -463,7 +536,7 @@ onmessage = async (event: MessageEvent<StreamMessageEvent>) => {
       self.postMessage({
         type: "complete",
         id,
-        data: TaskRegistry.get(id)?.messageBuffer || [],
+        data: Array.from(TaskRegistry.get(id)?.messageBuffer.values() || []),
       } as StreamMessageResponse);
 
       TaskRegistry.delete(id);
