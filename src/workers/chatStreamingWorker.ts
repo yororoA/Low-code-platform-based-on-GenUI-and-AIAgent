@@ -4,25 +4,27 @@ import { generateHexId } from "@/lib/utils";
 
 type StreamMessageEvent = {
   type: "send";
-  id: string;
+  id: string; // taskId
   messages: AdminAgentMessage[];
   apiBaseUrl: string;
 } | {
-  type: "cancel";
-  id: string;
+  // 会话切换、页面关闭等导致的取消事件
+  type: "cancel" | "offline" | "online";
+  id: string; // taskId
 };
-
+ 
 type StreamMessageResponse = {
   type: "message" | "error" | "complete";
-  id: string;
+  id: string; // taskId
   data?: AdminAgentMessage[];
   error?: string;
 };
 
-const TaskRegistry = new Map<string, {
+export const TaskRegistry = new Map<string, {
   controller: AbortController;
   buffer: string;
   isFocused: boolean;
+  // messageBuffer 用于存储当前流式处理过程中解析出的消息， key为 taskId 用以去重和覆盖更新
   messageBuffer: Map<string, AdminAgentMessage>;
 }>();
 
@@ -553,6 +555,16 @@ onmessage = async (event: MessageEvent<StreamMessageEvent>) => {
     if (task) {
       task.controller.abort();
       TaskRegistry.delete(id);
+    }
+  } else if(type==="offline"){
+    const task = TaskRegistry.get(id);
+    if(task){
+      task.isFocused = false;
+    }
+  } else if(type==="online"){
+    const task = TaskRegistry.get(id);
+    if(task){
+      task.isFocused = true;
     }
   }
 };

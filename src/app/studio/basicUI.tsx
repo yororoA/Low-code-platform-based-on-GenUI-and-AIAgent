@@ -57,6 +57,7 @@ export default function BasicUI() {
   const [topic, setTopic] = useState<string>("New Conversation")
   const { messages, setMessages, sendMessage, status, stop, error } =
     useChat<AdminAgentMessage>();
+  const currentMessageTaskIdRef = useRef<string|null>(null);
 
   const [normalizedMessages, setNormalizedMessages] = useState<AdminAgentMessage[]>([]);
   const dedupeMessageWorkerRef = useRef<Worker | null>(null);
@@ -242,7 +243,7 @@ export default function BasicUI() {
         messages: baseMessages,
       });
 
-      worker.onmessage = (event) => {
+      worker.onmessage = (event: MessageEvent<StreamMessageResponse>) => {
         if (event.data.type === "message") {
           const workerMessages = event.data.data as AdminAgentMessage[];
           setMessages(dedupeMessages([...baseMessages, ...workerMessages]));
