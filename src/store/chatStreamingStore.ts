@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { AdminAgentMessage } from "@/app/api/chat/model";
+import { StreamMessageResponse } from "@/types";
 
 
 type TaskInfo = {
@@ -9,14 +10,12 @@ type TaskInfo = {
   messageBuffer: Map<string, AdminAgentMessage>;
 }
 
-// const TaskRegistry = new Map<string, TaskInfo>();
-
 interface ChatStreamingState {
   streamingWorker: Worker | null;
   initStreamingWorker: () => void; // 初始化 worker
   confirmWorkerInitialized: () => Worker; // 确保 worker 已被初始化
   terminateStreamingWorker: () => void; // 终止 worker
-  taskRegistry: Map<string, TaskInfo>;
+  tasksProcessingMap: Map<string, TaskInfo>;
   send: (taskId: string, messages: AdminAgentMessage[], apiBaseUrl: string) => void;
   cancel: (taskId: string) => void;
   offline: (taskId: string) => void;
@@ -46,7 +45,7 @@ export const useChatStreamingStore = create<ChatStreamingState>((set, get) => ({
       set({ streamingWorker: null });
     }
   },
-  taskRegistry: new Map<string, TaskInfo>(),
+  tasksProcessingMap: new Map<string, TaskInfo>(),
   send: (taskId: string, messages: AdminAgentMessage[], apiBaseUrl: string) => {
     const streamingWorker = get().confirmWorkerInitialized();
     streamingWorker.postMessage({
@@ -61,32 +60,32 @@ export const useChatStreamingStore = create<ChatStreamingState>((set, get) => ({
   },
   cancel: (taskId: string) => {
     set((state) => {
-      const taskRegistry = new Map(state.taskRegistry);
-      const task = taskRegistry.get(taskId);
+      const tasksProcessingMap = new Map(state.tasksProcessingMap);
+      const task = tasksProcessingMap.get(taskId);
       if (task) {
-        if(!state.streamingWorker)return { taskRegistry }; // worker未初始化，无需发送取消消息
+        if(!state.streamingWorker)return { tasksProcessingMap }; // worker未初始化，无需发送取消消息
         state.streamingWorker.postMessage({
           type: "cancel",
           id: taskId,
         });
-        taskRegistry.delete(taskId);
+        tasksProcessingMap.delete(taskId);
       }
-      return { taskRegistry };
+      return { tasksProcessingMap };
     });
   },
   offline: (taskId: string) => {
     set((state) => {
-      const taskRegistry = new Map(state.taskRegistry);
-      const task = taskRegistry.get(taskId);
+      const tasksProcessingMap = new Map(state.tasksProcessingMap);
+      const task = tasksProcessingMap.get(taskId);
       if (task) {
-        if(!state.streamingWorker)return { taskRegistry }; // worker未初始化，无需发送离线消息
+        if(!state.streamingWorker)return { tasksProcessingMap }; // worker未初始化，无需发送离线消息
         state.streamingWorker.postMessage({
           type: "offline",
           id: taskId,
         });
         task.isFocused = false;
       }
-      return { taskRegistry };
+      return { tasksProcessingMap };
     });
   },
   online: () => {

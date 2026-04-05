@@ -1,24 +1,8 @@
 import { AdminAgentMessage, ShowResponseInput_Schema } from "@/app/api/chat/model";
 import * as z from "zod";
 import { generateHexId } from "@/lib/utils";
+import { StreamMessageEvent, StreamMessageResponse } from "@/types";
 
-type StreamMessageEvent = {
-  type: "send";
-  id: string; // taskId
-  messages: AdminAgentMessage[];
-  apiBaseUrl: string;
-} | {
-  // 会话切换、页面关闭等导致的取消事件
-  type: "cancel" | "offline" | "online";
-  id: string; // taskId
-};
- 
-type StreamMessageResponse = {
-  type: "message" | "error" | "complete";
-  id: string; // taskId
-  data?: AdminAgentMessage[];
-  error?: string;
-};
 
 export const TaskRegistry = new Map<string, {
   controller: AbortController;

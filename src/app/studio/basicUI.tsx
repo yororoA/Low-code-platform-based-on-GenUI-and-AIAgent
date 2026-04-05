@@ -22,7 +22,7 @@ import { AdminAgentMessage } from "../api/chat/model"
 import { DBManager } from "@/lib/dbtest"
 import { getShowResponsePayload, strToHexStr, dispatchEvent, dedupeMessages, generateHexId } from "@/lib/utils"
 import { useSearchParams, useRouter } from "next/navigation"
-import { DataItem, DataItemSummary } from "@/types";
+import { DataItem, DataItemSummary, StreamMessageResponse } from "@/types";
 // import { todo } from "node:test"
 
 const STAGE_INFO_RE = /^\[(ADMIN|STRUCTURE|ALIGNMENT|STYLE)\]:\s*(.+)$/i
