@@ -23,6 +23,7 @@ import { DBManager } from "@/lib/dbtest"
 import { getShowResponsePayload, strToHexStr, dispatchEvent, dedupeMessages, generateHexId } from "@/lib/utils"
 import { useSearchParams, useRouter } from "next/navigation"
 import { DataItem, DataItemSummary, StreamMessageResponse } from "@/types";
+import { useChatStreamingStore } from "@/store/chatStreamingStore";
 // import { todo } from "node:test"
 
 const STAGE_INFO_RE = /^\[(ADMIN|STRUCTURE|ALIGNMENT|STYLE)\]:\s*(.+)$/i
@@ -58,6 +59,8 @@ export default function BasicUI() {
   const { messages, setMessages, sendMessage, status, stop, error } =
     useChat<AdminAgentMessage>();
   const currentMessageTaskIdRef = useRef<string|null>(null);
+  const {send, cancel, offline, online, tasksProcessingMap} = useChatStreamingStore();
+
 
   const [normalizedMessages, setNormalizedMessages] = useState<AdminAgentMessage[]>([]);
   const dedupeMessageWorkerRef = useRef<Worker | null>(null);

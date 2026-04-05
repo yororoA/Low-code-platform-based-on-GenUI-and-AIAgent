@@ -6,10 +6,10 @@ import { StreamMessageResponse } from "@/types";
 type TaskInfo = {
   buffer: string;
   isFocused: boolean;
-  // messageBuffer 用于存储当前流式处理过程中解析出的消息， key为 taskId 用以去重和覆盖更新
-  messageBuffer: Map<string, AdminAgentMessage>;
+  // messagesBuffer 用于存储当前流式处理过程中解析出的消息， key为 taskId 用以去重和覆盖更新
+  messagesBuffer: AdminAgentMessage[];
 }
-
+// todo: 将其他 worker 的相关管理也移入此 store
 interface ChatStreamingState {
   streamingWorker: Worker | null;
   initStreamingWorker: () => void; // 初始化 worker
@@ -56,6 +56,7 @@ export const useChatStreamingStore = create<ChatStreamingState>((set, get) => ({
     });
     streamingWorker.onmessage = (event: MessageEvent<StreamMessageResponse>) => {
       if (event.data.id !== taskId) return; // 确保消息对应当前任务
+
     }
   },
   cancel: (taskId: string) => {
