@@ -1,28 +1,14 @@
 import { AdminAgentMessage, ShowResponseInput_Schema } from "@/app/api/chat/model";
 import * as z from "zod";
 import { generateHexId } from "@/lib/utils";
+import { StreamMessageEvent, StreamMessageResponse } from "@/types";
 
-type StreamMessageEvent = {
-  type: "send";
-  id: string;
-  messages: AdminAgentMessage[];
-  apiBaseUrl: string;
-} | {
-  type: "cancel";
-  id: string;
-};
 
-type StreamMessageResponse = {
-  type: "message" | "error" | "complete";
-  id: string;
-  data?: AdminAgentMessage[];
-  error?: string;
-};
-
-const TaskRegistry = new Map<string, {
+export const TaskRegistry = new Map<string, {
   controller: AbortController;
   buffer: string;
   isFocused: boolean;
+  // messageBuffer 用于存储当前流式处理过程中解析出的消息， key为 taskId 用以去重和覆盖更新
   messageBuffer: Map<string, AdminAgentMessage>;
 }>();
 
@@ -140,6 +126,7 @@ async function* parseUIMessageStream(
   })();
 
   try {
+    console.log(messages);
     const response = await fetch(apiUrl, {
       method: "POST",
       headers: {
@@ -363,12 +350,9 @@ function processJSONFSM(state: chunkSchemaInfo, data: string): void {
         state._escapeNext = true;
         continue;
       }
-      // 引号切换字符串内外状态
+      // 引号只用于切换字符串状态，不应写入最终 valueBuffer
       if (char === '"') {
         state._inString = !state._inString;
-        currentTarget.valueBuffer += char;
-        if (isToolInput) state.finalData.input![currentTarget.keyBuffer] = currentTarget.valueBuffer;
-        else state.finalData.output![currentTarget.keyBuffer] = currentTarget.valueBuffer;
         continue;
       }
       // 不在字符串内部追踪括号深度
@@ -555,6 +539,16 @@ onmessage = async (event: MessageEvent<StreamMessageEvent>) => {
     if (task) {
       task.controller.abort();
       TaskRegistry.delete(id);
+    }
+  } else if(type==="offline"){
+    const task = TaskRegistry.get(id);
+    if(task){
+      task.isFocused = false;
+    }
+  } else if(type==="online"){
+    const task = TaskRegistry.get(id);
+    if(task){
+      task.isFocused = true;
     }
   }
 };

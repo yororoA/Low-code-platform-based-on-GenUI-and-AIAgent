@@ -9,13 +9,14 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Separator } from "@/components/ui"
 import { DBManager } from "@/lib/dbtest"
 import { cn } from "@/lib/utils"
 import { DataItemSummary } from "@/types"
 import { ChatDetailsContext } from "@/contexts";
-import { isUiTreeNode, renderNode, type UiTreeNode } from "@/lib/renderByAST"
+import { isUiTreeNode, renderNode, type UiTreeNode } from "@/lib/renderByAST";
+import { useChatStreamingStore } from "@/store/chatStreamingStore";
 
 type StudioPreviewPayload = {
   topic: string
@@ -78,6 +79,16 @@ export default function StudioLayout({ children }: { children: ReactNode }) {
   const isPromptSectionSelected = pathname?.startsWith("/studio/prompts");
   const isHistorySelected = pathname === "/studio/prompts/history";
 
+  const {initStreamingWorker, terminateStreamingWorker} = useChatStreamingStore();
+  useEffect(()=>{
+    // 初始化 streaming worker
+    initStreamingWorker();
+    return () => {
+      // 清理 streaming worker
+      terminateStreamingWorker();
+    }
+  }, [initStreamingWorker, terminateStreamingWorker]);
+
   useEffect(() => {
     let isCanceled = false;
     (async () => {
@@ -125,6 +136,7 @@ export default function StudioLayout({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  // 预览 预处理事件
   useEffect(() => {
     const handleOpenPreview: EventListener = (event) => {
       const customEvent = event as CustomEvent<StudioPreviewPayload>
@@ -136,6 +148,7 @@ export default function StudioLayout({ children }: { children: ReactNode }) {
     }
   }, [])
 
+  // 渲染预览
   const parsedPreview = useMemo(() => {
     if (!previewPayload) return null
     const structureObj = extractJsonObjectByKey(previewPayload.structureText, "uiTree")

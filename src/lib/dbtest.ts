@@ -4,6 +4,13 @@ import { DataItemSummary, ExecuteOptions } from "@/types";
 export class DBManager {
   private static db: IDBDatabase | null = null;
   private static DB_NAME = 'test-db';
+  private static getIndexedDB(): IDBFactory {
+    const indexedDBRef = globalThis.indexedDB;
+    if (!indexedDBRef) {
+      throw new Error("IndexedDB is not available in current runtime");
+    }
+    return indexedDBRef;
+  }
 
   // 获取当前数据库实例（如果没打开则打开）
   private static async getDB(targetStore?: string, forceUpgrade: boolean = false): Promise<IDBDatabase> {
@@ -17,20 +24,22 @@ export class DBManager {
     }
 
     // 3. 探测当前版本（如果不传版本号打开，可以获取当前最新版本）
-    const currentVersion = await new Promise<number>((resolve) => {
-      const req = window.indexedDB.open(this.DB_NAME);
+    const currentVersion = await new Promise<number>((resolve, reject) => {
+      const req = this.getIndexedDB().open(this.DB_NAME);
       req.onsuccess = () => {
         const v = req.result.version;
         req.result.close();
         resolve(v);
       };
+      req.onerror = () => reject(req.error);
+      req.onblocked = () => reject(new Error("IndexedDB version probe blocked by another connection"));
     });
 
     const nextVersion = forceUpgrade ? currentVersion + 1 : currentVersion;
 
     // 4. 正式打开/升级
     return new Promise((resolve, reject) => {
-      const request = window.indexedDB.open(this.DB_NAME, nextVersion);
+      const request = this.getIndexedDB().open(this.DB_NAME, nextVersion);
 
       request.onupgradeneeded = () => {
         const db = request.result;

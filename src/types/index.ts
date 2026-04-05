@@ -1,1 +1,2 @@
-export * from "./dbAbout"
+export * from "./dbAbout";
+export * from "./chatStreamingTypes";

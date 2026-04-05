@@ -1,6 +1,6 @@
 "use client"
 
-import { ChangeEvent, FormEvent, useEffect, useRef, useMemo, useState } from "react"
+import { ChangeEvent, FormEvent, useEffect, useRef, useState } from "react"
 import { useChat } from "@ai-sdk/react"
 import { Button } from "@/components/ui/button"
 import {
@@ -20,9 +20,10 @@ import {
 import { AlertCircle } from "lucide-react"
 import { AdminAgentMessage } from "../api/chat/model"
 import { DBManager } from "@/lib/dbtest"
-import { getShowResponsePayload, strToHexStr, dispatchEvent, dedupeMessages } from "@/lib/utils"
+import { getShowResponsePayload, strToHexStr, dispatchEvent, dedupeMessages, generateHexId } from "@/lib/utils"
 import { useSearchParams, useRouter } from "next/navigation"
-import { DataItem, DataItemSummary } from "@/types";
+import { DataItem, DataItemSummary, StreamMessageResponse } from "@/types";
+import { useChatStreamingStore } from "@/store/chatStreamingStore";
 // import { todo } from "node:test"
 
 const STAGE_INFO_RE = /^\[(ADMIN|STRUCTURE|ALIGNMENT|STYLE)\]:\s*(.+)$/i
@@ -49,17 +50,25 @@ export default function BasicUI() {
     timestamp: new Date(),
   })
   const CACHE_DEBOUNCE_TIMEOUT = 1000;
-  const CAN_USE_WORKER = useMemo(() => !!window.Worker, []);
+  const CAN_USE_WORKER = useRef<boolean>(false);
+  useEffect(() => {
+    CAN_USE_WORKER.current = !!window.Worker;
+    return () => { CAN_USE_WORKER.current = false; }
+  }, [])
   const [topic, setTopic] = useState<string>("New Conversation")
   const { messages, setMessages, sendMessage, status, stop, error } =
     useChat<AdminAgentMessage>();
+  const currentMessageTaskIdRef = useRef<string|null>(null);
+  const {send, cancel, offline, online, tasksProcessingMap} = useChatStreamingStore();
+
 
   const [normalizedMessages, setNormalizedMessages] = useState<AdminAgentMessage[]>([]);
   const dedupeMessageWorkerRef = useRef<Worker | null>(null);
   const getDBMessagesWorkerRef = useRef<Worker | null>(null);
+  const streamWorkerRef = useRef<Worker | null>(null);
   // 初始化工作线程
   useEffect(() => {
-    if (CAN_USE_WORKER) {
+    if (CAN_USE_WORKER.current) {
       // worker for 消息去重
       dedupeMessageWorkerRef.current = new Worker(new URL("@/workers/chatMessagesDedupeWorker.ts", import.meta.url));
       dedupeMessageWorkerRef.current.onmessage = (event: MessageEvent<AdminAgentMessage[]>) => {
@@ -84,15 +93,18 @@ export default function BasicUI() {
     }
     // 清理worker
     return () => {
-      if (CAN_USE_WORKER) {
+      if (CAN_USE_WORKER.current) {
         dedupeMessageWorkerRef.current?.terminate();
         dedupeMessageWorkerRef.current = null;
 
         getDBMessagesWorkerRef.current?.terminate();
         getDBMessagesWorkerRef.current = null;
+
+        streamWorkerRef.current?.terminate();
+        streamWorkerRef.current = null;
       }
     }
-  }, [CAN_USE_WORKER, setMessages]);
+  }, [setMessages]);
   // 监听消息变化，发送到工作线程进行去重处理，减少主线程压力；如果不支持Worker，则直接在主线程处理
   useEffect(() => {
     if (messages.length) {
@@ -212,25 +224,39 @@ export default function BasicUI() {
     if (!text) return;
 
     setInput("");
-    if (!CAN_USE_WORKER) await sendMessage({ text });
+    if (!CAN_USE_WORKER.current) await sendMessage({ text });
     else {
+      const userMessage: AdminAgentMessage = {
+        role: "user",
+        id: generateHexId(),
+        parts: [{ type: "text", text }],
+      };
+      const baseMessages = [...messages, userMessage];
+      setMessages(baseMessages);
+
       const taskId = `task_${Date.now()}`;
+      streamWorkerRef.current?.terminate();
       const worker = new Worker(new URL("@/workers/chatStreamingWorker.ts", import.meta.url));
+      streamWorkerRef.current = worker;
 
       worker.postMessage({
         type: "send",
         id: taskId,
         apiBaseUrl: window.location.origin,
-        messages: [...messages, { role: "user", parts: [{ type: "text", text }] }]
+        messages: baseMessages,
       });
 
-      worker.onmessage = (event) => {
+      worker.onmessage = (event: MessageEvent<StreamMessageResponse>) => {
         if (event.data.type === "message") {
-          setMessages(event.data.data);
+          const workerMessages = event.data.data as AdminAgentMessage[];
+          setMessages(dedupeMessages([...baseMessages, ...workerMessages]));
         } else if (event.data.type === "complete") {
           worker.terminate();
+          if (streamWorkerRef.current === worker) streamWorkerRef.current = null;
         } else if (event.data.type === "error") {
           console.error("Stream error:", event.data.error);
+          worker.terminate();
+          if (streamWorkerRef.current === worker) streamWorkerRef.current = null;
         }
       };
     }
