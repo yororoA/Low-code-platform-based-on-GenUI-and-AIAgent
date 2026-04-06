@@ -22,7 +22,7 @@ import { AdminAgentMessage } from "../api/chat/model"
 import { DBManager } from "@/lib/dbtest"
 import { getShowResponsePayload, strToHexStr, dispatchEvent, dedupeMessages, generateHexId } from "@/lib/utils"
 import { useSearchParams, useRouter } from "next/navigation"
-import { DataItem, DataItemSummary, StreamMessageResponse } from "@/types";
+import { DataItem, DataItemSummary } from "@/types";
 import { useChatStreamingStore } from "@/store/chatStreamingStore";
 // import { todo } from "node:test"
 
@@ -50,38 +50,23 @@ export default function BasicUI() {
     timestamp: new Date(),
   })
   const CACHE_DEBOUNCE_TIMEOUT = 1000;
-  const CAN_USE_WORKER = useRef<boolean>(false);
-  useEffect(() => {
-    CAN_USE_WORKER.current = !!window.Worker;
-    return () => { CAN_USE_WORKER.current = false; }
-  }, [])
-  const [topic, setTopic] = useState<string>("New Conversation")
-  const { messages, setMessages, sendMessage, status, stop, error } =
-    useChat<AdminAgentMessage>();
-  const currentMessageTaskIdRef = useRef<string|null>(null);
-  const {send, cancel, offline, online, tasksProcessingMap} = useChatStreamingStore();
-
-
+  const [topic, setTopic] = useState<string>("New Conversation");
+  const baseMessagesRef = useRef<AdminAgentMessage[]>([]);
+  const { messages, setMessages, sendMessage, status, stop, error } = useChat<AdminAgentMessage>();
   const [normalizedMessages, setNormalizedMessages] = useState<AdminAgentMessage[]>([]);
-  const dedupeMessageWorkerRef = useRef<Worker | null>(null);
+  const currentMessageTaskIdRef = useRef<string | null>(null);
+  const { send, cancel, offline, online, tasksProcessingMap, workersAllowed } = useChatStreamingStore();
   const getDBMessagesWorkerRef = useRef<Worker | null>(null);
-  const streamWorkerRef = useRef<Worker | null>(null);
-  // 初始化工作线程
+  // 初始化获取历史记录线程
   useEffect(() => {
-    if (CAN_USE_WORKER.current) {
-      // worker for 消息去重
-      dedupeMessageWorkerRef.current = new Worker(new URL("@/workers/chatMessagesDedupeWorker.ts", import.meta.url));
-      dedupeMessageWorkerRef.current.onmessage = (event: MessageEvent<AdminAgentMessage[]>) => {
-        const messages = event.data as AdminAgentMessage[]
-        setNormalizedMessages(messages);
-      }
-
+    if (workersAllowed) {
       // worker for 获取本页历史数据
       getDBMessagesWorkerRef.current = new Worker(new URL("@/workers/chatDBWorker.ts", import.meta.url));
       getDBMessagesWorkerRef.current.onmessage = (event: MessageEvent<DataItem>) => {
         const history = event.data as DataItem;
         if (history) {
-          setMessages(history.messages);
+          baseMessagesRef.current = history.messages;
+          setMessages(baseMessagesRef.current);
           thisDetailRef.current = {
             id: history.id,
             topic: history.topic,
@@ -93,26 +78,26 @@ export default function BasicUI() {
     }
     // 清理worker
     return () => {
-      if (CAN_USE_WORKER.current) {
-        dedupeMessageWorkerRef.current?.terminate();
-        dedupeMessageWorkerRef.current = null;
-
+      if (workersAllowed) {
         getDBMessagesWorkerRef.current?.terminate();
         getDBMessagesWorkerRef.current = null;
-
-        streamWorkerRef.current?.terminate();
-        streamWorkerRef.current = null;
       }
     }
-  }, [setMessages]);
+  }, [workersAllowed, setMessages]);
   // 监听消息变化，发送到工作线程进行去重处理，减少主线程压力；如果不支持Worker，则直接在主线程处理
+  // fix: 来自 store 的 messages 本就是去重后的消息, 无需再次去重
   useEffect(() => {
-    if (messages.length) {
-      if (dedupeMessageWorkerRef.current) {
-        dedupeMessageWorkerRef.current.postMessage(messages);
-      } else setNormalizedMessages(dedupeMessages(messages));
-    } else setNormalizedMessages([]);
-  }, [messages]);
+    if (workersAllowed) {
+      if (currentMessageTaskIdRef.current) {
+        const task = tasksProcessingMap.get(currentMessageTaskIdRef.current as string);
+        if (task) {
+          setNormalizedMessages([...baseMessagesRef.current, ...task.messagesBuffer]);
+        }
+      }
+    } else {
+      setNormalizedMessages(dedupeMessages(messages));
+    }
+  }, [messages, tasksProcessingMap, workersAllowed]);
 
   // 初始化获取历史数据
   const searchParams = useSearchParams();
@@ -128,7 +113,8 @@ export default function BasicUI() {
             id: id,
           })) as DataItem;
           if (history) {
-            setMessages(history.messages);
+            baseMessagesRef.current = history.messages;
+            setMessages(baseMessagesRef.current);
             thisDetailRef.current = {
               id: history.id,
               topic: history.topic,
@@ -217,6 +203,16 @@ export default function BasicUI() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canJump]);
 
+  // 会话切换(页面卸载)
+  useEffect(() => {
+    return () => {
+      if (currentMessageTaskIdRef.current) {
+        offline(currentMessageTaskIdRef.current as string);
+        currentMessageTaskIdRef.current = null;
+      }
+    }
+  }, [offline]);
+
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -224,43 +220,21 @@ export default function BasicUI() {
     if (!text) return;
 
     setInput("");
-    if (!CAN_USE_WORKER.current) await sendMessage({ text });
+    if (!workersAllowed) await sendMessage({ text });
     else {
       const userMessage: AdminAgentMessage = {
         role: "user",
         id: generateHexId(),
         parts: [{ type: "text", text }],
       };
-      const baseMessages = [...messages, userMessage];
-      setMessages(baseMessages);
+      baseMessagesRef.current = [...baseMessagesRef.current, userMessage];
+      setMessages(baseMessagesRef.current);
+      setNormalizedMessages(baseMessagesRef.current);
 
       const taskId = `task_${Date.now()}`;
-      streamWorkerRef.current?.terminate();
-      const worker = new Worker(new URL("@/workers/chatStreamingWorker.ts", import.meta.url));
-      streamWorkerRef.current = worker;
-
-      worker.postMessage({
-        type: "send",
-        id: taskId,
-        apiBaseUrl: window.location.origin,
-        messages: baseMessages,
-      });
-
-      worker.onmessage = (event: MessageEvent<StreamMessageResponse>) => {
-        if (event.data.type === "message") {
-          const workerMessages = event.data.data as AdminAgentMessage[];
-          setMessages(dedupeMessages([...baseMessages, ...workerMessages]));
-        } else if (event.data.type === "complete") {
-          worker.terminate();
-          if (streamWorkerRef.current === worker) streamWorkerRef.current = null;
-        } else if (event.data.type === "error") {
-          console.error("Stream error:", event.data.error);
-          worker.terminate();
-          if (streamWorkerRef.current === worker) streamWorkerRef.current = null;
-        }
-      };
+      currentMessageTaskIdRef.current = taskId;
+      send(taskId, baseMessagesRef.current, window.location.origin);
     }
-
   }
 
   const handleInputChange = (event: ChangeEvent<HTMLTextAreaElement>) => {
