@@ -18,6 +18,7 @@ import { ChatDetailsContext } from "@/contexts";
 import { isUiTreeNode, renderNode, type UiTreeNode } from "@/lib/renderByAST";
 import { useChatStreamingStore } from "@/store/chatStreamingStore";
 
+
 type StudioPreviewPayload = {
   topic: string
   structureText: string
@@ -79,20 +80,22 @@ export default function StudioLayout({ children }: { children: ReactNode }) {
   const isPromptSectionSelected = pathname?.startsWith("/studio/prompts");
   const isHistorySelected = pathname === "/studio/prompts/history";
 
-  const {initStreamingWorker, terminateStreamingWorker} = useChatStreamingStore();
-  useEffect(()=>{
-    // 初始化 streaming worker
-    initStreamingWorker();
+  const { setWorkersAllowed, workersAllowed, terminateAllTasks } = useChatStreamingStore();
+  useEffect(() => {
+    setWorkersAllowed(!!window.Worker);
     return () => {
-      // 清理 streaming worker
-      terminateStreamingWorker();
+      if (workersAllowed) {
+        setWorkersAllowed(false);
+        terminateAllTasks();
+      }
     }
-  }, [initStreamingWorker, terminateStreamingWorker]);
+  }, [setWorkersAllowed, workersAllowed, terminateAllTasks]);
 
+
+  // 连接数据库并初始化历史列表
   useEffect(() => {
     let isCanceled = false;
     (async () => {
-      // 连接数据库并初始化历史列表
       await DBManager.execute({ operationType: 'open' });
       if (isCanceled) await DBManager.execute({ operationType: 'close' });
       else {
@@ -108,6 +111,7 @@ export default function StudioLayout({ children }: { children: ReactNode }) {
     }
   }, [setDetails]);
 
+  // 处理对话历史列表更新事件
   useEffect(() => {
     const handleNewConversation: EventListener = (event) => {
       const customEvent = event as CustomEvent<DataItemSummary>;
@@ -174,12 +178,12 @@ export default function StudioLayout({ children }: { children: ReactNode }) {
 
     const styleClassById = Array.isArray(rawStyles)
       ? Object.fromEntries(
-          rawStyles
-            .filter((item): item is { id: string; className?: string } =>
-              !!item && typeof item === "object" && "id" in item && typeof (item as { id: unknown }).id === "string",
-            )
-            .map((item) => [item.id, item.className ?? ""]),
-        )
+        rawStyles
+          .filter((item): item is { id: string; className?: string } =>
+            !!item && typeof item === "object" && "id" in item && typeof (item as { id: unknown }).id === "string",
+          )
+          .map((item) => [item.id, item.className ?? ""]),
+      )
       : {}
 
     return {
@@ -203,71 +207,71 @@ export default function StudioLayout({ children }: { children: ReactNode }) {
       <div className={cn("grid h-[calc(100dvh-56px)]", isPreviewMode ? "grid-cols-1" : "grid-cols-1 lg:grid-cols-[240px_1fr_300px]")}>
         {!isPreviewMode ? (
           <aside className="border-b p-3 flex flex-col gap-2 lg:border-b-0 lg:border-r overflow-y-auto">
-          <Accordion type="single" collapsible className="w-full">
-            <AccordionItem value="home" className="border-b-0">
-              <AccordionTrigger className="rounded-md px-2 py-2 text-sm hover:no-underline hover:bg-accent">
-                <div className="flex w-full items-center justify-between gap-2">
-                  <Link
-                    href="/studio"
-                    className={cn(
-                      "rounded-md px-2 py-1.5 text-sm transition-colors",
-                      isHomeSelected
-                        ? "bg-primary/10 text-primary font-medium"
-                        : "hover:bg-accent text-foreground",
-                    )}
-                  >
-                    Home
-                  </Link>
-                  {isPromptSectionSelected && selectedPrompt ? (
-                    <span className="max-w-[110px] truncate rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
-                      {selectedPrompt.topic}
-                    </span>
-                  ) : null}
-                </div>
-              </AccordionTrigger>
-              <AccordionContent className="pb-0">
-                <div className="flex flex-col gap-1 pl-2">
-                  {details.slice(0, 5).map(({ id, topic }) => (
+            <Accordion type="single" collapsible className="w-full">
+              <AccordionItem value="home" className="border-b-0">
+                <AccordionTrigger className="rounded-md px-2 py-2 text-sm hover:no-underline hover:bg-accent">
+                  <div className="flex w-full items-center justify-between gap-2">
                     <Link
-                      key={id}
-                      href={`/studio/prompts?id=${id}`}
+                      href="/studio"
                       className={cn(
-                        "group flex items-center justify-between rounded-md border px-2 py-1.5 text-sm transition-colors",
-                        selectedPromptId === id
-                          ? "border-primary/40 bg-primary/10 text-primary"
-                          : "border-transparent text-muted-foreground hover:border-border hover:bg-accent hover:text-foreground",
+                        "rounded-md px-2 py-1.5 text-sm transition-colors",
+                        isHomeSelected
+                          ? "bg-primary/10 text-primary font-medium"
+                          : "hover:bg-accent text-foreground",
                       )}
                     >
-                      {topic}
-                      {selectedPromptId === id ? (
-                        <span className="rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-semibold text-primary-foreground">
-                          选中
-                        </span>
-                      ) : null}
+                      Home
                     </Link>
-                  ))}
-                  <Separator />
-                  <Link
-                    key={"historyPrompts"}
-                    href={`/studio/prompts/history`}
-                    className={cn(
-                      "group flex items-center justify-between rounded-md border px-2 py-1.5 text-sm transition-colors font-medium",
-                      isHistorySelected
-                        ? "border-primary/50 bg-primary/10 text-primary"
-                        : "border-primary/20 bg-primary/5 text-primary hover:border-primary/40 hover:bg-primary/10 hover:text-primary",
-                    )}
-                  >
-                    所有历史记录
-                  </Link>
-                </div>
-              </AccordionContent>
-            </AccordionItem>
-          </Accordion>
-          <Link href="/studio/projects">Projects</Link>
-          <Link href="/studio/pages">Pages</Link>
-          <Link href="/studio/workflows">Workflows</Link>
-          <Separator className="my-2" />
-          <div className="text-xs text-muted-foreground">Workspace Navigation</div>
+                    {isPromptSectionSelected && selectedPrompt ? (
+                      <span className="max-w-[110px] truncate rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
+                        {selectedPrompt.topic}
+                      </span>
+                    ) : null}
+                  </div>
+                </AccordionTrigger>
+                <AccordionContent className="pb-0">
+                  <div className="flex flex-col gap-1 pl-2">
+                    {details.slice(0, 5).map(({ id, topic }) => (
+                      <Link
+                        key={id}
+                        href={`/studio/prompts?id=${id}`}
+                        className={cn(
+                          "group flex items-center justify-between rounded-md border px-2 py-1.5 text-sm transition-colors",
+                          selectedPromptId === id
+                            ? "border-primary/40 bg-primary/10 text-primary"
+                            : "border-transparent text-muted-foreground hover:border-border hover:bg-accent hover:text-foreground",
+                        )}
+                      >
+                        {topic}
+                        {selectedPromptId === id ? (
+                          <span className="rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-semibold text-primary-foreground">
+                            选中
+                          </span>
+                        ) : null}
+                      </Link>
+                    ))}
+                    <Separator />
+                    <Link
+                      key={"historyPrompts"}
+                      href={`/studio/prompts/history`}
+                      className={cn(
+                        "group flex items-center justify-between rounded-md border px-2 py-1.5 text-sm transition-colors font-medium",
+                        isHistorySelected
+                          ? "border-primary/50 bg-primary/10 text-primary"
+                          : "border-primary/20 bg-primary/5 text-primary hover:border-primary/40 hover:bg-primary/10 hover:text-primary",
+                      )}
+                    >
+                      所有历史记录
+                    </Link>
+                  </div>
+                </AccordionContent>
+              </AccordionItem>
+            </Accordion>
+            <Link href="/studio/projects">Projects</Link>
+            <Link href="/studio/pages">Pages</Link>
+            <Link href="/studio/workflows">Workflows</Link>
+            <Separator className="my-2" />
+            <div className="text-xs text-muted-foreground">Workspace Navigation</div>
           </aside>
         ) : null}
         <main className="flex-1 min-w-0 h-full overflow-hidden">
@@ -305,7 +309,7 @@ export default function StudioLayout({ children }: { children: ReactNode }) {
         </main>
         {!isPreviewMode ? (
           <aside className="hidden border-l p-3 lg:block overflow-y-auto">
-          <div className="text-sm text-muted-foreground">Inspector</div>
+            <div className="text-sm text-muted-foreground">Inspector</div>
           </aside>
         ) : null}
       </div>
