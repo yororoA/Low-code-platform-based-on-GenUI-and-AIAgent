@@ -24,6 +24,7 @@ import { getShowResponsePayload, strToHexStr, dispatchEvent, dedupeMessages, gen
 import { useSearchParams, useRouter } from "next/navigation"
 import { DataItem, DataItemSummary } from "@/types";
 import { useChatStreamingStore } from "@/store/chatStreamingStore";
+import { useShallow } from "zustand/shallow"
 // import { todo } from "node:test"
 
 const STAGE_INFO_RE = /^\[(ADMIN|STRUCTURE|ALIGNMENT|STYLE)\]:\s*(.+)$/i
@@ -55,11 +56,19 @@ export default function BasicUI() {
   const { messages, setMessages, sendMessage, status, stop, error } = useChat<AdminAgentMessage>();
   const [normalizedMessages, setNormalizedMessages] = useState<AdminAgentMessage[]>([]);
   const currentMessageTaskIdRef = useRef<string | null>(null);
-  const { send, cancel, offline, online, tasksProcessingMap, workersAllowed } = useChatStreamingStore();
+  const { send, cancel, offline, online } = useChatStreamingStore(
+    useShallow(state => ({
+      send: state.send,
+      cancel: state.cancel,
+      offline: state.offline,
+      online: state.online,
+    }))
+  );
+  const tasksProcessingMap = useChatStreamingStore(state => state.tasksProcessingMap);
   const getDBMessagesWorkerRef = useRef<Worker | null>(null);
   // 初始化获取历史记录线程
   useEffect(() => {
-    if (workersAllowed) {
+    if (useChatStreamingStore.getState().workersAllowed) {
       // worker for 获取本页历史数据
       getDBMessagesWorkerRef.current = new Worker(new URL("@/workers/chatDBWorker.ts", import.meta.url));
       getDBMessagesWorkerRef.current.onmessage = (event: MessageEvent<DataItem>) => {
@@ -78,16 +87,16 @@ export default function BasicUI() {
     }
     // 清理worker
     return () => {
-      if (workersAllowed) {
+      if (useChatStreamingStore.getState().workersAllowed) {
         getDBMessagesWorkerRef.current?.terminate();
         getDBMessagesWorkerRef.current = null;
       }
     }
-  }, [workersAllowed, setMessages]);
+  }, [setMessages]);
   // 监听消息变化，发送到工作线程进行去重处理，减少主线程压力；如果不支持Worker，则直接在主线程处理
   // fix: 来自 store 的 messages 本就是去重后的消息, 无需再次去重
   useEffect(() => {
-    if (workersAllowed) {
+    if (useChatStreamingStore.getState().workersAllowed) {
       if (currentMessageTaskIdRef.current) {
         const task = tasksProcessingMap.get(currentMessageTaskIdRef.current as string);
         if (task) {
@@ -97,7 +106,7 @@ export default function BasicUI() {
     } else {
       setNormalizedMessages(dedupeMessages(messages));
     }
-  }, [messages, tasksProcessingMap, workersAllowed]);
+  }, [messages, tasksProcessingMap]);
 
   // 初始化获取历史数据
   const searchParams = useSearchParams();
@@ -220,7 +229,7 @@ export default function BasicUI() {
     if (!text) return;
 
     setInput("");
-    if (!workersAllowed) await sendMessage({ text });
+    if (!useChatStreamingStore.getState().workersAllowed) await sendMessage({ text });
     else {
       const userMessage: AdminAgentMessage = {
         role: "user",
@@ -241,8 +250,10 @@ export default function BasicUI() {
     setInput(event.target.value)
   }
 
-  const isStreaming = status === "streaming" || status === "submitted"
-  const canSend = input.trim().length > 0 && !isStreaming
+  const isStreaming = (useChatStreamingStore.getState().workersAllowed)
+    ? tasksProcessingMap.has(currentMessageTaskIdRef.current as string)
+    : status === "streaming" || status === "submitted";
+  const canSend = input.trim().length > 0 && !isStreaming;
 
   const getMessageText = (message: AdminAgentMessage) =>
     message.parts

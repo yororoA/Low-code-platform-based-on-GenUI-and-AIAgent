@@ -524,13 +524,22 @@ onmessage = async (event: MessageEvent<StreamMessageEvent>) => {
       } as StreamMessageResponse);
 
       TaskRegistry.delete(id);
-    } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : "Unknown error";
-      self.postMessage({
-        type: "error",
-        id,
-        error: errorMsg,
-      } as StreamMessageResponse);
+    } catch (error: unknown) {
+      if (error instanceof Error && error.name !== "AbortError") {
+        const errorMsg = error.message;
+        self.postMessage({
+          type: "error",
+          id,
+          error: errorMsg,
+        } as StreamMessageResponse);
+      } else if(!(error instanceof Error)) {
+        // 其他错误
+        self.postMessage({
+          type: "error",
+          id,
+          error: JSON.stringify(error),
+        } as StreamMessageResponse);
+      }
 
       TaskRegistry.delete(id);
     }
@@ -539,16 +548,25 @@ onmessage = async (event: MessageEvent<StreamMessageEvent>) => {
     if (task) {
       task.controller.abort();
       TaskRegistry.delete(id);
+      self.postMessage({
+        type: "canceled",
+        id,
+      } as StreamMessageResponse);
     }
-  } else if(type==="offline"){
+  } else if (type === "offline") {
     const task = TaskRegistry.get(id);
-    if(task){
+    if (task) {
       task.isFocused = false;
     }
-  } else if(type==="online"){
+  } else if (type === "online") {
     const task = TaskRegistry.get(id);
-    if(task){
+    if (task) {
       task.isFocused = true;
     }
+  } else if (type === 'cancelAll') {
+    for (const task of TaskRegistry.values()) {
+      task.controller.abort();
+    }
+    TaskRegistry.clear();
   }
 };
