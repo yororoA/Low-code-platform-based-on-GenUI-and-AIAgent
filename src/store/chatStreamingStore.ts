@@ -6,6 +6,50 @@ import { enableMapSet, produce } from "immer";
 enableMapSet();
 
 
+class PromptTaskIdMap {
+  private p_t_map: Map<string, string>; // <promptId, taskId>
+  private t_p_map: Map<string, string>; // <taskId, promptId>
+
+  constructor() {
+    this.p_t_map = new Map<string, string>();
+    this.t_p_map = new Map<string, string>();
+  };
+
+  public set_by_prompt(promptId: string, taskId: string) {
+    if(this.p_t_map.has(promptId))this.t_p_map.delete(this.p_t_map.get(promptId)!); // 如果已存在该 promptId 的映射，先删除旧的 taskId 映射
+    this.p_t_map.set(promptId, taskId);
+    this.t_p_map.set(taskId, promptId);
+  };
+  public set_by_task(taskId: string, promptId: string) {
+    this.t_p_map.set(taskId, promptId);
+    this.p_t_map.set(promptId, taskId);
+  };
+  public get_taskId(promptId: string) {
+    return this.p_t_map.get(promptId);
+  };
+  public get_promptId(taskId: string) {
+    return this.t_p_map.get(taskId);
+  };
+  public delete_by_prompt(promptId: string) {
+    const taskId = this.p_t_map.get(promptId);
+    if (taskId) {
+      this.p_t_map.delete(promptId);
+      this.t_p_map.delete(taskId);
+    }
+  };
+  public delete_by_task(taskId: string) {
+    const promptId = this.t_p_map.get(taskId);
+    if (promptId) {
+      this.t_p_map.delete(taskId);
+      this.p_t_map.delete(promptId);
+    }
+  };
+  public clear() {
+    this.p_t_map.clear();
+    this.t_p_map.clear();
+  }
+}
+
 interface TaskInfo {
   isFocused: boolean;
   status: "submitted" | "streaming" | "completed" | "canceled" | "error";
@@ -30,11 +74,11 @@ interface ChatStreamingState {
   terminateWorker: () => void;
   tasksProcessingMap: Map<string, TaskInfo>;
   tasksThrottleMap: Map<string, TaskThrottle>;
-  send: (taskId: string, messages: AdminAgentMessage[], apiBaseUrl: string) => void;
+  promptTaskIdMap: PromptTaskIdMap;
+  send: (promptId: string, taskId: string, messages: AdminAgentMessage[], apiBaseUrl: string) => void;
   cancel: (taskId: string) => void;
-  offline: (taskId: string) => void;
+  onlineStatusToggle: (taskId: string, status: "online" | "offline") => void;
   cce: (taskId: string, status: TaskInfo["status"]) => void; // 在清除某个 task 前将残余 buffer 刷入 task 并延迟删除
-  online: () => void;
   terminateTask: (taskId?: string) => void;
 }
 
@@ -51,6 +95,7 @@ export const useChatStreamingStore = create<ChatStreamingState>((set, get) => ({
         // 将可能存在的 buffer 刷入 task
         if (task && throttle) {
           if (throttle.throttleBuffer.length > 0) task.messagesBuffer = throttle.throttleBuffer;
+          if (throttle.inThrottle) clearTimeout(throttle.throttleTimer as ReturnType<typeof setTimeout>);
           task.status = status;
         }
       });
@@ -93,7 +138,8 @@ export const useChatStreamingStore = create<ChatStreamingState>((set, get) => ({
             if (get().tasksThrottleMap.has(taskId) && get().tasksProcessingMap.has(taskId)) {
               // 节流结束时将 buffer 刷入 task 并解除节流
               const tasksProcessingMap = produce(get().tasksProcessingMap, (draft: Map<string, TaskInfo>) => {
-                draft.get(taskId)!.messagesBuffer = get().tasksThrottleMap.get(taskId)!.throttleBuffer;
+                const task = draft.get(taskId)!;
+                task.messagesBuffer = get().tasksThrottleMap.get(taskId)!.throttleBuffer;
               });
               const tasksThrottleMap = produce(get().tasksThrottleMap, (draft: Map<string, TaskThrottle>) => {
                 const throttle = draft.get(taskId)!;
@@ -148,7 +194,14 @@ export const useChatStreamingStore = create<ChatStreamingState>((set, get) => ({
   },
   tasksProcessingMap: new Map<string, TaskInfo>(),
   tasksThrottleMap: new Map<string, TaskThrottle>(),
-  send: (taskId: string, messages: AdminAgentMessage[], apiBaseUrl: string) => {
+  promptTaskIdMap: new PromptTaskIdMap(),
+  send: (promptId: string, taskId: string, messages: AdminAgentMessage[], apiBaseUrl: string) => {
+    // promptId-taskId 映射
+    set((state)=>({
+      promptTaskIdMap: produce(state.promptTaskIdMap, (draft)=>{
+        draft.set_by_prompt(promptId, taskId);
+      })
+    }));
     // 创建任务信息
     const task: TaskInfo = {
       isFocused: true,
@@ -187,25 +240,22 @@ export const useChatStreamingStore = create<ChatStreamingState>((set, get) => ({
       });
     }
   },
-  offline: (taskId: string) => {
+  onlineStatusToggle: (taskId: string, status: "online" | "offline") => {
     set((state) => {
       const streamingWorker = state.streamingWorker;
       if (state.tasksProcessingMap.has(taskId) && streamingWorker) {
         streamingWorker.postMessage({
-          type: "offline",
+          type: status,
           id: taskId,
         });
         const tasksProcessingMap = produce(state.tasksProcessingMap, (draft) => {
           const task = draft.get(taskId)!;
-          task.isFocused = false;
+          task.isFocused = status==="online";
         });
         return { tasksProcessingMap };
       }
       return state;
     });
-  },
-  online: () => {
-
   },
   terminateTask: (taskId?: string) => {
     const streamingWorker = get().streamingWorker;
@@ -223,30 +273,34 @@ export const useChatStreamingStore = create<ChatStreamingState>((set, get) => ({
               if (throttle.inThrottle) clearTimeout(throttle.throttleTimer as ReturnType<typeof setTimeout>);
             }
             draft.clear()
-          })
+          }),
+          promptTaskIdMap: produce(state.promptTaskIdMap, (draft) => {draft.clear();})
         }));
       } else {
         // 删除特定的任务
-        if (get().tasksProcessingMap.has(taskId)) {
+        const task = get().tasksProcessingMap.get(taskId);
+        // 完结态不向 streaming worker 发送 cancel 操作 ( woker 在完结时已自动清除其内部 task map 中对应 task )
+        if(task && !(task.status === "completed" || task.status === "canceled" || task.status === "error")) {
           streamingWorker.postMessage({
             type: "cancel",
             id: taskId,
           });
-          set((state) => ({
-            tasksProcessingMap: produce(state.tasksProcessingMap, (draft) => {
-              draft.delete(taskId);
-            }),
-          }));
         }
-        if(get().tasksThrottleMap.has(taskId)){
-          set((state)=>({
-            tasksThrottleMap: produce(state.tasksThrottleMap, (draft)=>{
-              const throttle = draft.get(taskId)!;
-              if(throttle.inThrottle)clearTimeout(throttle.throttleTimer as ReturnType<typeof setTimeout>);
+        set((state) => ({
+          tasksProcessingMap: produce(state.tasksProcessingMap, (draft) => {
+            if(draft.has(taskId)) draft.delete(taskId);
+          }),
+          tasksThrottleMap: produce(state.tasksThrottleMap, (draft) => {
+            const throttle = draft.get(taskId);
+            if(throttle){
+              if (throttle.inThrottle) clearTimeout(throttle.throttleTimer as ReturnType<typeof setTimeout>);
               draft.delete(taskId);
-            }),
-          }));
-        }
+            }
+          }),
+          promptTaskIdMap: produce(state.promptTaskIdMap, (draft) => {
+            draft.delete_by_task(taskId);
+          })
+        }));
       }
     }
   },

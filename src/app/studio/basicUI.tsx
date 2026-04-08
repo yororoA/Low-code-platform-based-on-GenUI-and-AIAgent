@@ -49,7 +49,7 @@ export default function BasicUI() {
     id: "",
     topic: "New Conversation",
     timestamp: new Date(),
-  })
+  });
   const CACHE_DEBOUNCE_TIMEOUT = 1000;
   const [topic, setTopic] = useState<string>("New Conversation");
   const baseMessagesRef = useRef<AdminAgentMessage[]>([]);
@@ -59,13 +59,12 @@ export default function BasicUI() {
   const currentTask = useChatStreamingStore(
     useShallow(state => state.tasksProcessingMap.get(currentMessageTaskId))
   )
-  const { send, cancel, terminateTask, offline, online } = useChatStreamingStore(
+  const { send, cancel, terminateTask, onlineStatusToggle } = useChatStreamingStore(
     useShallow(state => ({
       send: state.send,
       cancel: state.cancel,
       terminateTask: state.terminateTask,
-      offline: state.offline,
-      online: state.online,
+      onlineStatusToggle: state.onlineStatusToggle
     }))
   );
   const getDBMessagesWorkerRef = useRef<Worker | null>(null);
@@ -84,7 +83,7 @@ export default function BasicUI() {
             topic: history.topic,
             timestamp: history.timestamp,
           }
-          setTopic(history.topic)
+          setTopic(history.topic);
         }
       }
     }
@@ -112,15 +111,15 @@ export default function BasicUI() {
   // 初始化获取历史数据
   const searchParams = useSearchParams();
   useEffect(() => {
-    const id = searchParams.get("id");
-    if (id) {
+    const promptId = searchParams.get("id");
+    if (promptId) {
       if (getDBMessagesWorkerRef.current) {
-        getDBMessagesWorkerRef.current.postMessage({ operationType: "get", id });
+        getDBMessagesWorkerRef.current.postMessage({ operationType: "get", id: promptId });
       } else {
         (async () => {
           const history = (await DBManager.execute({
             operationType: "get",
-            id: id,
+            id: promptId,
           })) as DataItem;
           if (history) {
             baseMessagesRef.current = history.messages;
@@ -135,7 +134,7 @@ export default function BasicUI() {
         })();
       }
     }
-  }, [setMessages, searchParams])
+  }, [setMessages, searchParams]);
 
   // todo('更新worker');
   // 更新逻辑：采用防抖策略 (Debounce) 避免高频操作
@@ -144,7 +143,7 @@ export default function BasicUI() {
 
     // 设置 800ms 防抖，流式输出时（极度高频修改）不会立刻执行，流出停顿时才会集中执行一次
     const updateTimer = setTimeout(async () => {
-      const d = thisDetailRef.current
+      const d = thisDetailRef.current;
 
       // 尝试从最新的 assistant 消息中提取 topic
       let extractedTopic = ""
@@ -217,10 +216,10 @@ export default function BasicUI() {
   useEffect(() => {
     return () => {
       if (currentMessageTaskId) {
-        offline(currentMessageTaskId);
+        onlineStatusToggle(currentMessageTaskId, "offline");
       }
     }
-  }, [offline, currentMessageTaskId]);
+  }, [onlineStatusToggle, currentMessageTaskId]);
 
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
