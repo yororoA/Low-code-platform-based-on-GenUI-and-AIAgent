@@ -1,85 +1,233 @@
 import { create } from "zustand";
 import { AdminAgentMessage } from "@/app/api/chat/model";
 import { StreamMessageResponse } from "@/types";
+import { enableMapSet, produce } from "immer";
+
+enableMapSet();
 
 
-class TaskInfo {
-  isFocused: boolean = true;
-  streamingWorker: Worker | null = null; // 流式处理 worker
-  dedupMessageWorker: Worker | null = null; // 去重 worker
-  // messagesBuffer 用于存储当前流式处理过程中解析出的消息， key为 taskId 用以去重和覆盖更新
-  public messagesBuffer: AdminAgentMessage[] = [];
-  constructor(public taskId: string) {
-    this.isFocused = true;
-    this.streamingWorker = null;
-    this.dedupMessageWorker = null;
-    this.messagesBuffer = [];
+class PromptTaskIdMap {
+  private p_t_map: Map<string, string>; // <promptId, taskId>
+  private t_p_map: Map<string, string>; // <taskId, promptId>
+
+  constructor() {
+    this.p_t_map = new Map<string, string>();
+    this.t_p_map = new Map<string, string>();
+  };
+
+  public has_prompt(promptId: string) {
+    return this.p_t_map.has(promptId);
+  };
+  public set_by_prompt(promptId: string, taskId: string) {
+    if (this.p_t_map.has(promptId)) this.t_p_map.delete(this.p_t_map.get(promptId)!); // 如果已存在该 promptId 的映射，先删除旧的 taskId 映射
+    this.p_t_map.set(promptId, taskId);
+    this.t_p_map.set(taskId, promptId);
+  };
+  public set_by_task(taskId: string, promptId: string) {
+    this.t_p_map.set(taskId, promptId);
+    this.p_t_map.set(promptId, taskId);
+  };
+  public get_taskId(promptId: string) {
+    return this.p_t_map.get(promptId);
+  };
+  public get_promptId(taskId: string) {
+    return this.t_p_map.get(taskId);
+  };
+  public delete_by_prompt(promptId: string) {
+    const taskId = this.p_t_map.get(promptId);
+    if (taskId) {
+      this.p_t_map.delete(promptId);
+      this.t_p_map.delete(taskId);
+    }
+  };
+  public delete_by_task(taskId: string) {
+    const promptId = this.t_p_map.get(taskId);
+    if (promptId) {
+      this.t_p_map.delete(taskId);
+      this.p_t_map.delete(promptId);
+    }
+  };
+  public clear() {
+    this.p_t_map.clear();
+    this.t_p_map.clear();
   }
-
-  public initWorker: (type: "streaming" | "dedupMessage") => void = (type) => {
-    if (type === "streaming") {
-      this.streamingWorker = new Worker(new URL("@/workers/chatStreamingWorker.ts", import.meta.url));
-    } else {
-      this.dedupMessageWorker = new Worker(new URL("@/workers/chatMessagesDedupeWorker.ts", import.meta.url));
-    }
-  };
-  public confirmWorkerInitialized: (type: "streaming" | "dedupMessage") => Worker = (type) => {
-    if (type === 'streaming') {
-      const streamingWorker = this.streamingWorker;
-      if (!streamingWorker) {
-        this.initWorker("streaming");
-        return this.streamingWorker as Worker; // 确保返回非null的worker实例
-      } else return streamingWorker;
-    } else {
-      const dedupMessageWorker = this.dedupMessageWorker;
-      if (!dedupMessageWorker) {
-        this.initWorker("dedupMessage");
-        return this.dedupMessageWorker as Worker;
-      } else return dedupMessageWorker;
-    }
-  };
-  public terminateWorker: (type: "streaming" | "dedupMessage" | "all") => void = (type) => {
-    if (type === "streaming") {
-      this.streamingWorker?.terminate();
-      this.streamingWorker = null;
-    } else if (type === "dedupMessage") {
-      this.dedupMessageWorker?.terminate();
-      this.dedupMessageWorker = null;
-    } else {
-      this.streamingWorker?.terminate();
-      this.streamingWorker = null;
-      this.dedupMessageWorker?.terminate();
-      this.dedupMessageWorker = null;
-    }
-  };
 }
+
+interface TaskInfo {
+  isFocused: boolean;
+  status: "submitted" | "streaming" | "completed" | "canceled" | "error";
+  // messagesBuffer 用于存储当前流式处理过程中解析出的消息， key为 taskId 用以去重和覆盖更新
+  messagesBuffer: AdminAgentMessage[];
+}
+
+const THROTTLE_TIME = 60;
+type TaskThrottle = {
+  inThrottle: boolean;
+  throttleBuffer: AdminAgentMessage[]; // 当 inThrottle===true 时在其中存下待发送的消息
+  throttleTimer: ReturnType<typeof setTimeout> | null;
+};
 
 // todo: 将其他 worker 的相关管理也移入此 store
 interface ChatStreamingState {
   workersAllowed: boolean;
   setWorkersAllowed: (workersAllowed: boolean) => void;
+  streamingWorker: Worker | null;
+  initWorker: () => void;
+  confirmWorkerInitialized: () => Worker;
+  terminateWorker: () => void;
   tasksProcessingMap: Map<string, TaskInfo>;
-  send: (taskId: string, messages: AdminAgentMessage[], apiBaseUrl: string) => void;
+  tasksThrottleMap: Map<string, TaskThrottle>;
+  promptTaskIdMap: PromptTaskIdMap;
+  send: (promptId: string, taskId: string, messages: AdminAgentMessage[], apiBaseUrl: string) => void;
   cancel: (taskId: string) => void;
-  offline: (taskId: string) => void;
-  online: () => void;
-  terminateAllTasks: () => void;
+  onlineStatusToggle: (taskId: string, status: "online" | "offline") => void;
+  cce: (taskId: string, status: TaskInfo["status"]) => void; // 在清除某个 task 前将残余 buffer 刷入 task 并延迟删除
+  terminateTask: (taskId?: string) => void;
 }
 
-export const useChatStreamingStore = create<ChatStreamingState>((set) => ({
+export const useChatStreamingStore = create<ChatStreamingState>((set, get) => ({
   workersAllowed: false,
   setWorkersAllowed: (workersAllowed: boolean) => set({ workersAllowed }),
-  tasksProcessingMap: new Map<string, TaskInfo>(),
-  send: (taskId: string, messages: AdminAgentMessage[], apiBaseUrl: string) => {
-    // 创建任务信息
-    const task = new TaskInfo(taskId);
+  streamingWorker: null,
+  cce: (taskId: string, status: TaskInfo["status"]) => {
+    // 在清除 task | throttle 前触发更新提醒前端 UI 状态保存
     set((state) => {
-      const tasksProcessingMap = new Map(state.tasksProcessingMap);
-      tasksProcessingMap.set(taskId, task);
+      const tasksProcessingMap = produce(state.tasksProcessingMap, (draft) => {
+        const task = draft.get(taskId);
+        const throttle = state.tasksThrottleMap.get(taskId);
+        // 将可能存在的 buffer 刷入 task
+        if (task && throttle) {
+          if (throttle.throttleBuffer.length > 0) task.messagesBuffer = throttle.throttleBuffer;
+          if (throttle.inThrottle) clearTimeout(throttle.throttleTimer as ReturnType<typeof setTimeout>);
+          task.status = status;
+        }
+      });
       return { tasksProcessingMap };
     });
-    const streamingWorker = task.confirmWorkerInitialized("streaming");
-    const dedupMessageWorker = task.confirmWorkerInitialized("dedupMessage");
+  },
+  initWorker: () => {
+    if (get().streamingWorker) return;
+    const streamingWorker = new Worker(new URL("@/workers/chatStreamingWorker.ts", import.meta.url));
+    // 接收到流式处理 worker 的消息
+    streamingWorker.onmessage = (event: MessageEvent<StreamMessageResponse>) => {
+      const taskId = event.data.id;
+      const { tasksProcessingMap, tasksThrottleMap } = get();
+      if (!tasksProcessingMap.has(taskId)) return; // todo: 无对应任务时的错误处理
+      if (!tasksThrottleMap.has(taskId)) { // 确保节流任务被正确初始化
+        set((state) => ({
+          tasksThrottleMap: produce(state.tasksThrottleMap, (draft: Map<string, TaskThrottle>) => {
+            draft.set(taskId, {
+              inThrottle: false,
+              throttleBuffer: [],
+              throttleTimer: null,
+            });
+          }),
+        }));
+      }
+      if (event.data.type === "message") {
+        const messages = event.data.data as AdminAgentMessage[];
+        const currentThrottle = get().tasksThrottleMap.get(taskId);
+        if (!currentThrottle) return;
+        if (currentThrottle.inThrottle) {
+          // 节流期间将最新消息存入 buffer
+          set((state) => ({
+            tasksThrottleMap: produce(state.tasksThrottleMap, (draft: Map<string, TaskThrottle>) => {
+              draft.get(taskId)!.throttleBuffer = messages;
+            })
+          }))
+        } else { // 非节流期间
+          // 节流 timer
+          const throttleTimer = setTimeout(() => {
+            if (get().tasksThrottleMap.has(taskId) && get().tasksProcessingMap.has(taskId)) {
+              // 节流结束时将 buffer 刷入 task 并解除节流
+              const tasksProcessingMap = produce(get().tasksProcessingMap, (draft: Map<string, TaskInfo>) => {
+                const task = draft.get(taskId)!;
+                const throttle = get().tasksThrottleMap.get(taskId)!;
+                if (throttle.throttleBuffer.length > 0) task.messagesBuffer = throttle.throttleBuffer;
+              });
+              const tasksThrottleMap = produce(get().tasksThrottleMap, (draft: Map<string, TaskThrottle>) => {
+                const throttle = draft.get(taskId)!;
+                throttle.throttleBuffer = [];
+                throttle.inThrottle = false; // 解除节流
+                throttle.throttleTimer = null;
+              });
+              set({ tasksProcessingMap, tasksThrottleMap });
+            }
+          }, THROTTLE_TIME);
+
+          set((state) => {
+            // 将残余的 buffer 刷入 task
+            const tasksProcessingMap = produce(state.tasksProcessingMap, (draft) => {
+              const task = draft.get(taskId)!
+              task.messagesBuffer = messages;
+              task.status = "streaming";
+            });
+            // 开始节流
+            const tasksThrottleMap = produce(state.tasksThrottleMap, (draft) => {
+              draft.set(taskId, {
+                inThrottle: true,
+                throttleBuffer: [],
+                throttleTimer: throttleTimer,
+              });
+            });
+            return { tasksProcessingMap, tasksThrottleMap };
+          })
+        }
+      } else if (event.data.type === "complete" || event.data.type === "canceled") {
+        // 流式处理 worker 完成/取消
+        get().cce(taskId, event.data.type === "complete" ? "completed" : "canceled");
+      } else {
+        // 流式处理 worker 出错
+        // todo: 错误处理
+        get().cce(taskId, "error");
+        throw new Error(event.data.error);
+      }
+    };
+    set({ streamingWorker });
+  },
+  confirmWorkerInitialized: () => {
+    const streamingWorker = get().streamingWorker;
+    if (!streamingWorker) {
+      get().initWorker();
+      return get().streamingWorker as Worker; // 确保返回非null的worker实例
+    } else return streamingWorker;
+  },
+  terminateWorker() {
+    set((state) => {
+      state.streamingWorker?.terminate();
+      return { streamingWorker: null };
+    });
+  },
+  tasksProcessingMap: new Map<string, TaskInfo>(),
+  tasksThrottleMap: new Map<string, TaskThrottle>(),
+  promptTaskIdMap: new PromptTaskIdMap(),
+  send: (promptId: string, taskId: string, messages: AdminAgentMessage[], apiBaseUrl: string) => {
+    // promptId-taskId 映射
+    set((state) => ({
+      promptTaskIdMap: produce(state.promptTaskIdMap, (draft) => {
+        draft.set_by_prompt(promptId, taskId);
+      })
+    }));
+    // 创建任务信息
+    const task: TaskInfo = {
+      isFocused: true,
+      status: "submitted",
+      messagesBuffer: [],
+    };
+    set((state) => {
+      const tasksProcessingMap = produce(state.tasksProcessingMap, (draft) => {
+        draft.set(taskId, task);
+      });
+      const tasksThrottleMap = produce(state.tasksThrottleMap, (draft) => {
+        draft.set(taskId, {
+          inThrottle: false,
+          throttleBuffer: [],
+          throttleTimer: null,
+        });
+      });
+      return { tasksProcessingMap, tasksThrottleMap };
+    });
+    const streamingWorker = get().confirmWorkerInitialized();
     // 发送消息给流式处理 worker
     streamingWorker.postMessage({
       type: "send",
@@ -87,92 +235,79 @@ export const useChatStreamingStore = create<ChatStreamingState>((set) => ({
       messages,
       apiBaseUrl
     });
-    // 接收到流式处理 worker 的消息
-    streamingWorker.onmessage = (event: MessageEvent<StreamMessageResponse>) => {
-      if (event.data.id !== taskId) return; // 确保消息对应当前任务
-      if (event.data.type === "message") {
-        const messages = event.data.data as AdminAgentMessage[];
-        // 发送消息给去重 worker
-        dedupMessageWorker.postMessage(messages);
-      } else if (event.data.type === "complete") {
-        // 流式处理 worker 完成
-        set((state) => {
-          const tasksProcessingMap = new Map(state.tasksProcessingMap);
-          const task = tasksProcessingMap.get(taskId);
-          if (task) {
-            task.terminateWorker('all');
-            tasksProcessingMap.delete(taskId);
-          }
-          return { tasksProcessingMap };
-        });
-      } else {
-        // 流式处理 worker 出错
-        set((state) => {
-          const tasksProcessingMap = new Map(state.tasksProcessingMap);
-          const task = tasksProcessingMap.get(taskId);
-          if (task) {
-            task.terminateWorker('all');
-            tasksProcessingMap.delete(taskId);
-          }
-          return { tasksProcessingMap };
-        });
-        throw new Error(event.data.error);
-      }
-    };
-    // 接收到去重 worker 的消息
-    dedupMessageWorker.onmessage = (event: MessageEvent<AdminAgentMessage[]>) => {
-      const dedupedMessages = event.data as AdminAgentMessage[];
-      set((state) => {
-        const tasksProcessingMap = new Map(state.tasksProcessingMap);
-        const task = tasksProcessingMap.get(taskId);
-        if (task) {
-          task.messagesBuffer = dedupedMessages;
-        }
-        return { tasksProcessingMap };
+  },
+  cancel: (taskId: string) => {
+    const task = get().tasksProcessingMap.get(taskId);
+    const streamingWorker = get().streamingWorker;
+    if (task && streamingWorker) {
+      streamingWorker.postMessage({
+        type: "cancel",
+        id: taskId,
       });
     }
   },
-  cancel: (taskId: string) => {
+  onlineStatusToggle: (taskId: string, status: "online" | "offline") => {
     set((state) => {
-      const tasksProcessingMap = new Map(state.tasksProcessingMap);
-      const task = tasksProcessingMap.get(taskId);
-      if (task) {
-        if (!task.streamingWorker) return { tasksProcessingMap }; // worker未初始化，无需发送取消消息
-        task.streamingWorker.postMessage({
-          type: "cancel",
+      const streamingWorker = state.streamingWorker;
+      if (state.tasksProcessingMap.has(taskId) && streamingWorker) {
+        streamingWorker.postMessage({
+          type: status,
           id: taskId,
         });
-        task.terminateWorker('all');
-        tasksProcessingMap.delete(taskId);
-      }
-      return { tasksProcessingMap };
-    });
-  },
-  offline: (taskId: string) => {
-    set((state) => {
-      const tasksProcessingMap = new Map(state.tasksProcessingMap);
-      const task = tasksProcessingMap.get(taskId);
-      if (task) {
-        if (!task.streamingWorker) return { tasksProcessingMap }; // worker未初始化，无需发送离线消息
-        task.streamingWorker.postMessage({
-          type: "offline",
-          id: taskId,
+        const tasksProcessingMap = produce(state.tasksProcessingMap, (draft) => {
+          const task = draft.get(taskId)!;
+          task.isFocused = status === "online";
         });
-        task.isFocused = false;
+        return { tasksProcessingMap };
       }
-      return { tasksProcessingMap };
+      return state;
     });
   },
-  online: () => {
-
-  },
-  terminateAllTasks: () => {
-    set((state) => {
-      const tasksProcessingMap = new Map(state.tasksProcessingMap);
-      for (const task of tasksProcessingMap.values()) {
-        task.terminateWorker('all');
+  terminateTask: (taskId?: string) => {
+    const streamingWorker = get().streamingWorker;
+    if (streamingWorker) {
+      if (!taskId) {
+        // 删除所有任务
+        streamingWorker.postMessage({
+          type: "cancelAll",
+          id: "",
+        });
+        set((state) => ({
+          tasksProcessingMap: produce(state.tasksProcessingMap, (draft) => draft.clear()),
+          tasksThrottleMap: produce(state.tasksThrottleMap, (draft) => {
+            for (const throttle of draft.values()) {
+              if (throttle.inThrottle) clearTimeout(throttle.throttleTimer as ReturnType<typeof setTimeout>);
+            }
+            draft.clear()
+          }),
+          promptTaskIdMap: produce(state.promptTaskIdMap, (draft) => { draft.clear(); })
+        }));
+      } else {
+        // 删除特定的任务
+        const task = get().tasksProcessingMap.get(taskId);
+        // 完结态不向 streaming worker 发送 cancel 操作 ( woker 在完结时已自动清除其内部 task map 中对应 task )
+        if (task && !(task.status === "completed" || task.status === "canceled" || task.status === "error")) {
+          streamingWorker.postMessage({
+            type: "cancel",
+            id: taskId,
+          });
+        }
+        set((state) => ({
+          tasksProcessingMap: produce(state.tasksProcessingMap, (draft) => {
+            if (draft.has(taskId)) draft.delete(taskId);
+          }),
+          tasksThrottleMap: produce(state.tasksThrottleMap, (draft) => {
+            const throttle = draft.get(taskId);
+            if (throttle) {
+              if (throttle.inThrottle) clearTimeout(throttle.throttleTimer as ReturnType<typeof setTimeout>);
+              draft.delete(taskId);
+            }
+          }),
+          promptTaskIdMap: produce(state.promptTaskIdMap, (draft) => {
+            draft.delete_by_task(taskId);
+          })
+        }));
       }
-      return { tasksProcessingMap: new Map<string, TaskInfo>() };
-    });
-  }
+    }
+  },
 }));

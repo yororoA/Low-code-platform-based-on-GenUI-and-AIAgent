@@ -17,6 +17,7 @@ import { DataItemSummary } from "@/types"
 import { ChatDetailsContext } from "@/contexts";
 import { isUiTreeNode, renderNode, type UiTreeNode } from "@/lib/renderByAST";
 import { useChatStreamingStore } from "@/store/chatStreamingStore";
+import { useShallow } from "zustand/shallow"
 
 
 type StudioPreviewPayload = {
@@ -80,16 +81,25 @@ export default function StudioLayout({ children }: { children: ReactNode }) {
   const isPromptSectionSelected = pathname?.startsWith("/studio/prompts");
   const isHistorySelected = pathname === "/studio/prompts/history";
 
-  const { setWorkersAllowed, workersAllowed, terminateAllTasks } = useChatStreamingStore();
+  const { setWorkersAllowed, terminateTask, terminateWorker } = useChatStreamingStore(
+    // 使用 useShallow 优化性能: 仅在依赖项发生变化时重新计算
+    useShallow(state => ({
+      setWorkersAllowed: state.setWorkersAllowed,
+      terminateTask: state.terminateTask,
+      terminateWorker: state.terminateWorker
+    }))
+  );
   useEffect(() => {
     setWorkersAllowed(!!window.Worker);
     return () => {
-      if (workersAllowed) {
+      // 只在确实有初始化操作时才进行清理
+      if (useChatStreamingStore.getState().workersAllowed) {
         setWorkersAllowed(false);
-        terminateAllTasks();
+        terminateTask();
+        terminateWorker();
       }
     }
-  }, [setWorkersAllowed, workersAllowed, terminateAllTasks]);
+  }, [setWorkersAllowed, terminateTask, terminateWorker]);
 
 
   // 连接数据库并初始化历史列表

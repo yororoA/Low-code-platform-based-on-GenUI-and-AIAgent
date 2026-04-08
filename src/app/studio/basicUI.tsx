@@ -24,6 +24,7 @@ import { getShowResponsePayload, strToHexStr, dispatchEvent, dedupeMessages, gen
 import { useSearchParams, useRouter } from "next/navigation"
 import { DataItem, DataItemSummary } from "@/types";
 import { useChatStreamingStore } from "@/store/chatStreamingStore";
+import { useShallow } from "zustand/shallow"
 // import { todo } from "node:test"
 
 const STAGE_INFO_RE = /^\[(ADMIN|STRUCTURE|ALIGNMENT|STYLE)\]:\s*(.+)$/i
@@ -48,18 +49,28 @@ export default function BasicUI() {
     id: "",
     topic: "New Conversation",
     timestamp: new Date(),
-  })
+  });
   const CACHE_DEBOUNCE_TIMEOUT = 1000;
   const [topic, setTopic] = useState<string>("New Conversation");
   const baseMessagesRef = useRef<AdminAgentMessage[]>([]);
   const { messages, setMessages, sendMessage, status, stop, error } = useChat<AdminAgentMessage>();
   const [normalizedMessages, setNormalizedMessages] = useState<AdminAgentMessage[]>([]);
-  const currentMessageTaskIdRef = useRef<string | null>(null);
-  const { send, cancel, offline, online, tasksProcessingMap, workersAllowed } = useChatStreamingStore();
+  const [currentMessageTaskId, setCurrentMessageTaskId] = useState<string>('');
+  const currentTask = useChatStreamingStore(
+    useShallow(state => state.tasksProcessingMap.get(currentMessageTaskId))
+  );
+  const { send, cancel, terminateTask, onlineStatusToggle } = useChatStreamingStore(
+    useShallow(state => ({
+      send: state.send,
+      cancel: state.cancel,
+      terminateTask: state.terminateTask,
+      onlineStatusToggle: state.onlineStatusToggle
+    }))
+  );
   const getDBMessagesWorkerRef = useRef<Worker | null>(null);
   // 初始化获取历史记录线程
   useEffect(() => {
-    if (workersAllowed) {
+    if (useChatStreamingStore.getState().workersAllowed) {
       // worker for 获取本页历史数据
       getDBMessagesWorkerRef.current = new Worker(new URL("@/workers/chatDBWorker.ts", import.meta.url));
       getDBMessagesWorkerRef.current.onmessage = (event: MessageEvent<DataItem>) => {
@@ -72,48 +83,51 @@ export default function BasicUI() {
             topic: history.topic,
             timestamp: history.timestamp,
           }
-          setTopic(history.topic)
+          setTopic(history.topic);
         }
       }
     }
     // 清理worker
     return () => {
-      if (workersAllowed) {
+      if (useChatStreamingStore.getState().workersAllowed) {
         getDBMessagesWorkerRef.current?.terminate();
         getDBMessagesWorkerRef.current = null;
       }
     }
-  }, [workersAllowed, setMessages]);
-  // 监听消息变化，发送到工作线程进行去重处理，减少主线程压力；如果不支持Worker，则直接在主线程处理
-  // fix: 来自 store 的 messages 本就是去重后的消息, 无需再次去重
+  }, [setMessages]);
+  // 监听消息变化，来自 store 的 messages 本就是去重后的消息, 无需再次去重
   useEffect(() => {
-    if (workersAllowed) {
-      if (currentMessageTaskIdRef.current) {
-        const task = tasksProcessingMap.get(currentMessageTaskIdRef.current as string);
-        if (task) {
-          setNormalizedMessages([...baseMessagesRef.current, ...task.messagesBuffer]);
-        }
+    if (useChatStreamingStore.getState().workersAllowed) {
+      if (currentTask) {
+        setNormalizedMessages([...baseMessagesRef.current, ...currentTask.messagesBuffer]);
+        if (currentTask.status === "canceled" || currentTask.status === "completed") terminateTask(currentMessageTaskId);
       }
     } else {
       setNormalizedMessages(dedupeMessages(messages));
     }
-  }, [messages, tasksProcessingMap, workersAllowed]);
-
+  }, [messages, currentTask, terminateTask, currentMessageTaskId]);
+  
   // 初始化获取历史数据
+  // 初始化时若存在 promptId 则尝试从 store 中获取可能存在的 task, 恢复状态
   const searchParams = useSearchParams();
   useEffect(() => {
-    const id = searchParams.get("id");
-    if (id) {
+    const promptId = searchParams.get("id");
+    if (promptId) {
       if (getDBMessagesWorkerRef.current) {
-        getDBMessagesWorkerRef.current.postMessage({ operationType: "get", id });
+        getDBMessagesWorkerRef.current.postMessage({ operationType: "get", id: promptId });
       } else {
         (async () => {
           const history = (await DBManager.execute({
             operationType: "get",
-            id: id,
+            id: promptId,
           })) as DataItem;
           if (history) {
             baseMessagesRef.current = history.messages;
+            if(useChatStreamingStore.getState().workersAllowed && useChatStreamingStore.getState().promptTaskIdMap.has_prompt(promptId)){
+              const taskId = useChatStreamingStore.getState().promptTaskIdMap.get_taskId(promptId)!;
+              setCurrentMessageTaskId(taskId);
+              onlineStatusToggle(taskId, "online");
+            }
             setMessages(baseMessagesRef.current);
             thisDetailRef.current = {
               id: history.id,
@@ -125,7 +139,7 @@ export default function BasicUI() {
         })();
       }
     }
-  }, [setMessages, searchParams])
+  }, [setMessages, searchParams, onlineStatusToggle]);
 
   // todo('更新worker');
   // 更新逻辑：采用防抖策略 (Debounce) 避免高频操作
@@ -134,7 +148,7 @@ export default function BasicUI() {
 
     // 设置 800ms 防抖，流式输出时（极度高频修改）不会立刻执行，流出停顿时才会集中执行一次
     const updateTimer = setTimeout(async () => {
-      const d = thisDetailRef.current
+      const d = thisDetailRef.current;
 
       // 尝试从最新的 assistant 消息中提取 topic
       let extractedTopic = ""
@@ -149,17 +163,10 @@ export default function BasicUI() {
         }
       }
 
-      const isNew = !d.id
+      const isNew = d.topic === 'New Conversation';
 
-      if (isNew) {
-        // 初始化 ID
-        d.topic = extractedTopic || "New Conversation";
-        d.id = strToHexStr(d.topic + Date.now().toString());
-        d.timestamp = new Date();
-      } else if (extractedTopic) {
-        // 更新 topic
-        d.topic = extractedTopic
-      }
+      // 更新 topic
+      d.topic = extractedTopic
 
       // 安全 setState: 只有在值真实改变时才会触发视图重新渲染
       setTopic((prevTopic) => {
@@ -180,9 +187,8 @@ export default function BasicUI() {
           });
           if (isNew) {
             setCanJump(true);
-            dispatchEvent<DataItemSummary>("newConversation", d)
           } else {
-            dispatchEvent<DataItemSummary>("updateConversation", d)
+            dispatchEvent<DataItemSummary>("updateConversation", d);
           }
         } catch (error) {
           console.error("DB Update Error: ", error)
@@ -206,12 +212,11 @@ export default function BasicUI() {
   // 会话切换(页面卸载)
   useEffect(() => {
     return () => {
-      if (currentMessageTaskIdRef.current) {
-        offline(currentMessageTaskIdRef.current as string);
-        currentMessageTaskIdRef.current = null;
+      if (currentMessageTaskId) {
+        onlineStatusToggle(currentMessageTaskId, "offline");
       }
     }
-  }, [offline]);
+  }, [onlineStatusToggle, currentMessageTaskId]);
 
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -220,7 +225,7 @@ export default function BasicUI() {
     if (!text) return;
 
     setInput("");
-    if (!workersAllowed) await sendMessage({ text });
+    if (!useChatStreamingStore.getState().workersAllowed) await sendMessage({ text });
     else {
       const userMessage: AdminAgentMessage = {
         role: "user",
@@ -231,18 +236,34 @@ export default function BasicUI() {
       setMessages(baseMessagesRef.current);
       setNormalizedMessages(baseMessagesRef.current);
 
+      terminateTask(currentMessageTaskId); // 在发送新消息前删除任务
+      if (!thisDetailRef.current.id) {
+        // Id 初始化
+        const newId = strToHexStr(`${text}${Date.now().toString()}${Math.ceil(Math.random() * 1e6).toString()}`);
+        thisDetailRef.current.id = newId;
+        thisDetailRef.current.timestamp = new Date();
+        dispatchEvent<DataItemSummary>("newConversation", thisDetailRef.current);
+      }
       const taskId = `task_${Date.now()}`;
-      currentMessageTaskIdRef.current = taskId;
-      send(taskId, baseMessagesRef.current, window.location.origin);
+      setCurrentMessageTaskId(taskId);
+      send(thisDetailRef.current.id, taskId, baseMessagesRef.current, window.location.origin);
     }
+  }
+
+  const handleStop = async () => {
+    if (useChatStreamingStore.getState().workersAllowed) {
+      if (currentMessageTaskId) cancel(currentMessageTaskId);
+    } else stop();
   }
 
   const handleInputChange = (event: ChangeEvent<HTMLTextAreaElement>) => {
     setInput(event.target.value)
   }
 
-  const isStreaming = status === "streaming" || status === "submitted"
-  const canSend = input.trim().length > 0 && !isStreaming
+  const isStreaming = (useChatStreamingStore.getState().workersAllowed)
+    ? currentTask && (currentTask.status === "streaming" || currentTask.status === 'submitted')
+    : status === "streaming" || status === "submitted";
+  const canSend = input.trim().length > 0 && !isStreaming;
 
   const getMessageText = (message: AdminAgentMessage) =>
     message.parts
@@ -456,7 +477,7 @@ export default function BasicUI() {
             />
 
             {isStreaming ? (
-              <Button type="button" variant="outline" onClick={stop}>
+              <Button type="button" variant="outline" onClick={handleStop}>
                 Stop
               </Button>
             ) : (

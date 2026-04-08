@@ -9,12 +9,12 @@ export type StreamMessageEvent = {
   apiBaseUrl: string;
 } | {
   // 会话切换、页面关闭等导致的取消事件
-  type: "cancel" | "offline" | "online";
+  type: "cancel" | "cancelAll" | "offline" | "online";
   id: string; // taskId
 };
- 
+
 export type StreamMessageResponse = {
-  type: "message" | "error" | "complete";
+  type: "message" | "error" | "complete" | "canceled";
   id: string; // taskId
   data?: AdminAgentMessage[];
   error?: string;

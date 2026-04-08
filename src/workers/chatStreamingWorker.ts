@@ -8,6 +8,7 @@ export const TaskRegistry = new Map<string, {
   controller: AbortController;
   buffer: string;
   isFocused: boolean;
+  status: "streaming" | "done";
   // messageBuffer 用于存储当前流式处理过程中解析出的消息， key为 taskId 用以去重和覆盖更新
   messageBuffer: Map<string, AdminAgentMessage>;
 }>();
@@ -498,6 +499,7 @@ onmessage = async (event: MessageEvent<StreamMessageEvent>) => {
       controller,
       buffer: "",
       isFocused: true,
+      status: "streaming",
       messageBuffer: new Map<string, AdminAgentMessage>(),
     });
 
@@ -508,29 +510,43 @@ onmessage = async (event: MessageEvent<StreamMessageEvent>) => {
 
         chunk.forEach(message => task.messageBuffer.set(message.id, message));
 
-        // 将消息发送回主线程
-        self.postMessage({
-          type: "message",
-          id,
-          data: Array.from(task.messageBuffer.values()),
-        } as StreamMessageResponse);
+        // 在线时将消息发送回主线程度
+        if (task.isFocused) {
+          self.postMessage({
+            type: "message",
+            id,
+            data: Array.from(task.messageBuffer.values()),
+          } as StreamMessageResponse);
+        }
       }
 
-      // 流处理完成
-      self.postMessage({
-        type: "complete",
-        id,
-        data: Array.from(TaskRegistry.get(id)?.messageBuffer.values() || []),
-      } as StreamMessageResponse);
-
-      TaskRegistry.delete(id);
-    } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : "Unknown error";
-      self.postMessage({
-        type: "error",
-        id,
-        error: errorMsg,
-      } as StreamMessageResponse);
+      // 流处理完成, 在线时 post 并 flush
+      if (TaskRegistry.has(id)) {
+        if(TaskRegistry.get(id)!.isFocused){
+          self.postMessage({
+            type: "complete",
+            id,
+            data: Array.from(TaskRegistry.get(id)?.messageBuffer.values() || []),
+          } as StreamMessageResponse);
+          TaskRegistry.delete(id);
+        }else TaskRegistry.get(id)!.status = "done"; // 离线时仅更新状态, 等上线时主线程再 post
+      }
+    } catch (error: unknown) {
+      if (error instanceof Error && error.name !== "AbortError") {
+        const errorMsg = error.message;
+        self.postMessage({
+          type: "error",
+          id,
+          error: errorMsg,
+        } as StreamMessageResponse);
+      } else if (!(error instanceof Error)) {
+        // 其他错误
+        self.postMessage({
+          type: "error",
+          id,
+          error: JSON.stringify(error),
+        } as StreamMessageResponse);
+      }
 
       TaskRegistry.delete(id);
     }
@@ -539,16 +555,33 @@ onmessage = async (event: MessageEvent<StreamMessageEvent>) => {
     if (task) {
       task.controller.abort();
       TaskRegistry.delete(id);
+      self.postMessage({
+        type: "canceled",
+        id,
+      } as StreamMessageResponse);
     }
-  } else if(type==="offline"){
+  } else if (type === "offline") {
     const task = TaskRegistry.get(id);
-    if(task){
+    if (task) {
       task.isFocused = false;
     }
-  } else if(type==="online"){
+  } else if (type === "online") {
     const task = TaskRegistry.get(id);
-    if(task){
-      task.isFocused = true;
+    if (task) {
+      if(!task.isFocused){ // task 处于 offline 才进行 online 操作
+        task.isFocused = true;
+        self.postMessage({
+          type: "complete",
+          id,
+          data: Array.from(task.messageBuffer.values()),
+        } as StreamMessageResponse);
+        if(task.status === "done") TaskRegistry.delete(id);
+      }
     }
+  } else if (type === 'cancelAll') {
+    for (const task of TaskRegistry.values()) {
+      task.controller.abort();
+    }
+    TaskRegistry.clear();
   }
 };
