@@ -15,8 +15,11 @@ class PromptTaskIdMap {
     this.t_p_map = new Map<string, string>();
   };
 
+  public has_prompt(promptId: string) {
+    return this.p_t_map.has(promptId);
+  };
   public set_by_prompt(promptId: string, taskId: string) {
-    if(this.p_t_map.has(promptId))this.t_p_map.delete(this.p_t_map.get(promptId)!); // 如果已存在该 promptId 的映射，先删除旧的 taskId 映射
+    if (this.p_t_map.has(promptId)) this.t_p_map.delete(this.p_t_map.get(promptId)!); // 如果已存在该 promptId 的映射，先删除旧的 taskId 映射
     this.p_t_map.set(promptId, taskId);
     this.t_p_map.set(taskId, promptId);
   };
@@ -110,7 +113,7 @@ export const useChatStreamingStore = create<ChatStreamingState>((set, get) => ({
       const taskId = event.data.id;
       const { tasksProcessingMap, tasksThrottleMap } = get();
       if (!tasksProcessingMap.has(taskId)) return; // todo: 无对应任务时的错误处理
-      if (!tasksThrottleMap.has(taskId)) {
+      if (!tasksThrottleMap.has(taskId)) { // 确保节流任务被正确初始化
         set((state) => ({
           tasksThrottleMap: produce(state.tasksThrottleMap, (draft: Map<string, TaskThrottle>) => {
             draft.set(taskId, {
@@ -139,7 +142,8 @@ export const useChatStreamingStore = create<ChatStreamingState>((set, get) => ({
               // 节流结束时将 buffer 刷入 task 并解除节流
               const tasksProcessingMap = produce(get().tasksProcessingMap, (draft: Map<string, TaskInfo>) => {
                 const task = draft.get(taskId)!;
-                task.messagesBuffer = get().tasksThrottleMap.get(taskId)!.throttleBuffer;
+                const throttle = get().tasksThrottleMap.get(taskId)!;
+                if (throttle.throttleBuffer.length > 0) task.messagesBuffer = throttle.throttleBuffer;
               });
               const tasksThrottleMap = produce(get().tasksThrottleMap, (draft: Map<string, TaskThrottle>) => {
                 const throttle = draft.get(taskId)!;
@@ -154,7 +158,9 @@ export const useChatStreamingStore = create<ChatStreamingState>((set, get) => ({
           set((state) => {
             // 将残余的 buffer 刷入 task
             const tasksProcessingMap = produce(state.tasksProcessingMap, (draft) => {
-              draft.get(taskId)!.messagesBuffer = messages;
+              const task = draft.get(taskId)!
+              task.messagesBuffer = messages;
+              task.status = "streaming";
             });
             // 开始节流
             const tasksThrottleMap = produce(state.tasksThrottleMap, (draft) => {
@@ -197,8 +203,8 @@ export const useChatStreamingStore = create<ChatStreamingState>((set, get) => ({
   promptTaskIdMap: new PromptTaskIdMap(),
   send: (promptId: string, taskId: string, messages: AdminAgentMessage[], apiBaseUrl: string) => {
     // promptId-taskId 映射
-    set((state)=>({
-      promptTaskIdMap: produce(state.promptTaskIdMap, (draft)=>{
+    set((state) => ({
+      promptTaskIdMap: produce(state.promptTaskIdMap, (draft) => {
         draft.set_by_prompt(promptId, taskId);
       })
     }));
@@ -250,7 +256,7 @@ export const useChatStreamingStore = create<ChatStreamingState>((set, get) => ({
         });
         const tasksProcessingMap = produce(state.tasksProcessingMap, (draft) => {
           const task = draft.get(taskId)!;
-          task.isFocused = status==="online";
+          task.isFocused = status === "online";
         });
         return { tasksProcessingMap };
       }
@@ -274,13 +280,13 @@ export const useChatStreamingStore = create<ChatStreamingState>((set, get) => ({
             }
             draft.clear()
           }),
-          promptTaskIdMap: produce(state.promptTaskIdMap, (draft) => {draft.clear();})
+          promptTaskIdMap: produce(state.promptTaskIdMap, (draft) => { draft.clear(); })
         }));
       } else {
         // 删除特定的任务
         const task = get().tasksProcessingMap.get(taskId);
         // 完结态不向 streaming worker 发送 cancel 操作 ( woker 在完结时已自动清除其内部 task map 中对应 task )
-        if(task && !(task.status === "completed" || task.status === "canceled" || task.status === "error")) {
+        if (task && !(task.status === "completed" || task.status === "canceled" || task.status === "error")) {
           streamingWorker.postMessage({
             type: "cancel",
             id: taskId,
@@ -288,11 +294,11 @@ export const useChatStreamingStore = create<ChatStreamingState>((set, get) => ({
         }
         set((state) => ({
           tasksProcessingMap: produce(state.tasksProcessingMap, (draft) => {
-            if(draft.has(taskId)) draft.delete(taskId);
+            if (draft.has(taskId)) draft.delete(taskId);
           }),
           tasksThrottleMap: produce(state.tasksThrottleMap, (draft) => {
             const throttle = draft.get(taskId);
-            if(throttle){
+            if (throttle) {
               if (throttle.inThrottle) clearTimeout(throttle.throttleTimer as ReturnType<typeof setTimeout>);
               draft.delete(taskId);
             }

@@ -81,11 +81,12 @@ export default function StudioLayout({ children }: { children: ReactNode }) {
   const isPromptSectionSelected = pathname?.startsWith("/studio/prompts");
   const isHistorySelected = pathname === "/studio/prompts/history";
 
-  const { setWorkersAllowed, terminateTask } = useChatStreamingStore(
+  const { setWorkersAllowed, terminateTask, terminateWorker } = useChatStreamingStore(
     // 使用 useShallow 优化性能: 仅在依赖项发生变化时重新计算
     useShallow(state => ({
       setWorkersAllowed: state.setWorkersAllowed,
-      terminateTask: state.terminateTask
+      terminateTask: state.terminateTask,
+      terminateWorker: state.terminateWorker
     }))
   );
   useEffect(() => {
@@ -95,9 +96,10 @@ export default function StudioLayout({ children }: { children: ReactNode }) {
       if (useChatStreamingStore.getState().workersAllowed) {
         setWorkersAllowed(false);
         terminateTask();
+        terminateWorker();
       }
     }
-  }, [setWorkersAllowed, terminateTask]);
+  }, [setWorkersAllowed, terminateTask, terminateWorker]);
 
 
   // 连接数据库并初始化历史列表

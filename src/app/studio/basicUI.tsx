@@ -58,7 +58,7 @@ export default function BasicUI() {
   const [currentMessageTaskId, setCurrentMessageTaskId] = useState<string>('');
   const currentTask = useChatStreamingStore(
     useShallow(state => state.tasksProcessingMap.get(currentMessageTaskId))
-  )
+  );
   const { send, cancel, terminateTask, onlineStatusToggle } = useChatStreamingStore(
     useShallow(state => ({
       send: state.send,
@@ -95,8 +95,7 @@ export default function BasicUI() {
       }
     }
   }, [setMessages]);
-  // 监听消息变化，发送到工作线程进行去重处理，减少主线程压力；如果不支持Worker，则直接在主线程处理
-  // fix: 来自 store 的 messages 本就是去重后的消息, 无需再次去重
+  // 监听消息变化，来自 store 的 messages 本就是去重后的消息, 无需再次去重
   useEffect(() => {
     if (useChatStreamingStore.getState().workersAllowed) {
       if (currentTask) {
@@ -107,8 +106,9 @@ export default function BasicUI() {
       setNormalizedMessages(dedupeMessages(messages));
     }
   }, [messages, currentTask, terminateTask, currentMessageTaskId]);
-
+  
   // 初始化获取历史数据
+  // 初始化时若存在 promptId 则尝试从 store 中获取可能存在的 task, 恢复状态
   const searchParams = useSearchParams();
   useEffect(() => {
     const promptId = searchParams.get("id");
@@ -123,6 +123,11 @@ export default function BasicUI() {
           })) as DataItem;
           if (history) {
             baseMessagesRef.current = history.messages;
+            if(useChatStreamingStore.getState().workersAllowed && useChatStreamingStore.getState().promptTaskIdMap.has_prompt(promptId)){
+              const taskId = useChatStreamingStore.getState().promptTaskIdMap.get_taskId(promptId)!;
+              setCurrentMessageTaskId(taskId);
+              onlineStatusToggle(taskId, "online");
+            }
             setMessages(baseMessagesRef.current);
             thisDetailRef.current = {
               id: history.id,
@@ -134,7 +139,7 @@ export default function BasicUI() {
         })();
       }
     }
-  }, [setMessages, searchParams]);
+  }, [setMessages, searchParams, onlineStatusToggle]);
 
   // todo('更新worker');
   // 更新逻辑：采用防抖策略 (Debounce) 避免高频操作
@@ -158,17 +163,10 @@ export default function BasicUI() {
         }
       }
 
-      const isNew = !d.id
+      const isNew = d.topic === 'New Conversation';
 
-      if (isNew) {
-        // 初始化 ID
-        d.topic = extractedTopic || "New Conversation";
-        d.id = strToHexStr(d.topic + Date.now().toString());
-        d.timestamp = new Date();
-      } else if (extractedTopic) {
-        // 更新 topic
-        d.topic = extractedTopic
-      }
+      // 更新 topic
+      d.topic = extractedTopic
 
       // 安全 setState: 只有在值真实改变时才会触发视图重新渲染
       setTopic((prevTopic) => {
@@ -189,9 +187,8 @@ export default function BasicUI() {
           });
           if (isNew) {
             setCanJump(true);
-            dispatchEvent<DataItemSummary>("newConversation", d)
           } else {
-            dispatchEvent<DataItemSummary>("updateConversation", d)
+            dispatchEvent<DataItemSummary>("updateConversation", d);
           }
         } catch (error) {
           console.error("DB Update Error: ", error)
@@ -240,9 +237,16 @@ export default function BasicUI() {
       setNormalizedMessages(baseMessagesRef.current);
 
       terminateTask(currentMessageTaskId); // 在发送新消息前删除任务
+      if (!thisDetailRef.current.id) {
+        // Id 初始化
+        const newId = strToHexStr(`${text}${Date.now().toString()}${Math.ceil(Math.random() * 1e6).toString()}`);
+        thisDetailRef.current.id = newId;
+        thisDetailRef.current.timestamp = new Date();
+        dispatchEvent<DataItemSummary>("newConversation", thisDetailRef.current);
+      }
       const taskId = `task_${Date.now()}`;
       setCurrentMessageTaskId(taskId);
-      send(taskId, baseMessagesRef.current, window.location.origin);
+      send(thisDetailRef.current.id, taskId, baseMessagesRef.current, window.location.origin);
     }
   }
 
