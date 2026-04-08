@@ -55,16 +55,19 @@ export default function BasicUI() {
   const baseMessagesRef = useRef<AdminAgentMessage[]>([]);
   const { messages, setMessages, sendMessage, status, stop, error } = useChat<AdminAgentMessage>();
   const [normalizedMessages, setNormalizedMessages] = useState<AdminAgentMessage[]>([]);
-  const currentMessageTaskIdRef = useRef<string | null>(null);
-  const { send, cancel, offline, online } = useChatStreamingStore(
+  const [currentMessageTaskId, setCurrentMessageTaskId] = useState<string>('');
+  const currentTask = useChatStreamingStore(
+    useShallow(state => state.tasksProcessingMap.get(currentMessageTaskId))
+  )
+  const { send, cancel, terminateTask, offline, online } = useChatStreamingStore(
     useShallow(state => ({
       send: state.send,
       cancel: state.cancel,
+      terminateTask: state.terminateTask,
       offline: state.offline,
       online: state.online,
     }))
   );
-  const tasksProcessingMap = useChatStreamingStore(state => state.tasksProcessingMap);
   const getDBMessagesWorkerRef = useRef<Worker | null>(null);
   // 初始化获取历史记录线程
   useEffect(() => {
@@ -97,16 +100,14 @@ export default function BasicUI() {
   // fix: 来自 store 的 messages 本就是去重后的消息, 无需再次去重
   useEffect(() => {
     if (useChatStreamingStore.getState().workersAllowed) {
-      if (currentMessageTaskIdRef.current) {
-        const task = tasksProcessingMap.get(currentMessageTaskIdRef.current as string);
-        if (task) {
-          setNormalizedMessages([...baseMessagesRef.current, ...task.messagesBuffer]);
-        }
+      if (currentTask) {
+        setNormalizedMessages([...baseMessagesRef.current, ...currentTask.messagesBuffer]);
+        if (currentTask.status === "canceled" || currentTask.status === "completed") terminateTask(currentMessageTaskId);
       }
     } else {
       setNormalizedMessages(dedupeMessages(messages));
     }
-  }, [messages, tasksProcessingMap]);
+  }, [messages, currentTask, terminateTask, currentMessageTaskId]);
 
   // 初始化获取历史数据
   const searchParams = useSearchParams();
@@ -215,12 +216,11 @@ export default function BasicUI() {
   // 会话切换(页面卸载)
   useEffect(() => {
     return () => {
-      if (currentMessageTaskIdRef.current) {
-        offline(currentMessageTaskIdRef.current as string);
-        currentMessageTaskIdRef.current = null;
+      if (currentMessageTaskId) {
+        offline(currentMessageTaskId);
       }
     }
-  }, [offline]);
+  }, [offline, currentMessageTaskId]);
 
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -240,10 +240,17 @@ export default function BasicUI() {
       setMessages(baseMessagesRef.current);
       setNormalizedMessages(baseMessagesRef.current);
 
+      terminateTask(currentMessageTaskId); // 在发送新消息前删除任务
       const taskId = `task_${Date.now()}`;
-      currentMessageTaskIdRef.current = taskId;
+      setCurrentMessageTaskId(taskId);
       send(taskId, baseMessagesRef.current, window.location.origin);
     }
+  }
+
+  const handleStop = async () => {
+    if (useChatStreamingStore.getState().workersAllowed) {
+      if (currentMessageTaskId) cancel(currentMessageTaskId);
+    } else stop();
   }
 
   const handleInputChange = (event: ChangeEvent<HTMLTextAreaElement>) => {
@@ -251,7 +258,7 @@ export default function BasicUI() {
   }
 
   const isStreaming = (useChatStreamingStore.getState().workersAllowed)
-    ? tasksProcessingMap.has(currentMessageTaskIdRef.current as string)
+    ? currentTask && (currentTask.status === "streaming" || currentTask.status === 'submitted')
     : status === "streaming" || status === "submitted";
   const canSend = input.trim().length > 0 && !isStreaming;
 
@@ -467,7 +474,7 @@ export default function BasicUI() {
             />
 
             {isStreaming ? (
-              <Button type="button" variant="outline" onClick={stop}>
+              <Button type="button" variant="outline" onClick={handleStop}>
                 Stop
               </Button>
             ) : (

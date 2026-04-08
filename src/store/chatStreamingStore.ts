@@ -6,21 +6,18 @@ import { enableMapSet, produce } from "immer";
 enableMapSet();
 
 
-class TaskInfo {
-  isFocused: boolean = true;
+interface TaskInfo {
+  isFocused: boolean;
+  status: "submitted" | "streaming" | "completed" | "canceled" | "error";
   // messagesBuffer 用于存储当前流式处理过程中解析出的消息， key为 taskId 用以去重和覆盖更新
-  public messagesBuffer: AdminAgentMessage[] = [];
-  constructor() {
-    this.isFocused = true;
-    this.messagesBuffer = [];
-  }
+  messagesBuffer: AdminAgentMessage[];
 }
 
 const THROTTLE_TIME = 60;
 type TaskThrottle = {
   inThrottle: boolean;
   throttleBuffer: AdminAgentMessage[]; // 当 inThrottle===true 时在其中存下待发送的消息
-  throttleTimer: NodeJS.Timeout | null;
+  throttleTimer: ReturnType<typeof setTimeout> | null;
 };
 
 // todo: 将其他 worker 的相关管理也移入此 store
@@ -36,116 +33,101 @@ interface ChatStreamingState {
   send: (taskId: string, messages: AdminAgentMessage[], apiBaseUrl: string) => void;
   cancel: (taskId: string) => void;
   offline: (taskId: string) => void;
+  cce: (taskId: string, status: TaskInfo["status"]) => void; // 在清除某个 task 前将残余 buffer 刷入 task 并延迟删除
   online: () => void;
-  terminateAllTasks: () => void;
+  terminateTask: (taskId?: string) => void;
 }
 
 export const useChatStreamingStore = create<ChatStreamingState>((set, get) => ({
   workersAllowed: false,
   setWorkersAllowed: (workersAllowed: boolean) => set({ workersAllowed }),
   streamingWorker: null,
+  cce: (taskId: string, status: TaskInfo["status"]) => {
+    // 在清除 task | throttle 前触发更新提醒前端 UI 状态保存
+    set((state) => {
+      const tasksProcessingMap = produce(state.tasksProcessingMap, (draft) => {
+        const task = draft.get(taskId);
+        const throttle = state.tasksThrottleMap.get(taskId);
+        // 将可能存在的 buffer 刷入 task
+        if (task && throttle) {
+          if (throttle.throttleBuffer.length > 0) task.messagesBuffer = throttle.throttleBuffer;
+          task.status = status;
+        }
+      });
+      return { tasksProcessingMap };
+    });
+  },
   initWorker: () => {
     if (get().streamingWorker) return;
     const streamingWorker = new Worker(new URL("@/workers/chatStreamingWorker.ts", import.meta.url));
     // 接收到流式处理 worker 的消息
     streamingWorker.onmessage = (event: MessageEvent<StreamMessageResponse>) => {
-      if (!get().tasksProcessingMap.has(event.data.id)) return; // todo: 无对应任务时的错误处理
-      if (!get().tasksThrottleMap.has(event.data.id)) {
-        set({
-          tasksThrottleMap: produce(get().tasksThrottleMap, (draft) => {
-            draft.set(event.data.id, {
+      const taskId = event.data.id;
+      const { tasksProcessingMap, tasksThrottleMap } = get();
+      if (!tasksProcessingMap.has(taskId)) return; // todo: 无对应任务时的错误处理
+      if (!tasksThrottleMap.has(taskId)) {
+        set((state) => ({
+          tasksThrottleMap: produce(state.tasksThrottleMap, (draft: Map<string, TaskThrottle>) => {
+            draft.set(taskId, {
               inThrottle: false,
               throttleBuffer: [],
               throttleTimer: null,
             });
           }),
-        });
+        }));
       }
       if (event.data.type === "message") {
         const messages = event.data.data as AdminAgentMessage[];
-        const tasksThrottleMap = produce(get().tasksThrottleMap, (draft) => {
-          const throttle = draft.get(event.data.id) as TaskThrottle;
+        const currentThrottle = get().tasksThrottleMap.get(taskId);
+        if (!currentThrottle) return;
+        if (currentThrottle.inThrottle) {
           // 节流期间将最新消息存入 buffer
-          if (throttle.inThrottle) throttle.throttleBuffer = messages;
-          // 非节流期间直接存入 task 的 messagesBuffer 以供 UI 更新
-          else {
-            const tasksProcessingMap = produce(get().tasksProcessingMap, (draft) => {
-              const task = draft.get(event.data.id) as TaskInfo;
-              task.messagesBuffer = messages;
-            });
-            set({ tasksProcessingMap });
-            // 开始节流
-            throttle.inThrottle = true;
-            const throttleTimer = setTimeout(() => { // 节流 Timer
-              // 一段时间后, 若 task 仍存在则执行去节流操作
-              if (get().tasksProcessingMap.has(event.data.id) && get().tasksThrottleMap.has(event.data.id)) {
-                set({
-                  tasksThrottleMap: produce(get().tasksThrottleMap, (draft) => {
-                    const throttle = draft.get(event.data.id) as TaskThrottle;
-                    // 将 buffer 刷入 task 中
-                    set({
-                      tasksProcessingMap: produce(get().tasksProcessingMap, (draft) => {
-                        (draft.get(event.data.id) as TaskInfo).messagesBuffer = throttle.throttleBuffer;
-                      })
-                    });
-                    throttle.inThrottle = false;
-                    throttle.throttleBuffer = [];
-                    // 清除 timer
-                    clearTimeout(throttle.throttleTimer as NodeJS.Timeout);
-                    throttle.throttleTimer = null;
-                  })
-                });
-              }
-            }, THROTTLE_TIME);
-            throttle.throttleTimer = throttleTimer;
-          }
-        });
-        set({ tasksThrottleMap });
-      } else if (event.data.type === "complete" || event.data.type === "canceled") {
-        // 流式处理 worker 完成
-        set({
-          tasksThrottleMap: produce(get().tasksThrottleMap, (draft) => {
-            const throttle = draft.get(event.data.id) as TaskThrottle;
-            if (throttle.throttleBuffer.length > 0) {
-              // 将残余的 throttle buffer 刷入 task 并通知 UI
-              set({
-                tasksProcessingMap: produce(get().tasksProcessingMap, (draft) => {
-                  (draft.get(event.data.id) as TaskInfo).messagesBuffer = throttle.throttleBuffer;
-                })
-              }); // 在删除前先通知一次 UI 用于更新 UI 状态
+          set((state) => ({
+            tasksThrottleMap: produce(state.tasksThrottleMap, (draft: Map<string, TaskThrottle>) => {
+              draft.get(taskId)!.throttleBuffer = messages;
+            })
+          }))
+        } else { // 非节流期间
+          // 节流 timer
+          const throttleTimer = setTimeout(() => {
+            if (get().tasksThrottleMap.has(taskId) && get().tasksProcessingMap.has(taskId)) {
+              // 节流结束时将 buffer 刷入 task 并解除节流
+              const tasksProcessingMap = produce(get().tasksProcessingMap, (draft: Map<string, TaskInfo>) => {
+                draft.get(taskId)!.messagesBuffer = get().tasksThrottleMap.get(taskId)!.throttleBuffer;
+              });
+              const tasksThrottleMap = produce(get().tasksThrottleMap, (draft: Map<string, TaskThrottle>) => {
+                const throttle = draft.get(taskId)!;
+                throttle.throttleBuffer = [];
+                throttle.inThrottle = false; // 解除节流
+                throttle.throttleTimer = null;
+              });
+              set({ tasksProcessingMap, tasksThrottleMap });
             }
-            if (throttle.inThrottle) clearTimeout(throttle.throttleTimer as NodeJS.Timeout);
-            draft.delete(event.data.id);
+          }, THROTTLE_TIME);
+
+          set((state) => {
+            // 将残余的 buffer 刷入 task
+            const tasksProcessingMap = produce(state.tasksProcessingMap, (draft) => {
+              draft.get(taskId)!.messagesBuffer = messages;
+            });
+            // 开始节流
+            const tasksThrottleMap = produce(state.tasksThrottleMap, (draft) => {
+              draft.set(taskId, {
+                inThrottle: true,
+                throttleBuffer: [],
+                throttleTimer: throttleTimer,
+              });
+            });
+            return { tasksProcessingMap, tasksThrottleMap };
           })
-        });
-        set({
-          tasksProcessingMap: produce(get().tasksProcessingMap, (draft) => {
-            draft.delete(event.data.id);
-          })
-        });
+        }
+      } else if (event.data.type === "complete" || event.data.type === "canceled") {
+        // 流式处理 worker 完成/取消
+        get().cce(taskId, event.data.type === "complete" ? "completed" : "canceled");
       } else {
         // 流式处理 worker 出错
         // todo: 错误处理
-        set({
-          tasksThrottleMap: produce(get().tasksThrottleMap, (draft) => {
-            const throttle = draft.get(event.data.id) as TaskThrottle;
-            if (throttle.throttleBuffer.length > 0) {
-              // 将残余的 throttle buffer 刷入 task 并通知 UI
-              set({
-                tasksProcessingMap: produce(get().tasksProcessingMap, (draft) => {
-                  (draft.get(event.data.id) as TaskInfo).messagesBuffer = throttle.throttleBuffer;
-                })
-              }); // 在删除前先通知一次 UI 用于更新 UI 状态
-            }
-            if (throttle.inThrottle) clearTimeout(throttle.throttleTimer as NodeJS.Timeout);
-            draft.delete(event.data.id);
-          })
-        });
-        set({
-          tasksProcessingMap: produce(get().tasksProcessingMap, (draft) => {
-            draft.delete(event.data.id);
-          })
-        });
+        get().cce(taskId, "error");
         throw new Error(event.data.error);
       }
     };
@@ -168,15 +150,21 @@ export const useChatStreamingStore = create<ChatStreamingState>((set, get) => ({
   tasksThrottleMap: new Map<string, TaskThrottle>(),
   send: (taskId: string, messages: AdminAgentMessage[], apiBaseUrl: string) => {
     // 创建任务信息
-    const task = new TaskInfo();
+    const task: TaskInfo = {
+      isFocused: true,
+      status: "submitted",
+      messagesBuffer: [],
+    };
     set((state) => {
-      const tasksProcessingMap = new Map(state.tasksProcessingMap);
-      tasksProcessingMap.set(taskId, task);
-      const tasksThrottleMap = new Map(state.tasksThrottleMap);
-      tasksThrottleMap.set(taskId, {
-        inThrottle: false,
-        throttleBuffer: [],
-        throttleTimer: null,
+      const tasksProcessingMap = produce(state.tasksProcessingMap, (draft) => {
+        draft.set(taskId, task);
+      });
+      const tasksThrottleMap = produce(state.tasksThrottleMap, (draft) => {
+        draft.set(taskId, {
+          inThrottle: false,
+          throttleBuffer: [],
+          throttleTimer: null,
+        });
       });
       return { tasksProcessingMap, tasksThrottleMap };
     });
@@ -201,33 +189,65 @@ export const useChatStreamingStore = create<ChatStreamingState>((set, get) => ({
   },
   offline: (taskId: string) => {
     set((state) => {
-      const tasksProcessingMap = new Map(state.tasksProcessingMap);
-      const task = tasksProcessingMap.get(taskId);
       const streamingWorker = state.streamingWorker;
-      if (task && streamingWorker) {
+      if (state.tasksProcessingMap.has(taskId) && streamingWorker) {
         streamingWorker.postMessage({
           type: "offline",
           id: taskId,
         });
-        task.isFocused = false;
+        const tasksProcessingMap = produce(state.tasksProcessingMap, (draft) => {
+          const task = draft.get(taskId)!;
+          task.isFocused = false;
+        });
+        return { tasksProcessingMap };
       }
-      return { tasksProcessingMap };
+      return state;
     });
   },
   online: () => {
 
   },
-  terminateAllTasks: () => {
+  terminateTask: (taskId?: string) => {
     const streamingWorker = get().streamingWorker;
     if (streamingWorker) {
-      streamingWorker.postMessage({
-        type: "cancelAll",
-        id: "",
-      });
+      if (!taskId) {
+        // 删除所有任务
+        streamingWorker.postMessage({
+          type: "cancelAll",
+          id: "",
+        });
+        set((state) => ({
+          tasksProcessingMap: produce(state.tasksProcessingMap, (draft) => draft.clear()),
+          tasksThrottleMap: produce(state.tasksThrottleMap, (draft) => {
+            for (const throttle of draft.values()) {
+              if (throttle.inThrottle) clearTimeout(throttle.throttleTimer as ReturnType<typeof setTimeout>);
+            }
+            draft.clear()
+          })
+        }));
+      } else {
+        // 删除特定的任务
+        if (get().tasksProcessingMap.has(taskId)) {
+          streamingWorker.postMessage({
+            type: "cancel",
+            id: taskId,
+          });
+          set((state) => ({
+            tasksProcessingMap: produce(state.tasksProcessingMap, (draft) => {
+              draft.delete(taskId);
+            }),
+          }));
+        }
+        if(get().tasksThrottleMap.has(taskId)){
+          set((state)=>({
+            tasksThrottleMap: produce(state.tasksThrottleMap, (draft)=>{
+              const throttle = draft.get(taskId)!;
+              if(throttle.inThrottle)clearTimeout(throttle.throttleTimer as ReturnType<typeof setTimeout>);
+              draft.delete(taskId);
+            }),
+          }));
+        }
+      }
     }
-    set({
-      tasksProcessingMap: new Map<string, TaskInfo>(),
-      tasksThrottleMap: new Map<string, TaskThrottle>()
-    });
-  }
+  },
 }));
