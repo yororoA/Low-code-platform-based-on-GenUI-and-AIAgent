@@ -44,6 +44,7 @@ export const useChatStreamingStore = create<ChatStreamingState>((set, get) => ({
   streamingWorker: null,
   cce: (taskId: string, status: TaskInfo["status"]) => {
     // 在清除 task | throttle 前触发更新提醒前端 UI 状态保存
+    // 无论 offline/online, task 都正常更新, 具体清理操作由前端根据不同状态自行决定时机调用 terminateTask 来完成
     set((state) => {
       const tasksProcessingMap = produce(state.tasksProcessingMap, (draft) => {
         const task = draft.get(taskId);
@@ -157,7 +158,6 @@ export const useChatStreamingStore = create<ChatStreamingState>((set, get) => ({
   taskToPromptMap: new Map<string, string>(),
   send: (promptId: string, taskId: string, messages: AdminAgentMessage[], apiBaseUrl: string) => {
     // promptId-taskId 映射
-    console.log('---------1-------------');
     set((state) => {
       const oldTaskIdForPrompt = state.promptToTaskMap.get(promptId);
       const oldPromptIdForTask = state.taskToPromptMap.get(taskId);
@@ -169,17 +169,14 @@ export const useChatStreamingStore = create<ChatStreamingState>((set, get) => ({
         if (oldTaskIdForPrompt) draft.delete(oldTaskIdForPrompt);
         draft.set(taskId, promptId);
       });
-      console.log('------------1.2---------')
       return { promptToTaskMap, taskToPromptMap };
     });
-    console.log('---------2-------------');
     // 创建任务信息
     const task: TaskInfo = {
       isFocused: true,
       status: "submitted",
       messagesBuffer: [],
     };
-    console.log('---------3-------------');
     set((state) => {
       const tasksProcessingMap = produce(state.tasksProcessingMap, (draft) => {
         draft.set(taskId, task);
@@ -191,11 +188,9 @@ export const useChatStreamingStore = create<ChatStreamingState>((set, get) => ({
           throttleTimer: null,
         });
       });
-      console.log('---------4-------------');
       return { tasksProcessingMap, tasksThrottleMap };
     });
     const streamingWorker = get().confirmWorkerInitialized();
-    console.log('---------5-------------');
     // 发送消息给流式处理 worker
     streamingWorker.postMessage({
       type: "send",

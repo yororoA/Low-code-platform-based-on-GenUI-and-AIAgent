@@ -127,7 +127,7 @@ async function* parseUIMessageStream(
   })();
 
   try {
-    console.log(messages);
+    // console.log(messages);
     const response = await fetch(apiUrl, {
       method: "POST",
       headers: {
@@ -213,7 +213,7 @@ async function* parseUIMessageStream(
             if (jsonStr) {
               const chunk = JSON.parse(jsonStr);
               if (chunk) {
-                console.log(chunk);
+                // console.log(chunk);
                 const parsedChunk__Typed = parse_classifyChunk(chunk, chunkSchemaCached);
                 if (!parsedChunk__Typed) continue;
                 else {
@@ -510,26 +510,22 @@ onmessage = async (event: MessageEvent<StreamMessageEvent>) => {
 
         chunk.forEach(message => task.messageBuffer.set(message.id, message));
 
-        // 在线时将消息发送回主线程度
-        if (task.isFocused) {
-          self.postMessage({
-            type: "message",
-            id,
-            data: Array.from(task.messageBuffer.values()),
-          } as StreamMessageResponse);
-        }
+        // 无论是否在线都将消息发送回主线程, worker 只进行消息的累积和去重, 由主线程决定何时展示
+        self.postMessage({
+          type: "message",
+          id,
+          data: Array.from(task.messageBuffer.values()),
+        } as StreamMessageResponse);
       }
 
       // 流处理完成, 在线时 post 并 flush
       if (TaskRegistry.has(id)) {
-        if(TaskRegistry.get(id)!.isFocused){
-          self.postMessage({
-            type: "complete",
-            id,
-            data: Array.from(TaskRegistry.get(id)?.messageBuffer.values() || []),
-          } as StreamMessageResponse);
-          TaskRegistry.delete(id);
-        }else TaskRegistry.get(id)!.status = "done"; // 离线时仅更新状态, 等上线时主线程再 post
+        self.postMessage({
+          type: "complete",
+          id,
+          data: Array.from(TaskRegistry.get(id)?.messageBuffer.values() || []),
+        } as StreamMessageResponse);
+        TaskRegistry.delete(id);
       }
     } catch (error: unknown) {
       if (error instanceof Error && error.name !== "AbortError") {
@@ -568,14 +564,14 @@ onmessage = async (event: MessageEvent<StreamMessageEvent>) => {
   } else if (type === "online") {
     const task = TaskRegistry.get(id);
     if (task) {
-      if(!task.isFocused){ // task 处于 offline 才进行 online 操作
+      if (!task.isFocused) { // task 处于 offline 才进行 online 操作
         task.isFocused = true;
         self.postMessage({
           type: "complete",
           id,
           data: Array.from(task.messageBuffer.values()),
         } as StreamMessageResponse);
-        if(task.status === "done") TaskRegistry.delete(id);
+        if (task.status === "done") TaskRegistry.delete(id);
       }
     }
   } else if (type === 'cancelAll') {
