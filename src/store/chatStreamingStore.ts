@@ -5,54 +5,6 @@ import { enableMapSet, produce } from "immer";
 
 enableMapSet();
 
-
-class PromptTaskIdMap {
-  private p_t_map: Map<string, string>; // <promptId, taskId>
-  private t_p_map: Map<string, string>; // <taskId, promptId>
-
-  constructor() {
-    this.p_t_map = new Map<string, string>();
-    this.t_p_map = new Map<string, string>();
-  };
-
-  public has_prompt(promptId: string) {
-    return this.p_t_map.has(promptId);
-  };
-  public set_by_prompt(promptId: string, taskId: string) {
-    if (this.p_t_map.has(promptId)) this.t_p_map.delete(this.p_t_map.get(promptId)!); // 如果已存在该 promptId 的映射，先删除旧的 taskId 映射
-    this.p_t_map.set(promptId, taskId);
-    this.t_p_map.set(taskId, promptId);
-  };
-  public set_by_task(taskId: string, promptId: string) {
-    this.t_p_map.set(taskId, promptId);
-    this.p_t_map.set(promptId, taskId);
-  };
-  public get_taskId(promptId: string) {
-    return this.p_t_map.get(promptId);
-  };
-  public get_promptId(taskId: string) {
-    return this.t_p_map.get(taskId);
-  };
-  public delete_by_prompt(promptId: string) {
-    const taskId = this.p_t_map.get(promptId);
-    if (taskId) {
-      this.p_t_map.delete(promptId);
-      this.t_p_map.delete(taskId);
-    }
-  };
-  public delete_by_task(taskId: string) {
-    const promptId = this.t_p_map.get(taskId);
-    if (promptId) {
-      this.t_p_map.delete(taskId);
-      this.p_t_map.delete(promptId);
-    }
-  };
-  public clear() {
-    this.p_t_map.clear();
-    this.t_p_map.clear();
-  }
-}
-
 interface TaskInfo {
   isFocused: boolean;
   status: "submitted" | "streaming" | "completed" | "canceled" | "error";
@@ -77,7 +29,8 @@ interface ChatStreamingState {
   terminateWorker: () => void;
   tasksProcessingMap: Map<string, TaskInfo>;
   tasksThrottleMap: Map<string, TaskThrottle>;
-  promptTaskIdMap: PromptTaskIdMap;
+  promptToTaskMap: Map<string, string>;
+  taskToPromptMap: Map<string, string>;
   send: (promptId: string, taskId: string, messages: AdminAgentMessage[], apiBaseUrl: string) => void;
   cancel: (taskId: string) => void;
   onlineStatusToggle: (taskId: string, status: "online" | "offline") => void;
@@ -200,20 +153,33 @@ export const useChatStreamingStore = create<ChatStreamingState>((set, get) => ({
   },
   tasksProcessingMap: new Map<string, TaskInfo>(),
   tasksThrottleMap: new Map<string, TaskThrottle>(),
-  promptTaskIdMap: new PromptTaskIdMap(),
+  promptToTaskMap: new Map<string, string>(),
+  taskToPromptMap: new Map<string, string>(),
   send: (promptId: string, taskId: string, messages: AdminAgentMessage[], apiBaseUrl: string) => {
     // promptId-taskId 映射
-    set((state) => ({
-      promptTaskIdMap: produce(state.promptTaskIdMap, (draft) => {
-        draft.set_by_prompt(promptId, taskId);
-      })
-    }));
+    console.log('---------1-------------');
+    set((state) => {
+      const oldTaskIdForPrompt = state.promptToTaskMap.get(promptId);
+      const oldPromptIdForTask = state.taskToPromptMap.get(taskId);
+      const promptToTaskMap = produce(state.promptToTaskMap, (draft) => {
+        if (oldPromptIdForTask) draft.delete(oldPromptIdForTask);
+        draft.set(promptId, taskId);
+      });
+      const taskToPromptMap = produce(state.taskToPromptMap, (draft) => {
+        if (oldTaskIdForPrompt) draft.delete(oldTaskIdForPrompt);
+        draft.set(taskId, promptId);
+      });
+      console.log('------------1.2---------')
+      return { promptToTaskMap, taskToPromptMap };
+    });
+    console.log('---------2-------------');
     // 创建任务信息
     const task: TaskInfo = {
       isFocused: true,
       status: "submitted",
       messagesBuffer: [],
     };
+    console.log('---------3-------------');
     set((state) => {
       const tasksProcessingMap = produce(state.tasksProcessingMap, (draft) => {
         draft.set(taskId, task);
@@ -225,9 +191,11 @@ export const useChatStreamingStore = create<ChatStreamingState>((set, get) => ({
           throttleTimer: null,
         });
       });
+      console.log('---------4-------------');
       return { tasksProcessingMap, tasksThrottleMap };
     });
     const streamingWorker = get().confirmWorkerInitialized();
+    console.log('---------5-------------');
     // 发送消息给流式处理 worker
     streamingWorker.postMessage({
       type: "send",
@@ -280,7 +248,12 @@ export const useChatStreamingStore = create<ChatStreamingState>((set, get) => ({
             }
             draft.clear()
           }),
-          promptTaskIdMap: produce(state.promptTaskIdMap, (draft) => { draft.clear(); })
+          promptToTaskMap: produce(state.promptToTaskMap, (draft) => {
+            draft.clear();
+          }),
+          taskToPromptMap: produce(state.taskToPromptMap, (draft) => {
+            draft.clear();
+          }),
         }));
       } else {
         // 删除特定的任务
@@ -303,9 +276,17 @@ export const useChatStreamingStore = create<ChatStreamingState>((set, get) => ({
               draft.delete(taskId);
             }
           }),
-          promptTaskIdMap: produce(state.promptTaskIdMap, (draft) => {
-            draft.delete_by_task(taskId);
-          })
+          taskToPromptMap: produce(state.taskToPromptMap, (draft) => {
+            draft.delete(taskId);
+          }),
+          promptToTaskMap: produce(state.promptToTaskMap, (draft) => {
+            for (const [promptId, existedTaskId] of draft.entries()) {
+              if (existedTaskId === taskId) {
+                draft.delete(promptId);
+                break;
+              }
+            }
+          }),
         }));
       }
     }

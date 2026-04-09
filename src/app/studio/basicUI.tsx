@@ -123,8 +123,8 @@ export default function BasicUI() {
           })) as DataItem;
           if (history) {
             baseMessagesRef.current = history.messages;
-            if(useChatStreamingStore.getState().workersAllowed && useChatStreamingStore.getState().promptTaskIdMap.has_prompt(promptId)){
-              const taskId = useChatStreamingStore.getState().promptTaskIdMap.get_taskId(promptId)!;
+            const taskId = useChatStreamingStore.getState().promptToTaskMap.get(promptId);
+            if(useChatStreamingStore.getState().workersAllowed && taskId){
               setCurrentMessageTaskId(taskId);
               onlineStatusToggle(taskId, "online");
             }
