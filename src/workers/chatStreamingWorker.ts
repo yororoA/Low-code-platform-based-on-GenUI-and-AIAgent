@@ -485,6 +485,18 @@ function parse_classifyChunk(chunk: unknown, chunkSchemaCached: chunkSchemaInfo 
   };
 }
 
+function buildMergedAssistantMessages(taskId: string, messageBuffer: Map<string, AdminAgentMessage>): AdminAgentMessage[] {
+  const partsBuffer: NonNullable<AdminAgentMessage["parts"]> = [];
+  for (const message of messageBuffer.values()) {
+    if (message.parts?.length) partsBuffer.push(...message.parts);
+  }
+  return [{
+    id: taskId,
+    role: "assistant",
+    parts: partsBuffer,
+  } as AdminAgentMessage];
+}
+
 /**
  * 处理来自主线程的消息
  */
@@ -514,16 +526,17 @@ onmessage = async (event: MessageEvent<StreamMessageEvent>) => {
         self.postMessage({
           type: "message",
           id,
-          data: Array.from(task.messageBuffer.values()),
+          data: buildMergedAssistantMessages(id, task.messageBuffer),
         } as StreamMessageResponse);
       }
 
       // 流处理完成, 在线时 post 并 flush
       if (TaskRegistry.has(id)) {
+        const task = TaskRegistry.get(id);
         self.postMessage({
           type: "complete",
           id,
-          data: Array.from(TaskRegistry.get(id)?.messageBuffer.values() || []),
+          data: buildMergedAssistantMessages(id, task?.messageBuffer ?? new Map<string, AdminAgentMessage>()),
         } as StreamMessageResponse);
         TaskRegistry.delete(id);
       }
@@ -569,7 +582,7 @@ onmessage = async (event: MessageEvent<StreamMessageEvent>) => {
         self.postMessage({
           type: "complete",
           id,
-          data: Array.from(task.messageBuffer.values()),
+          data: buildMergedAssistantMessages(id, task.messageBuffer),
         } as StreamMessageResponse);
         if (task.status === "done") TaskRegistry.delete(id);
       }
