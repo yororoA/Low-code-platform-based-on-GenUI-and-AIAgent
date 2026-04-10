@@ -27,7 +27,7 @@ import { useChatStreamingStore } from "@/store/chatStreamingStore";
 import { useShallow } from "zustand/shallow"
 // import { todo } from "node:test"
 
-const STAGE_INFO_RE = /^\[(ADMIN|STRUCTURE|ALIGNMENT|STYLE)\]:\s*(.+)$/i
+const STAGE_INFO_RE = /^\[(ADMIN|STRUCTURE|ALIGNMENT|STYLE)\]\s*:?\s*(.+)$/i
 
 
 type DisplayInfo =
