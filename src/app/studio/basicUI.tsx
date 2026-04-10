@@ -100,10 +100,11 @@ export default function BasicUI() {
   useEffect(() => {
     if (useChatStreamingStore.getState().workersAllowed) {
       if (currentTask) {
-        setNormalizedMessages([...baseMessagesRef.current, ...currentTask.messagesBuffer]);
-        // 如果当前任务已完成或已取消，清理任务
+        const merged = [...baseMessagesRef.current, ...currentTask.messagesBuffer];
+        setNormalizedMessages(merged);
         if (currentTask.status === "canceled" || currentTask.status === "completed") {
-          console.log(isNew.current,'=========================================')
+          // 将 assistant 回复持久化到 baseMessagesRef，防止 terminateTask 清除任务后回退丢失
+          baseMessagesRef.current = merged;
           if (isNew.current) setCanJump(true);
           terminateTask(currentMessageTaskId);
         }
