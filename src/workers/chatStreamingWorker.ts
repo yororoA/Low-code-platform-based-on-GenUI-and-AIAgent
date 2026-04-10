@@ -52,11 +52,121 @@ type classifiedParsedChunkInfo = {
   infos: chunkSchemaInfo | stageInfo,
 };
 
+function parseJSONValue(rawValue: string): unknown {
+  const trimmed = rawValue.trim();
+  if (!trimmed) return "";
+
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    // 1) 布尔/null 的流式半截恢复
+    const lower = trimmed.toLowerCase();
+    if ("true".startsWith(lower)) return true;
+    if ("false".startsWith(lower)) return false;
+    if ("null".startsWith(lower)) return null;
+
+    // 2) 数字流式恢复
+    if (/^-?\d+\.?\d*$/.test(trimmed)) {
+      const num = Number(trimmed);
+      if (!Number.isNaN(num)) return num;
+    }
+
+    // 3) 字符串流式恢复（优先补闭合引号，其次降级手动还原常见转义）
+    if (trimmed.startsWith('"')) {
+      let temp = trimmed;
+      if (temp.endsWith("\\") && !temp.endsWith("\\\\")) {
+        temp = temp.slice(0, -1);
+      }
+      try {
+        return JSON.parse(`${temp}"`);
+      } catch {
+        const content = trimmed.slice(1);
+        return content
+          .replace(/\\n/g, "\n")
+          .replace(/\\r/g, "\r")
+          .replace(/\\t/g, "\t")
+          .replace(/\\"/g, "\"")
+          .replace(/\\\\/g, "\\");
+      }
+    }
+
+    // 4) 数组/对象流式恢复：尝试补齐引号和闭合符号
+    if (trimmed.startsWith("[") || trimmed.startsWith("{")) {
+      let temp = trimmed;
+      let inString = false;
+      let escape = false;
+
+      for (let i = 0; i < trimmed.length; i++) {
+        const ch = trimmed[i];
+        if (ch === "\\" && !escape) {
+          escape = true;
+        } else {
+          if (ch === '"' && !escape) inString = !inString;
+          escape = false;
+        }
+      }
+
+      if (inString) {
+        if (temp.endsWith("\\") && !temp.endsWith("\\\\")) {
+          temp = temp.slice(0, -1);
+        }
+        temp += '"';
+      }
+
+      temp = temp.trim();
+      if (temp.endsWith(",")) temp = temp.slice(0, -1);
+      else if (temp.endsWith(":")) temp += "null";
+
+      let brackets = 0;
+      let braces = 0;
+      let inStr2 = false;
+      let escape2 = false;
+
+      for (let i = 0; i < temp.length; i++) {
+        const ch = temp[i];
+        if (ch === "\\" && !escape2) {
+          escape2 = true;
+        } else {
+          if (ch === '"' && !escape2) inStr2 = !inStr2;
+          if (!inStr2) {
+            if (ch === "[") brackets++;
+            else if (ch === "]") brackets--;
+            else if (ch === "{") braces++;
+            else if (ch === "}") braces--;
+          }
+          escape2 = false;
+        }
+      }
+
+      while (braces > 0) { temp += "}"; braces--; }
+      while (brackets > 0) { temp += "]"; brackets--; }
+
+      try {
+        return JSON.parse(temp);
+      } catch {
+        // ignore and fallback to raw string below
+      }
+    }
+
+    return trimmed;
+  }
+}
+
+function assignParsedValue(
+  state: chunkSchemaInfo,
+  key: string,
+  rawValue: string,
+): void {
+  const parsedValue = parseJSONValue(rawValue);
+  if (state.type === "tool-input") state.finalData.input![key] = parsedValue;
+  else state.finalData.output![key] = parsedValue;
+}
+
 function adminMessageFromStageInfo(s: stageInfo): AdminAgentMessage {
   return {
     id: s.id,
     role: 'assistant',
-    parts: [{ type: 'text', text: `[${s.stage}] ${s.message}` }],
+    parts: [{ type: 'text', text: `[${s.stage}]: ${s.message}` }],
   } as AdminAgentMessage;
 }
 
@@ -127,7 +237,7 @@ async function* parseUIMessageStream(
   })();
 
   try {
-    console.log(messages);
+    // console.log(messages);
     const response = await fetch(apiUrl, {
       method: "POST",
       headers: {
@@ -157,10 +267,23 @@ async function* parseUIMessageStream(
       if (done) {
         // 处理最后剩余的数据
         if (buffer.trim()) {
-          const chunk = parseServerSentEvent(buffer);
-          if (chunk) {
-            const typed = parse_classifyChunk(chunk, chunkSchemaCached);
-            if (typed) {
+          // 尾包可能包含多条 data 行，逐条处理避免只解析一次造成丢消息
+          const tailLines = buffer
+            .split("\n")
+            .map((line) => line.trim())
+            .filter(Boolean);
+
+          for (const line of tailLines) {
+            if (!line.startsWith("data:")) continue;
+            try {
+              const jsonStr = line.slice(5).trim();
+              if (!jsonStr) continue;
+              const chunk = JSON.parse(jsonStr);
+              if (!chunk) continue;
+
+              const typed = parse_classifyChunk(chunk, chunkSchemaCached);
+              if (!typed) continue;
+
               if (typed.new_cacheLeft && chunkSchemaCached && !chunkSchemaCached._done) {
                 parsedMessagesMap.set(
                   chunkSchemaCached.finalData.id,
@@ -168,6 +291,7 @@ async function* parseUIMessageStream(
                 );
                 chunkSchemaCached = null;
               }
+
               if (typed.type === 'stageInfo') {
                 const state = typed.infos as stageInfo;
                 parsedMessagesMap.set(state.id, adminMessageFromStageInfo(state));
@@ -186,8 +310,10 @@ async function* parseUIMessageStream(
                   }
                 }
               }
+            } catch (parseErr) {
+              console.warn("Failed to parse tail SSE data:", parseErr);
             }
-          } else console.warn("Unclassified chunk:", chunk); // todo: 未分类的 chunk 需要处理
+          }
         }
         // flush 未完成的 FSM（与 chunkSchemaCached 一致，避免 new_cacheLeft 已 flush 后重复）
         if (chunkSchemaCached && !chunkSchemaCached._done) {
@@ -213,7 +339,7 @@ async function* parseUIMessageStream(
             if (jsonStr) {
               const chunk = JSON.parse(jsonStr);
               if (chunk) {
-                console.log(chunk);
+                // console.log(chunk);
                 const parsedChunk__Typed = parse_classifyChunk(chunk, chunkSchemaCached);
                 if (!parsedChunk__Typed) continue;
                 else {
@@ -271,28 +397,6 @@ async function* parseUIMessageStream(
 }
 
 /**
- * 解析单个 SSE 事件
- */
-function parseServerSentEvent(eventStr: string): Record<string, unknown> | null {
-  const lines = eventStr.split("\n");
-  let data = "";
-
-  for (const line of lines) {
-    if (line.startsWith("data:")) {
-      data += line.slice(5).trim();
-    }
-  }
-
-  if (!data) return null;
-
-  try {
-    return JSON.parse(data);
-  } catch {
-    return null;
-  }
-}
-
-/**
  * output-schema 以及 tool-input-delta 的共享流式 JSON 状态机
  * @param chunk - 当前的消息块
  * @param chunkSchemaCached - 上一轮的解析缓存
@@ -330,31 +434,30 @@ function processJSONFSM(state: chunkSchemaInfo, data: string): void {
         else state.finalData.output![currentTarget.keyBuffer] = ''; // 预先占位，方便前端增量展示
         state._inString = false;
         state._nestingDepth = 0;
+        currentTarget.valueBuffer = "";
+        state._escapeNext = false;
       }
       continue;
     }
     // 4. 读 value
     if (state.status === "READING_VALUE") {
       if (state._escapeNext) {
-        // 同上 key 处理, 当标记为true时该轮char为value内容的开始
+        // value 中转义字符后的当前字符属于内容
         currentTarget.valueBuffer += char;
-        if (isToolInput) state.finalData.input![currentTarget.keyBuffer] = currentTarget.valueBuffer;
-        else state.finalData.output![currentTarget.keyBuffer] = currentTarget.valueBuffer;
+        assignParsedValue(state, currentTarget.keyBuffer, currentTarget.valueBuffer);
         state._escapeNext = false;
         continue;
       }
-      if (char === '\\') {
-        // 标记下轮char为value内容的开始
+      if (char === '\\' && state._inString) {
+        // 仅在字符串内部识别转义
         currentTarget.valueBuffer += char;
-        if (isToolInput) state.finalData.input![currentTarget.keyBuffer] = currentTarget.valueBuffer;
-        else state.finalData.output![currentTarget.keyBuffer] = currentTarget.valueBuffer;
+        assignParsedValue(state, currentTarget.keyBuffer, currentTarget.valueBuffer);
         state._escapeNext = true;
         continue;
       }
-      // 引号只用于切换字符串状态，不应写入最终 valueBuffer
+      // 引号既影响字符串状态，也属于 JSON 字面量本体（用于后续 JSON.parse）
       if (char === '"') {
         state._inString = !state._inString;
-        continue;
       }
       // 不在字符串内部追踪括号深度
       if (!state._inString) {
@@ -362,11 +465,13 @@ function processJSONFSM(state: chunkSchemaInfo, data: string): void {
         else if (char === '}' || char === ']') state._nestingDepth--;
         // 边界深度 0 且逗号则结束当前 value
         if (state._nestingDepth === 0 && char === ',') {
+          assignParsedValue(state, currentTarget.keyBuffer, currentTarget.valueBuffer);
           state.status = 'WAITING_FOR_KEY';
           continue; // 丢弃逗号， 等待下一轮 key_value
         }
         // 根边界 json 闭合， 整轮 json 结束
         if (state._nestingDepth < 0 && char === '}') {
+          assignParsedValue(state, currentTarget.keyBuffer, currentTarget.valueBuffer);
           state._done = true;
           if (isToolInput) state.finalData.state = 'input-available'; // tool-input 从 delta 进入 available 状态
           continue;
@@ -374,8 +479,7 @@ function processJSONFSM(state: chunkSchemaInfo, data: string): void {
         if (currentTarget.valueBuffer === '' && char.trim() === '') continue;
       }
       currentTarget.valueBuffer += char;
-      if (isToolInput) state.finalData.input![currentTarget.keyBuffer] = currentTarget.valueBuffer;
-      else state.finalData.output![currentTarget.keyBuffer] = currentTarget.valueBuffer;
+      assignParsedValue(state, currentTarget.keyBuffer, currentTarget.valueBuffer);
     }
   }
 }
@@ -421,7 +525,7 @@ function parseChunkForSchemaInfo(
       // stageInfo
       const reg = /\[([^\]]*)\]/g;
       const stage = rest.delta?.match(reg)?.[0]?.slice(1, -1) || '';
-      const message = rest.delta?.replace(reg, '').trim() || '';
+      const message = (rest.delta?.replace(reg, '').trim() || '').replace(/^:\s*/, '');
       return { stage, message, id: rest.id } as stageInfo;
     } else {
       // output-schema 状态机解析
@@ -485,6 +589,18 @@ function parse_classifyChunk(chunk: unknown, chunkSchemaCached: chunkSchemaInfo 
   };
 }
 
+function buildMergedAssistantMessages(taskId: string, messageBuffer: Map<string, AdminAgentMessage>): AdminAgentMessage[] {
+  const partsBuffer: NonNullable<AdminAgentMessage["parts"]> = [];
+  for (const message of messageBuffer.values()) {
+    if (message.parts?.length) partsBuffer.push(...message.parts);
+  }
+  return [{
+    id: taskId,
+    role: "assistant",
+    parts: partsBuffer,
+  } as AdminAgentMessage];
+}
+
 /**
  * 处理来自主线程的消息
  */
@@ -510,26 +626,23 @@ onmessage = async (event: MessageEvent<StreamMessageEvent>) => {
 
         chunk.forEach(message => task.messageBuffer.set(message.id, message));
 
-        // 在线时将消息发送回主线程度
-        if (task.isFocused) {
-          self.postMessage({
-            type: "message",
-            id,
-            data: Array.from(task.messageBuffer.values()),
-          } as StreamMessageResponse);
-        }
+        // 无论是否在线都将消息发送回主线程, worker 只进行消息的累积和去重, 由主线程决定何时展示
+        self.postMessage({
+          type: "message",
+          id,
+          data: buildMergedAssistantMessages(id, task.messageBuffer),
+        } as StreamMessageResponse);
       }
 
       // 流处理完成, 在线时 post 并 flush
       if (TaskRegistry.has(id)) {
-        if(TaskRegistry.get(id)!.isFocused){
-          self.postMessage({
-            type: "complete",
-            id,
-            data: Array.from(TaskRegistry.get(id)?.messageBuffer.values() || []),
-          } as StreamMessageResponse);
-          TaskRegistry.delete(id);
-        }else TaskRegistry.get(id)!.status = "done"; // 离线时仅更新状态, 等上线时主线程再 post
+        const task = TaskRegistry.get(id);
+        self.postMessage({
+          type: "complete",
+          id,
+          data: buildMergedAssistantMessages(id, task?.messageBuffer ?? new Map<string, AdminAgentMessage>()),
+        } as StreamMessageResponse);
+        TaskRegistry.delete(id);
       }
     } catch (error: unknown) {
       if (error instanceof Error && error.name !== "AbortError") {
@@ -568,14 +681,14 @@ onmessage = async (event: MessageEvent<StreamMessageEvent>) => {
   } else if (type === "online") {
     const task = TaskRegistry.get(id);
     if (task) {
-      if(!task.isFocused){ // task 处于 offline 才进行 online 操作
+      if (!task.isFocused) { // task 处于 offline 才进行 online 操作
         task.isFocused = true;
         self.postMessage({
           type: "complete",
           id,
-          data: Array.from(task.messageBuffer.values()),
+          data: buildMergedAssistantMessages(id, task.messageBuffer),
         } as StreamMessageResponse);
-        if(task.status === "done") TaskRegistry.delete(id);
+        if (task.status === "done") TaskRegistry.delete(id);
       }
     }
   } else if (type === 'cancelAll') {
