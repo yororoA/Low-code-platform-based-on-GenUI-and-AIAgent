@@ -41,6 +41,22 @@ type StagePreviewPayload = {
   styleText: string
 }
 
+type TimelineChildItem = {
+  id: string
+  label: string
+  targetId: string
+  type: "stage" | "text" | "preview" | "tool"
+}
+
+type TimelineRoundItem = {
+  id: string
+  timestamp: string
+  assistantTargetId: string
+  userText: string
+  assistantTitle: string
+  children: TimelineChildItem[]
+}
+
 export default function BasicUI() {
   const router = useRouter();
   const [canJump, setCanJump] = useState<boolean>(false);
@@ -57,6 +73,8 @@ export default function BasicUI() {
   const { messages, setMessages, sendMessage, status, stop, error } = useChat<AdminAgentMessage>();
   const [normalizedMessages, setNormalizedMessages] = useState<AdminAgentMessage[]>([]);
   const [currentMessageTaskId, setCurrentMessageTaskId] = useState<string>('');
+  const roundTimeMapRef = useRef<Map<string, string>>(new Map());
+  const messagesContainerRef = useRef<HTMLDivElement | null>(null);
   const currentTask = useChatStreamingStore(
     useShallow(state => state.tasksProcessingMap.get(currentMessageTaskId))
   );
@@ -374,6 +392,150 @@ export default function BasicUI() {
     return { topic, structureText, styleText }
   }
 
+  const timelineRounds = (() => {
+    type PendingUser = { text: string }
+    const rounds: TimelineRoundItem[] = []
+    const pendingUsers: PendingUser[] = []
+
+    for (let index = 0; index < normalizedMessages.length; index++) {
+      const message = normalizedMessages[index]
+      const messageTargetId = `studio-msg-${message.id}-${index}`
+
+      if (message.role === "user") {
+        const text = getMessageText(message) || "(empty user message)"
+        pendingUsers.push({ text })
+        continue
+      }
+
+      if (message.role !== "assistant") continue
+
+      const displayInfos = getDisplayText(message)
+      const previewPayload = getPreviewPayload(message, displayInfos)
+      const assistantPayload = getShowResponsePayload(message) as { topic?: string } | undefined
+      const assistantTopic = assistantPayload?.topic?.trim()
+      const roundId = `round-${message.id}-${index}`
+      const cachedTime = roundTimeMapRef.current.get(roundId)
+      const nowIso = cachedTime ?? new Date().toISOString()
+      if (!cachedTime) {
+        roundTimeMapRef.current.set(roundId, nowIso)
+      }
+
+      const user = pendingUsers.shift()
+      const userText = user?.text || "(no paired user message)"
+
+      const children: TimelineChildItem[] = []
+      for (let infoIndex = 0; infoIndex < displayInfos.length; infoIndex++) {
+        const info = displayInfos[infoIndex]
+        const infoTargetId = `studio-msg-${message.id}-${index}-info-${infoIndex}`
+        if (info.type === "stage") {
+          children.push({
+            id: `${roundId}-stage-${infoIndex}`,
+            label: `[${info.stage}] ${info.text}`,
+            targetId: infoTargetId,
+            type: "stage",
+          })
+        } else if (info.type === "tool") {
+          children.push({
+            id: `${roundId}-tool-${infoIndex}`,
+            label: info.text,
+            targetId: infoTargetId,
+            type: "tool",
+          })
+        } else if (info.type === "text") {
+          children.push({
+            id: `${roundId}-text-${infoIndex}`,
+            label: info.text,
+            targetId: infoTargetId,
+            type: "text",
+          })
+        }
+      }
+
+      if (previewPayload) {
+        children.push({
+          id: `${roundId}-preview`,
+          label: `预览：${previewPayload.topic}`,
+          targetId: `studio-msg-${message.id}-${index}-preview`,
+          type: "preview",
+        })
+      }
+
+      const assistantTitle = assistantTopic || children[0]?.label || "assistant"
+      rounds.push({
+        id: roundId,
+        timestamp: nowIso,
+        assistantTargetId: messageTargetId,
+        userText,
+        assistantTitle,
+        children,
+      })
+    }
+
+    return rounds
+  })()
+
+  useEffect(() => {
+    dispatchEvent<TimelineRoundItem[]>("studioTimelineUpdate", timelineRounds)
+  }, [timelineRounds])
+
+  useEffect(() => {
+    const handleScrollTo: EventListener = (event) => {
+      const customEvent = event as CustomEvent<{ targetId?: string }>
+      const targetId = customEvent.detail?.targetId
+      if (!targetId) return
+      const target = document.getElementById(targetId)
+      if (target) {
+        target.scrollIntoView({ behavior: "smooth", block: "center" })
+      }
+    }
+    window.addEventListener("studioTimelineScrollTo", handleScrollTo)
+    return () => {
+      window.removeEventListener("studioTimelineScrollTo", handleScrollTo)
+      dispatchEvent<TimelineRoundItem[]>("studioTimelineUpdate", [])
+    }
+  }, [])
+
+  useEffect(() => {
+    const container = messagesContainerRef.current
+    if (!container) return
+
+    let rafId = 0
+    const syncActiveAssistant = () => {
+      const assistantNodes = Array.from(
+        container.querySelectorAll<HTMLElement>('[data-message-role="assistant"]'),
+      )
+      if (assistantNodes.length === 0) {
+        dispatchEvent("studioTimelineActiveChange", { assistantTargetId: "" })
+        return
+      }
+
+      const scrollTop = container.scrollTop
+      let activeNode = assistantNodes[0]
+      for (const node of assistantNodes) {
+        if (node.offsetTop - scrollTop <= 40) {
+          activeNode = node
+        } else {
+          break
+        }
+      }
+      dispatchEvent("studioTimelineActiveChange", { assistantTargetId: activeNode.id })
+    }
+
+    const handleScroll = () => {
+      if (rafId) cancelAnimationFrame(rafId)
+      rafId = requestAnimationFrame(syncActiveAssistant)
+    }
+
+    syncActiveAssistant()
+    container.addEventListener("scroll", handleScroll, { passive: true })
+
+    return () => {
+      if (rafId) cancelAnimationFrame(rafId)
+      container.removeEventListener("scroll", handleScroll)
+      dispatchEvent("studioTimelineActiveChange", { assistantTargetId: "" })
+    }
+  }, [normalizedMessages])
+
   return (
     <div className="h-full p-4 md:p-6 flex flex-col">
       <Card className="flex flex-1 flex-col min-h-0">
@@ -383,7 +545,7 @@ export default function BasicUI() {
         </CardHeader>
 
         <CardContent className="flex min-h-0 flex-1 flex-col gap-4">
-          <div className="flex-1 space-y-3 overflow-y-auto rounded-md border bg-muted/20 p-3">
+          <div ref={messagesContainerRef} className="flex-1 space-y-3 overflow-y-auto rounded-md border bg-muted/20 p-3 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
             {messages.length === 0 ? (
               <div className="text-sm text-muted-foreground">
                 还没有消息，输入内容后点击 Send 开始对话。
@@ -397,6 +559,8 @@ export default function BasicUI() {
                 return (
                   <div
                     key={`${message.id}-${index}`}
+                    id={`studio-msg-${message.id}-${index}`}
+                    data-message-role={message.role}
                     className={`flex ${isUser ? "justify-end" : "justify-start"}`}
                   >
                     <div className="max-w-[80%] space-y-2">
@@ -405,6 +569,7 @@ export default function BasicUI() {
                           return (
                             <Accordion
                               key={`${message.id}-info-${idx}`}
+                              id={`studio-msg-${message.id}-${index}-info-${idx}`}
                               type="single"
                               collapsible
                               className="rounded-md border bg-amber-50 px-3 text-xs text-amber-900"
@@ -434,6 +599,7 @@ export default function BasicUI() {
                           return (
                             <div
                               key={`${message.id}-info-${idx}`}
+                              id={`studio-msg-${message.id}-${index}-info-${idx}`}
                               className={`whitespace-pre-wrap break-words rounded-lg px-3 py-2 text-sm ${isUser
                                 ? "bg-primary text-primary-foreground"
                                 : "bg-card border text-card-foreground"
@@ -448,6 +614,7 @@ export default function BasicUI() {
                       })}
                       {!isUser && previewPayload ? (
                         <Card
+                          id={`studio-msg-${message.id}-${index}-preview`}
                           className="cursor-pointer border-primary/30 bg-primary/5 transition-colors hover:bg-primary/10"
                           onClick={() => {
                             dispatchEvent<StagePreviewPayload>("studioPreviewOpen", previewPayload)

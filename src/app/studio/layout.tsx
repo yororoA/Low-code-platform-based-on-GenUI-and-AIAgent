@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, type ReactNode, useMemo, useState } from "react"
+import { useEffect, type ReactNode, useMemo, useRef, useState, type MouseEvent } from "react"
 import Link from "next/link"
 import { usePathname, useSearchParams } from "next/navigation"
 import {
@@ -24,6 +24,22 @@ type StudioPreviewPayload = {
   topic: string
   structureText: string
   styleText: string
+}
+
+type TimelineChildItem = {
+  id: string
+  label: string
+  targetId: string
+  type: "stage" | "text" | "preview" | "tool"
+}
+
+type TimelineRoundItem = {
+  id: string
+  timestamp: string
+  assistantTargetId: string
+  userText: string
+  assistantTitle: string
+  children: TimelineChildItem[]
 }
 
 function extractJsonObjectByKey(raw: string, key: string): Record<string, unknown> | null {
@@ -73,6 +89,12 @@ function extractJsonObjectByKey(raw: string, key: string): Record<string, unknow
 export default function StudioLayout({ children }: { children: ReactNode }) {
   const [details, setDetails] = useState<DataItemSummary[]>([]);
   const [previewPayload, setPreviewPayload] = useState<StudioPreviewPayload | null>(null);
+  const [timelineRounds, setTimelineRounds] = useState<TimelineRoundItem[]>([])
+  const [activeAssistantTargetId, setActiveAssistantTargetId] = useState<string>("")
+  const inspectorRef = useRef<HTMLElement | null>(null)
+  const [hoverUserText, setHoverUserText] = useState<string>("")
+  const [hoverTop, setHoverTop] = useState<number>(0)
+  const [hoverVisible, setHoverVisible] = useState<boolean>(false)
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const selectedPromptId = searchParams.get("id");
@@ -161,6 +183,53 @@ export default function StudioLayout({ children }: { children: ReactNode }) {
       window.removeEventListener("studioPreviewOpen", handleOpenPreview)
     }
   }, [])
+
+  useEffect(() => {
+    const handleTimelineUpdate: EventListener = (event) => {
+      const customEvent = event as CustomEvent<TimelineRoundItem[]>
+      setTimelineRounds(customEvent.detail ?? [])
+    }
+    const handleActiveTimeline: EventListener = (event) => {
+      const customEvent = event as CustomEvent<{ assistantTargetId?: string }>
+      setActiveAssistantTargetId(customEvent.detail?.assistantTargetId ?? "")
+    }
+    window.addEventListener("studioTimelineUpdate", handleTimelineUpdate)
+    window.addEventListener("studioTimelineActiveChange", handleActiveTimeline)
+    return () => {
+      window.removeEventListener("studioTimelineUpdate", handleTimelineUpdate)
+      window.removeEventListener("studioTimelineActiveChange", handleActiveTimeline)
+    }
+  }, [])
+
+  const handleTimelineScrollTo = (targetId: string) => {
+    window.dispatchEvent(new CustomEvent("studioTimelineScrollTo", { detail: { targetId } }))
+  }
+
+  const formatTimelineTime = (timestamp: string) => {
+    const date = new Date(timestamp)
+    if (Number.isNaN(date.getTime())) return timestamp
+    return new Intl.DateTimeFormat("zh-CN", {
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+    }).format(date)
+  }
+
+  const handleHoverEnter = (event: MouseEvent<HTMLElement>, userText: string) => {
+    const asideRect = inspectorRef.current?.getBoundingClientRect()
+    const targetRect = event.currentTarget.getBoundingClientRect()
+    if (!asideRect) return
+    setHoverTop(targetRect.top - asideRect.top)
+    setHoverUserText(userText)
+    setHoverVisible(true)
+  }
+
+  const handleHoverLeave = () => {
+    setHoverVisible(false)
+  }
 
   // 渲染预览
   const parsedPreview = useMemo(() => {
@@ -318,8 +387,80 @@ export default function StudioLayout({ children }: { children: ReactNode }) {
           </div>
         </main>
         {!isPreviewMode ? (
-          <aside className="hidden border-l p-3 lg:block overflow-y-auto">
+          <aside ref={inspectorRef} className="hidden h-full border-l p-3 lg:flex lg:flex-col overflow-visible relative">
             <div className="text-sm text-muted-foreground">Inspector</div>
+            <div className="mt-3 min-h-0 flex-1 overflow-y-auto overflow-x-visible [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+              {timelineRounds.length === 0 ? (
+                <Card>
+                  <CardContent className="py-4 text-xs text-muted-foreground">
+                    暂无时间轴数据，发送消息后会在这里按轮次记录 user / assistant 信息。
+                  </CardContent>
+                </Card>
+              ) : (
+                <div className="relative pl-5">
+                  <div className="absolute left-2 top-0 bottom-0 w-px bg-foreground/25" />
+                  <Accordion type="multiple" className="space-y-2">
+                    {timelineRounds.map((round) => (
+                      <AccordionItem key={round.id} value={round.id} className={cn("relative overflow-visible rounded-md border border-foreground/20 bg-card px-2 py-1", activeAssistantTargetId === round.assistantTargetId ? "border-primary/60 bg-primary/5" : "")}>
+                        <span className="absolute -left-[18px] top-4 h-2.5 w-2.5 rounded-full border border-primary/70 bg-primary/30" />
+                        <div
+                          className="group relative"
+                          onMouseEnter={(event) => handleHoverEnter(event, round.userText)}
+                          onMouseLeave={handleHoverLeave}
+                        >
+                          <div className="px-2 pb-1 text-[11px] font-medium text-muted-foreground">
+                            {formatTimelineTime(round.timestamp)}
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className={cn("h-auto w-full justify-start px-2 py-1.5 text-left", activeAssistantTargetId === round.assistantTargetId ? "bg-primary/10 text-primary hover:bg-primary/15" : "")}
+                            onClick={() => handleTimelineScrollTo(round.assistantTargetId)}
+                          >
+                            <span className="line-clamp-2 text-xs">{round.assistantTitle}</span>
+                          </Button>
+                        </div>
+                        <AccordionTrigger className="px-2 py-1.5 text-xs hover:no-underline">
+                          展开子项 ({round.children.length})
+                        </AccordionTrigger>
+                        <AccordionContent className="pb-1">
+                          <div className="space-y-1 pl-2">
+                            {round.children.map((child) => (
+                              <div
+                                key={child.id}
+                                className="group relative"
+                                onMouseEnter={(event) => handleHoverEnter(event, round.userText)}
+                                onMouseLeave={handleHoverLeave}
+                              >
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-auto w-full justify-start px-2 py-1 text-left text-xs"
+                                  onClick={() => handleTimelineScrollTo(child.targetId)}
+                                >
+                                  <span className="line-clamp-2">{child.label}</span>
+                                </Button>
+                              </div>
+                            ))}
+                          </div>
+                        </AccordionContent>
+                      </AccordionItem>
+                    ))}
+                  </Accordion>
+                </div>
+              )}
+            </div>
+            <Card
+              className={cn(
+                "pointer-events-none absolute right-full z-30 mr-2 w-64 border shadow-md transition-all duration-200 ease-out",
+                hoverVisible ? "opacity-100 visible" : "opacity-0 invisible",
+              )}
+              style={{ top: hoverTop }}
+            >
+              <CardHeader className="py-2">
+                <CardTitle className="text-xs">{hoverUserText}</CardTitle>
+              </CardHeader>
+            </Card>
           </aside>
         ) : null}
       </div>
