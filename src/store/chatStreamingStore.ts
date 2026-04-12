@@ -2,22 +2,152 @@ import { create } from "zustand";
 import { AdminAgentMessage } from "@/app/api/chat/model";
 import { StreamMessageResponse } from "@/types";
 import { enableMapSet, produce } from "immer";
+import { DataItem, DataItemSummary } from "@/types";
+import { DBManager, dispatchEvent, getShowResponsePayload } from "@/lib/utils";
 
 enableMapSet();
 
 interface TaskInfo {
   isFocused: boolean;
   status: "submitted" | "streaming" | "completed" | "canceled" | "error";
+  userInput: AdminAgentMessage | null;
   // messagesBuffer 用于存储当前流式处理过程中解析出的消息， key为 taskId 用以去重和覆盖更新
   messagesBuffer: AdminAgentMessage[];
 }
 
 const THROTTLE_TIME = 60;
+const CACHE_DEBOUNCE_TIMEOUT = 1000;
 type TaskThrottle = {
   inThrottle: boolean;
   throttleBuffer: AdminAgentMessage[]; // 当 inThrottle===true 时在其中存下待发送的消息
   throttleTimer: ReturnType<typeof setTimeout> | null;
 };
+
+type OfflinePersistInfo = {
+  timer: ReturnType<typeof setTimeout> | null;
+  latestMessages: AdminAgentMessage[];
+  userInput: AdminAgentMessage | null;
+};
+
+const offlinePersistMap = new Map<string, OfflinePersistInfo>();
+
+function getTopicFromMessages(messages: AdminAgentMessage[], fallbackTopic = "New Conversation"): string {
+  const assistantMessages = messages.filter((m) => m.role === "assistant");
+  for (let i = assistantMessages.length - 1; i >= 0; i--) {
+    const payload = getShowResponsePayload(assistantMessages[i]) as { topic?: string } | undefined;
+    if (payload?.topic) return payload.topic;
+  }
+  return fallbackTopic;
+}
+
+function mergeMessagesById(messages: AdminAgentMessage[]): AdminAgentMessage[] {
+  const indexById = new Map<string, number>();
+  const result: AdminAgentMessage[] = [];
+  for (const message of messages) {
+    const existedIndex = indexById.get(message.id);
+    if (existedIndex == null) {
+      indexById.set(message.id, result.length);
+      result.push(message);
+    } else {
+      result[existedIndex] = message;
+    }
+  }
+  return result;
+}
+
+async function persistTaskHistory(
+  taskId: string,
+  messages: AdminAgentMessage[],
+  userInputFromCache?: AdminAgentMessage | null,
+): Promise<void> {
+  const { taskToPromptMap, tasksProcessingMap } = useChatStreamingStore.getState();
+  const promptId = taskToPromptMap.get(taskId);
+  if (!promptId) return;
+
+  const existed = (await DBManager.execute({
+    operationType: "get",
+    id: promptId,
+  })) as DataItem | undefined;
+
+  const task = tasksProcessingMap.get(taskId);
+  const userInput = userInputFromCache ?? task?.userInput ?? null;
+  const mergedMessages = mergeMessagesById([
+    ...(existed?.messages ?? []),
+    ...(userInput ? [userInput] : []),
+    ...messages,
+  ]);
+  if (mergedMessages.length === 0) return;
+
+  const data: DataItem = {
+    id: promptId,
+    topic: getTopicFromMessages(mergedMessages, existed?.topic ?? "New Conversation"),
+    timestamp: existed?.timestamp ?? new Date(),
+    messages: mergedMessages,
+  };
+
+  await DBManager.execute({
+    operationType: "update",
+    data,
+  });
+
+  if (existed) dispatchEvent<DataItemSummary>("updateConversation", data);
+}
+
+function flushOfflinePersist(taskId: string): void {
+  const cached = offlinePersistMap.get(taskId);
+  if (!cached) return;
+  if (cached.timer) clearTimeout(cached.timer);
+  const latestMessages = cached.latestMessages;
+  const userInput = cached.userInput;
+  offlinePersistMap.delete(taskId);
+  void persistTaskHistory(taskId, latestMessages, userInput).catch((error) => {
+    console.error("offline history persist failed:", error);
+  });
+}
+
+function scheduleOfflinePersist(taskId: string, messages: AdminAgentMessage[], immediate = false): void {
+  const taskUserInput = useChatStreamingStore.getState().tasksProcessingMap.get(taskId)?.userInput ?? null;
+  let cached = offlinePersistMap.get(taskId);
+  if (!cached) {
+    cached = {
+      timer: null,
+      latestMessages: messages,
+      userInput: taskUserInput,
+    };
+    offlinePersistMap.set(taskId, cached);
+  } else {
+    cached.latestMessages = messages;
+    if (!cached.userInput) cached.userInput = taskUserInput;
+  }
+
+  const flush = async () => {
+    const latest = offlinePersistMap.get(taskId);
+    if (!latest) return;
+    latest.timer = null;
+    const latestMessages = latest.latestMessages;
+    const userInput = latest.userInput;
+    try {
+      await persistTaskHistory(taskId, latestMessages, userInput);
+    } catch (error) {
+      console.error("offline history persist failed:", error);
+    } finally {
+      const current = offlinePersistMap.get(taskId);
+      if (current && current.timer === null && current.latestMessages === latestMessages) {
+        offlinePersistMap.delete(taskId);
+      }
+    }
+  };
+
+  if (immediate) {
+    flushOfflinePersist(taskId);
+    return;
+  }
+
+  if (cached.timer) return;
+  cached.timer = setTimeout(() => {
+    void flush();
+  }, CACHE_DEBOUNCE_TIMEOUT);
+}
 
 // todo: 将其他 worker 的相关管理也移入此 store
 interface ChatStreamingState {
@@ -80,6 +210,10 @@ export const useChatStreamingStore = create<ChatStreamingState>((set, get) => ({
       }
       if (event.data.type === "message") {
         const messages = event.data.data as AdminAgentMessage[];
+        const taskSnapshot = get().tasksProcessingMap.get(taskId);
+        if (taskSnapshot && !taskSnapshot.isFocused) {
+          scheduleOfflinePersist(taskId, messages);
+        }
         const currentThrottle = get().tasksThrottleMap.get(taskId);
         if (!currentThrottle) return;
         if (currentThrottle.inThrottle) {
@@ -129,6 +263,15 @@ export const useChatStreamingStore = create<ChatStreamingState>((set, get) => ({
         }
       } else if (event.data.type === "complete" || event.data.type === "canceled") {
         // 流式处理 worker 完成/取消
+        const taskSnapshot = get().tasksProcessingMap.get(taskId);
+        if (taskSnapshot && !taskSnapshot.isFocused) {
+          const throttle = get().tasksThrottleMap.get(taskId);
+          const latestMessages =
+            throttle && throttle.throttleBuffer.length > 0
+              ? throttle.throttleBuffer
+              : taskSnapshot.messagesBuffer;
+          scheduleOfflinePersist(taskId, latestMessages, true);
+        }
         get().cce(taskId, event.data.type === "complete" ? "completed" : "canceled");
       } else {
         // 流式处理 worker 出错
@@ -172,9 +315,11 @@ export const useChatStreamingStore = create<ChatStreamingState>((set, get) => ({
       return { promptToTaskMap, taskToPromptMap };
     });
     // 创建任务信息
+    const userInput = [...messages].reverse().find((message) => message.role === "user") ?? null;
     const task: TaskInfo = {
       isFocused: true,
       status: "submitted",
+      userInput,
       messagesBuffer: [],
     };
     set((state) => {
@@ -235,6 +380,9 @@ export const useChatStreamingStore = create<ChatStreamingState>((set, get) => ({
           type: "cancelAll",
           id: "",
         });
+        for (const offlineTaskId of [...offlinePersistMap.keys()]) {
+          flushOfflinePersist(offlineTaskId);
+        }
         set((state) => ({
           tasksProcessingMap: produce(state.tasksProcessingMap, (draft) => draft.clear()),
           tasksThrottleMap: produce(state.tasksThrottleMap, (draft) => {
@@ -252,6 +400,7 @@ export const useChatStreamingStore = create<ChatStreamingState>((set, get) => ({
         }));
       } else {
         // 删除特定的任务
+        flushOfflinePersist(taskId);
         const task = get().tasksProcessingMap.get(taskId);
         // 完结态不向 streaming worker 发送 cancel 操作 ( woker 在完结时已自动清除其内部 task map 中对应 task )
         if (task && !(task.status === "completed" || task.status === "canceled" || task.status === "error")) {
