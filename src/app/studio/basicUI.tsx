@@ -69,6 +69,7 @@ export default function BasicUI() {
   });
   const CACHE_DEBOUNCE_TIMEOUT = 1000;
   const [topic, setTopic] = useState<string>("New Conversation");
+  const [activePromptId, setActivePromptId] = useState<string>("");
   const baseMessagesRef = useRef<AdminAgentMessage[]>([]);
   const { messages, setMessages, sendMessage, status, stop, error } = useChat<AdminAgentMessage>();
   const [normalizedMessages, setNormalizedMessages] = useState<AdminAgentMessage[]>([]);
@@ -78,13 +79,17 @@ export default function BasicUI() {
   const currentTask = useChatStreamingStore(
     useShallow(state => state.tasksProcessingMap.get(currentMessageTaskId))
   );
-  const { send, cancel, terminateTask, onlineStatusToggle } = useChatStreamingStore(
+  const { send, cancel, terminateTask, onlineStatusToggle, initPromptData } = useChatStreamingStore(
     useShallow(state => ({
       send: state.send,
       cancel: state.cancel,
       terminateTask: state.terminateTask,
-      onlineStatusToggle: state.onlineStatusToggle
+      onlineStatusToggle: state.onlineStatusToggle,
+      initPromptData: state.initPromptData,
     }))
+  );
+  const promptData = useChatStreamingStore((state) =>
+    activePromptId ? state.promptDataMap.get(activePromptId) : undefined,
   );
   const getDBMessagesWorkerRef = useRef<Worker | null>(null);
   // 初始化获取历史记录线程
@@ -96,6 +101,8 @@ export default function BasicUI() {
         const history = event.data as DataItem;
         if (history) {
           baseMessagesRef.current = history.messages;
+          initPromptData(history.id, history);
+          setActivePromptId(history.id);
           setMessages(baseMessagesRef.current);
           thisDetailRef.current = {
             id: history.id,
@@ -113,26 +120,23 @@ export default function BasicUI() {
         getDBMessagesWorkerRef.current = null;
       }
     }
-  }, [setMessages]);
-  // 监听消息变化，来自 store 的 messages 本就是去重后的消息, 无需再次去重
+  }, [setMessages, initPromptData]);
+
+  // 监听消息变化：worker 模式改为从 promptDataMap 读取当前会话拼接后的完整消息
   useEffect(() => {
     if (useChatStreamingStore.getState().workersAllowed) {
-      if (currentTask) {
-        const merged = [...baseMessagesRef.current, ...currentTask.messagesBuffer];
-        setNormalizedMessages(merged);
-        if (currentTask.status === "canceled" || currentTask.status === "completed") {
-          // 将 assistant 回复持久化到 baseMessagesRef，防止 terminateTask 清除任务后回退丢失
-          baseMessagesRef.current = merged;
-          if (isNew.current) setCanJump(true);
-          terminateTask(currentMessageTaskId);
-        }
-      } else {
-        setNormalizedMessages([...baseMessagesRef.current]);
+      const mergedMessages = promptData?.messages ?? baseMessagesRef.current;
+      setNormalizedMessages(mergedMessages);
+      if (promptData?.topic) setTopic(promptData.topic);
+
+      if (currentTask && (currentTask.status === "canceled" || currentTask.status === "completed")) {
+        if (isNew.current) setCanJump(true);
+        terminateTask(currentMessageTaskId);
       }
     } else {
       setNormalizedMessages(dedupeMessages(messages));
     }
-  }, [messages, currentTask, terminateTask, currentMessageTaskId]);
+  }, [messages, currentTask, terminateTask, currentMessageTaskId, promptData]);
 
   // 初始化获取历史数据
   // 初始化时若存在 promptId 则尝试从 store 中获取可能存在的 task, 恢复状态
@@ -140,6 +144,7 @@ export default function BasicUI() {
   useEffect(() => {
     const promptId = searchParams.get("id");
     if (promptId) {
+      setActivePromptId(promptId);
       if (getDBMessagesWorkerRef.current) {
         getDBMessagesWorkerRef.current.postMessage({ operationType: "get", id: promptId });
       } else {
@@ -150,6 +155,8 @@ export default function BasicUI() {
           })) as DataItem;
           if (history) {
             baseMessagesRef.current = history.messages;
+            initPromptData(history.id, history);
+            setActivePromptId(history.id);
             const taskId = useChatStreamingStore.getState().promptToTaskMap.get(promptId);
             if (useChatStreamingStore.getState().workersAllowed && taskId) {
               setCurrentMessageTaskId(taskId);
@@ -166,13 +173,13 @@ export default function BasicUI() {
         })();
       }
     }
-  }, [setMessages, searchParams, onlineStatusToggle]);
+  }, [setMessages, searchParams, onlineStatusToggle, initPromptData]);
 
   // todo('更新worker');
-  // 更新逻辑：采用防抖策略 (Debounce) 避免高频操作
+  // 非 worker 模式下仍保留页面内持久化逻辑
   useEffect(() => {
+    if (useChatStreamingStore.getState().workersAllowed) return;
     if (normalizedMessages.length === 0) return
-    // console.log(currentTask);
     // 设置 800ms 防抖，流式输出时（极度高频修改）不会立刻执行，流出停顿时才会集中执行一次
     const updateTimer = setTimeout(async () => {
       const d = thisDetailRef.current;
@@ -225,7 +232,7 @@ export default function BasicUI() {
       clearTimeout(updateTimer);
       if(!useChatStreamingStore.getState().workersAllowed && isNew.current)setCanJump(false);
     }
-  }, [normalizedMessages, currentTask, isNew]);
+  }, [normalizedMessages, isNew]);
 
   // 新会话跳转
   useEffect(() => {
@@ -258,23 +265,26 @@ export default function BasicUI() {
       const newId = strToHexStr(`${text}${Date.now().toString()}${Math.ceil(Math.random() * 1e6).toString()}`);
       thisDetailRef.current.id = newId;
       thisDetailRef.current.timestamp = new Date();
+      setActivePromptId(newId);
       dispatchEvent<DataItemSummary>("newConversation", thisDetailRef.current);
     }
     if (!useChatStreamingStore.getState().workersAllowed) await sendMessage({ text });
     else {
+      setActivePromptId(thisDetailRef.current.id);
       const userMessage: AdminAgentMessage = {
         role: "user",
         id: generateHexId(),
         parts: [{ type: "text", text }],
       };
-      baseMessagesRef.current = [...baseMessagesRef.current, userMessage];
-      setMessages(baseMessagesRef.current);
-      setNormalizedMessages(baseMessagesRef.current);
+      const baseMessages = promptData?.messages ?? baseMessagesRef.current;
+      const nextMessages = [...baseMessages, userMessage];
+      baseMessagesRef.current = nextMessages;
+      setMessages(nextMessages);
 
       terminateTask(currentMessageTaskId); // 在发送新消息前删除任务
       const taskId = `task_${Date.now()}`;
       setCurrentMessageTaskId(taskId);
-      send(thisDetailRef.current.id, taskId, baseMessagesRef.current, window.location.origin);
+      send(thisDetailRef.current.id, taskId, nextMessages, window.location.origin);
     }
   }
 
