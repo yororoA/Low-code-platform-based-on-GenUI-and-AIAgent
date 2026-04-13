@@ -1,6 +1,5 @@
 import { DBManager } from "@/lib/dbtest";
-import { AdminAgentMessage } from "@/app/api/chat/model";
-import { DataItemSummary, DataItem, ExecuteOptions } from "@/types";
+import { ExecuteOptions } from "@/types";
 
 onmessage = async (event: MessageEvent<ExecuteOptions>) => {
   try{
