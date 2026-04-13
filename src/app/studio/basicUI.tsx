@@ -79,13 +79,14 @@ export default function BasicUI() {
   const currentTask = useChatStreamingStore(
     useShallow(state => state.tasksProcessingMap.get(currentMessageTaskId))
   );
-  const { send, cancel, terminateTask, onlineStatusToggle, initPromptData } = useChatStreamingStore(
+  const { send, cancel, terminateTask, onlineStatusToggle, initPromptData, workersAllowed } = useChatStreamingStore(
     useShallow(state => ({
       send: state.send,
       cancel: state.cancel,
       terminateTask: state.terminateTask,
       onlineStatusToggle: state.onlineStatusToggle,
       initPromptData: state.initPromptData,
+      workersAllowed: state.workersAllowed,
     }))
   );
   const promptData = useChatStreamingStore((state) =>
@@ -94,7 +95,7 @@ export default function BasicUI() {
   const getDBMessagesWorkerRef = useRef<Worker | null>(null);
   // 初始化获取历史记录线程
   useEffect(() => {
-    if (useChatStreamingStore.getState().workersAllowed) {
+    if (workersAllowed) {
       // worker for 获取本页历史数据
       getDBMessagesWorkerRef.current = new Worker(new URL("@/workers/chatDBWorker.ts", import.meta.url));
       getDBMessagesWorkerRef.current.onmessage = (event: MessageEvent<DataItem>) => {
@@ -103,6 +104,13 @@ export default function BasicUI() {
           baseMessagesRef.current = history.messages;
           initPromptData(history.id, history);
           setActivePromptId(history.id);
+          const taskId = useChatStreamingStore.getState().promptToTaskMap.get(history.id);
+          if (workersAllowed && taskId) {
+            setCurrentMessageTaskId(taskId);
+            onlineStatusToggle(taskId, "online");
+          } else {
+            setCurrentMessageTaskId("");
+          }
           setMessages(baseMessagesRef.current);
           thisDetailRef.current = {
             id: history.id,
@@ -115,16 +123,16 @@ export default function BasicUI() {
     }
     // 清理worker
     return () => {
-      if (useChatStreamingStore.getState().workersAllowed) {
+      if (workersAllowed) {
         getDBMessagesWorkerRef.current?.terminate();
         getDBMessagesWorkerRef.current = null;
       }
     }
-  }, [setMessages, initPromptData]);
+  }, [setMessages, initPromptData, onlineStatusToggle, workersAllowed]);
 
   // 监听消息变化：worker 模式改为从 promptDataMap 读取当前会话拼接后的完整消息
   useEffect(() => {
-    if (useChatStreamingStore.getState().workersAllowed) {
+    if (workersAllowed) {
       const mergedMessages = promptData?.messages ?? baseMessagesRef.current;
       setNormalizedMessages(mergedMessages);
       if (promptData?.topic) setTopic(promptData.topic);
@@ -136,7 +144,7 @@ export default function BasicUI() {
     } else {
       setNormalizedMessages(dedupeMessages(messages));
     }
-  }, [messages, currentTask, terminateTask, currentMessageTaskId, promptData]);
+  }, [messages, currentTask, terminateTask, currentMessageTaskId, promptData, workersAllowed]);
 
   // 初始化获取历史数据
   // 初始化时若存在 promptId 则尝试从 store 中获取可能存在的 task, 恢复状态
@@ -158,9 +166,11 @@ export default function BasicUI() {
             initPromptData(history.id, history);
             setActivePromptId(history.id);
             const taskId = useChatStreamingStore.getState().promptToTaskMap.get(promptId);
-            if (useChatStreamingStore.getState().workersAllowed && taskId) {
+            if (workersAllowed && taskId) {
               setCurrentMessageTaskId(taskId);
               onlineStatusToggle(taskId, "online");
+            } else {
+              setCurrentMessageTaskId("");
             }
             setMessages(baseMessagesRef.current);
             thisDetailRef.current = {
@@ -173,7 +183,7 @@ export default function BasicUI() {
         })();
       }
     }
-  }, [setMessages, searchParams, onlineStatusToggle, initPromptData]);
+  }, [setMessages, searchParams, onlineStatusToggle, initPromptData, workersAllowed]);
 
   // todo('更新worker');
   // 非 worker 模式下仍保留页面内持久化逻辑
@@ -268,7 +278,7 @@ export default function BasicUI() {
       setActivePromptId(newId);
       dispatchEvent<DataItemSummary>("newConversation", thisDetailRef.current);
     }
-    if (!useChatStreamingStore.getState().workersAllowed) await sendMessage({ text });
+    if (!workersAllowed) await sendMessage({ text });
     else {
       setActivePromptId(thisDetailRef.current.id);
       const userMessage: AdminAgentMessage = {
@@ -289,7 +299,7 @@ export default function BasicUI() {
   }
 
   const handleStop = async () => {
-    if (useChatStreamingStore.getState().workersAllowed) {
+    if (workersAllowed) {
       if (currentMessageTaskId) cancel(currentMessageTaskId);
     } else stop();
   }
@@ -298,7 +308,7 @@ export default function BasicUI() {
     setInput(event.target.value)
   }
 
-  const isStreaming = (useChatStreamingStore.getState().workersAllowed)
+  const isStreaming = (workersAllowed)
     ? currentTask && (currentTask.status === "streaming" || currentTask.status === 'submitted')
     : status === "streaming" || status === "submitted";
   const canSend = input.trim().length > 0 && !isStreaming;
