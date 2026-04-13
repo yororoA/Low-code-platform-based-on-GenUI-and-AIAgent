@@ -152,6 +152,8 @@ export default function BasicUI() {
   useEffect(() => {
     const promptId = searchParams.get("id");
     if (promptId) {
+      setCurrentMessageTaskId("");
+      thisDetailRef.current.id = promptId;
       setActivePromptId(promptId);
       if (getDBMessagesWorkerRef.current) {
         getDBMessagesWorkerRef.current.postMessage({ operationType: "get", id: promptId });
@@ -280,7 +282,8 @@ export default function BasicUI() {
     }
     if (!workersAllowed) await sendMessage({ text });
     else {
-      setActivePromptId(thisDetailRef.current.id);
+      const currentPromptId = thisDetailRef.current.id;
+      setActivePromptId(currentPromptId);
       const userMessage: AdminAgentMessage = {
         role: "user",
         id: generateHexId(),
@@ -291,16 +294,20 @@ export default function BasicUI() {
       baseMessagesRef.current = nextMessages;
       setMessages(nextMessages);
 
-      terminateTask(currentMessageTaskId); // 在发送新消息前删除任务
+      const taskIdForCurrentPrompt = useChatStreamingStore.getState().promptToTaskMap.get(currentPromptId);
+      if (taskIdForCurrentPrompt) {
+        terminateTask(taskIdForCurrentPrompt); // 在发送新消息前仅删除当前会话任务
+      }
       const taskId = `task_${Date.now()}`;
       setCurrentMessageTaskId(taskId);
-      send(thisDetailRef.current.id, taskId, nextMessages, window.location.origin);
+      send(currentPromptId, taskId, nextMessages, window.location.origin);
     }
   }
 
   const handleStop = async () => {
     if (workersAllowed) {
-      if (currentMessageTaskId) cancel(currentMessageTaskId);
+      const taskIdForCurrentPrompt = useChatStreamingStore.getState().promptToTaskMap.get(thisDetailRef.current.id);
+      if (taskIdForCurrentPrompt) cancel(taskIdForCurrentPrompt);
     } else stop();
   }
 
