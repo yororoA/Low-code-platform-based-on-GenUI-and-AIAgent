@@ -346,8 +346,7 @@ export default function StudioLayout({ children }: { children: ReactNode }) {
                 </AccordionContent>
               </AccordionItem>
             </Accordion>
-            <Link href="/studio/projects">Projects</Link>
-            <Link href="/studio/pages">Pages</Link>
+            {/* <Link href="/studio/projects">Projects</Link> */}
             <Link href="/studio/workflows">Workflows</Link>
             <Separator className="my-2" />
             <div className="text-xs text-muted-foreground">Workspace Navigation</div>
