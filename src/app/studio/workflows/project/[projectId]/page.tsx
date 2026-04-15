@@ -30,12 +30,11 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import {
-  Combobox,
-  ComboboxContent,
-  ComboboxInput,
-  ComboboxItem,
-  ComboboxList,
-} from '@/components/ui/combobox';
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { useParams } from 'next/navigation';
 
 type WorkflowNodeType = 'input' | 'output' | 'default';
@@ -71,16 +70,7 @@ const initialNode = {
   type: 'input' as WorkflowNodeType,
 };
 
-const nodeColor = (node: Node) => {
-  switch (node.type) {
-    case 'input':
-      return 'lightblue';
-    case 'output':
-      return 'lightgreen';
-    default:
-      return 'lightgray';
-  }
-};
+const nodeColor = (node: Node) => `${node.style?.backgroundColor ?? 'lightgray'}`;
 
 const ProjectPage = () => {
   // todo: 根据id获取DB中workflow project
@@ -99,8 +89,19 @@ const ProjectPage = () => {
   const [queuedDrafts, setQueuedDrafts] = useState<AddNodeDraft[]>([]);
   const [draft, setDraft] = useState<AddNodeDraft>(createDefaultDraft);
 
+  // 使用 ref 保存最新图数据，避免在异步回调中读取到过期 state。
   const nodesRef = useRef(nodes);
   const edgesRef = useRef(edges);
+
+  // 拖拽历史策略：
+  // - drag start：记录起点快照
+  // - drag move：仅更新图，不写历史
+  // - drag stop：若位置变化，写入一次历史
+  const dragSessionRef = useRef<{
+    nodeId: string;
+    startPosition: XYPosition;
+    snapshot: GraphSnapshot;
+  } | null>(null);
 
   useEffect(() => {
     nodesRef.current = nodes;
@@ -115,7 +116,11 @@ const ProjectPage = () => {
     edges: structuredClone(edgesRef.current),
   }), []);
 
-  const applyGraphUpdate = useCallback((updater: (current: GraphSnapshot) => GraphSnapshot) => {
+  const applyGraphUpdate = useCallback((
+    updater: (current: GraphSnapshot) => GraphSnapshot,
+    options?: { recordHistory?: boolean },
+  ) => {
+    const recordHistory = options?.recordHistory ?? true;
     const current: GraphSnapshot = {
       nodes: nodesRef.current,
       edges: edgesRef.current,
@@ -126,14 +131,41 @@ const ProjectPage = () => {
       return;
     }
 
-    setHistoryBackStack((prev) => [...prev, createSnapshot()]);
-    setHistoryForwardStack([]);
+    if (recordHistory) {
+      setHistoryBackStack((prev) => [...prev, createSnapshot()]);
+      setHistoryForwardStack([]);
+    }
 
     nodesRef.current = next.nodes;
     edgesRef.current = next.edges;
     setNodes(next.nodes);
     setEdges(next.edges);
   }, [createSnapshot]);
+
+  const startDragHistory = useCallback((node: Node) => {
+    dragSessionRef.current = {
+      nodeId: node.id,
+      startPosition: { ...node.position },
+      snapshot: createSnapshot(),
+    };
+  }, [createSnapshot]);
+
+  const commitDragHistory = useCallback((node: Node) => {
+    const session = dragSessionRef.current;
+    dragSessionRef.current = null;
+
+    if (!session || session.nodeId !== node.id) {
+      return;
+    }
+
+    const moved = session.startPosition.x !== node.position.x || session.startPosition.y !== node.position.y;
+    if (!moved) {
+      return;
+    }
+
+    setHistoryBackStack((prev) => [...prev, session.snapshot]);
+    setHistoryForwardStack([]);
+  }, []);
 
   const resetAddDialogState = useCallback(() => {
     setQueuedDrafts([]);
@@ -217,10 +249,13 @@ const ProjectPage = () => {
 
   const onNodesChange = useCallback(
     (changes: NodeChange<Node>[]) => {
+      // position 变更来自拖拽过程，这里不记录历史，避免每一帧都入栈。
+      const hasPositionChange = changes.some((change) => change.type === 'position');
+
       applyGraphUpdate(({ nodes: currentNodes, edges: currentEdges }) => ({
         nodes: applyNodeChanges(changes, currentNodes),
         edges: currentEdges,
-      }));
+      }), { recordHistory: !hasPositionChange });
     },
     [applyGraphUpdate],
   );
@@ -255,7 +290,14 @@ const ProjectPage = () => {
     setLastContextPosition(flowPos);
   }, [screenToFlowPosition]);
 
+  const onNodeDragStart = useCallback((_: React.MouseEvent, node: Node) => {
+    startDragHistory(node);
+  }, [startDragHistory]);
+
   const onNodeDragStop = useCallback((_: React.MouseEvent, draggedNode: Node) => {
+    // 拖拽结束时仅写入一次历史。
+    commitDragHistory(draggedNode);
+
     if (draggedNode.type !== 'default') {
       return;
     }
@@ -291,8 +333,8 @@ const ProjectPage = () => {
           .filter((edge) => edge.id !== targetEdge.id)
           .concat(splitEdgeOne, splitEdgeTwo),
       };
-    });
-  }, [applyGraphUpdate, findClosestEdgeForNode]);
+    }, { recordHistory: false });
+  }, [applyGraphUpdate, commitDragHistory, findClosestEdgeForNode]);
 
   const appendCurrentDraftToQueue = useCallback(() => {
     const normalizedLabel = draft.label.trim();
@@ -330,6 +372,7 @@ const ProjectPage = () => {
     applyGraphUpdate(({ nodes: currentNodes, edges: currentEdges }) => ({
       nodes: [
         ...currentNodes,
+        // 多节点按网格偏移，避免完全重叠。
         ...allDrafts.map((item, index) => ({
           id: `node-${Date.now()}-${index}`,
           data: { label: item.label },
@@ -348,6 +391,7 @@ const ProjectPage = () => {
   };
 
   const DeleteNodes = () => {
+    // 删除优先级：多选 > 右键目标节点 > 当前选中节点
     const selectedNodeIds = new Set(nodes.filter((node) => node.selected).map((node) => node.id));
     let nodeIdsToDelete = new Set<string>();
 
@@ -424,6 +468,7 @@ const ProjectPage = () => {
             onConnect={onConnect}
             onPaneContextMenu={onPaneContextMenu}
             onNodeContextMenu={onNodeContextMenu}
+            onNodeDragStart={onNodeDragStart}
             onNodeDragStop={onNodeDragStop}
             onInit={setReactFlowInstance}
             fitView
@@ -470,27 +515,24 @@ const ProjectPage = () => {
 
             <div className="space-y-2">
               <Label>节点类型</Label>
-              <Combobox
-                value={draft.type}
-                onValueChange={(value) => {
-                  if (!value) {
-                    return;
-                  }
-                  setDraft((prev) => ({ ...prev, type: value as WorkflowNodeType }));
-                }}
-                items={NODE_TYPE_OPTIONS}
-              >
-                <ComboboxInput placeholder="请选择节点类型" className="w-full" />
-                <ComboboxContent>
-                  <ComboboxList>
-                    {NODE_TYPE_OPTIONS.map((type) => (
-                      <ComboboxItem key={type} value={type}>
-                        {type}
-                      </ComboboxItem>
-                    ))}
-                  </ComboboxList>
-                </ComboboxContent>
-              </Combobox>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" className="w-full justify-between">
+                    {draft.type}
+                    <span className="text-xs text-muted-foreground">▼</span>
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent className="w-[var(--radix-dropdown-menu-trigger-width)]">
+                  {NODE_TYPE_OPTIONS.map((type) => (
+                    <DropdownMenuItem
+                      key={type}
+                      onClick={() => setDraft((prev) => ({ ...prev, type }))}
+                    >
+                      {type}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
 
             <div className="space-y-2">
