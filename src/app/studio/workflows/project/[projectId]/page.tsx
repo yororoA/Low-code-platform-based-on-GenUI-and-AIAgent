@@ -77,16 +77,16 @@ const getInvertedTextColor = (hexColor: string) => {
   return brightness > 128 ? '#000000' : '#ffffff';
 };
 
-
-const initialNode = {
-  id: 'first-node',
-  data: {
-    label: 'first node',
-  },
-  position: { x: 0, y: 0 },
-  style: { backgroundColor: 'lightblue' },
-  type: 'input' as WorkflowNodeType,
-};
+// test
+// const initialNode = {
+//   id: 'first-node',
+//   data: {
+//     label: 'first node',
+//   },
+//   position: { x: 0, y: 0 },
+//   style: { backgroundColor: 'lightblue' },
+//   type: 'input' as WorkflowNodeType,
+// };
 
 const nodeColor = (node: Node) => `${node.style?.backgroundColor ?? 'lightgray'}`;
 
@@ -97,7 +97,7 @@ const ProjectPage = () => {
 
   // --- 状态管理 ---
   // 当前画布上的节点和边
-  const [nodes, setNodes] = useState<Node[]>([initialNode]);
+  const [nodes, setNodes] = useState<Node[]>([]);
   const [edges, setEdges] = useState<Edge[]>([]);
   // 历史记录栈，用于实现撤销 (Back) 和重做 (Forward)
   const [historyBackStack, setHistoryBackStack] = useState<GraphSnapshot[]>([]);
@@ -106,8 +106,11 @@ const ProjectPage = () => {
   const [reactFlowInstance, setReactFlowInstance] = useState<ReactFlowInstance<Node, Edge> | null>(null);
   // 记录最后一次右键点击时的 Flow 坐标，用于在该位置生成新节点
   const [lastContextPosition, setLastContextPosition] = useState<XYPosition>({ x: 0, y: 0 });
-  // 记录当前触发右键菜单的节点 ID（如果是点击空白处则为 null）
-  const [contextMenuNodeId, setContextMenuNodeId] = useState<string | null>(null);
+  // 记录当前触发右键菜单的元素类型和 ID
+  const [contextMenuTarget, setContextMenuTarget] = useState<{
+    type: 'pane' | 'node' | 'edge';
+    id: string | null;
+  }>({ type: 'pane', id: null });
 
   // 节点添加弹窗的状态
   const [addDialogOpen, setAddDialogOpen] = useState(false);
@@ -350,20 +353,29 @@ const ProjectPage = () => {
   );
 
   /**
-   * 画布空白处右键：转换坐标，清空当前右键关联的节点ID
+   * 画布空白处右键：转换坐标，更新右键目标为 pane
    */
   const onPaneContextMenu = useCallback((event: MouseEvent | React.MouseEvent<Element, MouseEvent>) => {
     const flowPos = screenToFlowPosition(event.clientX, event.clientY);
-    setContextMenuNodeId(null);
+    setContextMenuTarget({ type: 'pane', id: null });
     setLastContextPosition(flowPos);
   }, [screenToFlowPosition]);
 
   /**
-   * 节点右键：转换坐标，保存关联的节点ID
+   * 节点右键：转换坐标，更新右键目标为 node
    */
   const onNodeContextMenu = useCallback((event: MouseEvent | React.MouseEvent<Element, MouseEvent>, node: Node) => {
     const flowPos = screenToFlowPosition(event.clientX, event.clientY);
-    setContextMenuNodeId(node.id);
+    setContextMenuTarget({ type: 'node', id: node.id });
+    setLastContextPosition(flowPos);
+  }, [screenToFlowPosition]);
+
+  /**
+   * 边右键：转换坐标，更新右键目标为 edge
+   */
+  const onEdgeContextMenu = useCallback((event: MouseEvent | React.MouseEvent<Element, MouseEvent>, edge: Edge) => {
+    const flowPos = screenToFlowPosition(event.clientX, event.clientY);
+    setContextMenuTarget({ type: 'edge', id: edge.id });
     setLastContextPosition(flowPos);
   }, [screenToFlowPosition]);
 
@@ -489,12 +501,12 @@ const ProjectPage = () => {
     const selectedNodeIds = new Set(nodes.filter((node) => node.selected).map((node) => node.id));
     let nodeIdsToDelete = new Set<string>();
 
-    if (selectedNodeIds.size > 1) {
-      nodeIdsToDelete = selectedNodeIds;
-    } else if (contextMenuNodeId && selectedNodeIds.has(contextMenuNodeId)) {
-      nodeIdsToDelete = selectedNodeIds;
-    } else if (contextMenuNodeId) {
-      nodeIdsToDelete = new Set([contextMenuNodeId]);
+    if (contextMenuTarget.type === 'node' && contextMenuTarget.id) {
+      if (selectedNodeIds.has(contextMenuTarget.id)) {
+        nodeIdsToDelete = selectedNodeIds;
+      } else {
+        nodeIdsToDelete = new Set([contextMenuTarget.id]);
+      }
     } else {
       nodeIdsToDelete = selectedNodeIds;
     }
@@ -513,13 +525,25 @@ const ProjectPage = () => {
    * 删除选中的边
    */
   const DeleteEdges = () => {
-    // 找出所有选中的边
+    // 确定待删除的 ID 集合
     const selectedEdgeIds = new Set(edgesRef.current.filter((e) => e.selected).map((e) => e.id));
-    if (!selectedEdgeIds.size) return;
+    let edgeIdsToDelete = new Set<string>();
+
+    if (contextMenuTarget.type === 'edge' && contextMenuTarget.id) {
+      if (selectedEdgeIds.has(contextMenuTarget.id)) {
+        edgeIdsToDelete = selectedEdgeIds;
+      } else {
+        edgeIdsToDelete = new Set([contextMenuTarget.id]);
+      }
+    } else {
+      edgeIdsToDelete = selectedEdgeIds;
+    }
+
+    if (!edgeIdsToDelete.size) return;
 
     applyGraphUpdate(({ nodes: currentNodes, edges: currentEdges }) => ({
       nodes: currentNodes,
-      edges: currentEdges.filter((edge) => !selectedEdgeIds.has(edge.id)),
+      edges: currentEdges.filter((edge) => !edgeIdsToDelete.has(edge.id)),
     }));
   };
 
@@ -670,6 +694,32 @@ const ProjectPage = () => {
   };
 
 
+  const hasSelectedNodes = nodes.some(n => n.selected);
+  const hasSelectedEdges = edges.some(e => e.selected);
+  const selectedNodesCount = nodes.filter(n => n.selected).length;
+  const selectedEdgesCount = edges.filter(e => e.selected).length;
+
+  // 判断是否可以在右键位置或针对选中项进行操作
+  const canDeleteNodes = contextMenuTarget.type === 'node' || hasSelectedNodes;
+  const canDeleteEdges = contextMenuTarget.type === 'edge' || hasSelectedEdges;
+
+  // Change Label 仅在选中单个元素（Node 或 Edge）时可用
+  let canChangeLabel = false;
+  if (contextMenuTarget.type === 'node') {
+    // 如果右键在节点上，如果是多选且包含此节点，则算多选；如果未选中或仅中此节点，算单选
+    const isTargetSelected = nodes.find(n => n.id === contextMenuTarget.id)?.selected;
+    canChangeLabel = isTargetSelected ? selectedNodesCount === 1 : true;
+  } else if (contextMenuTarget.type === 'edge') {
+    const isTargetSelected = edges.find(e => e.id === contextMenuTarget.id)?.selected;
+    canChangeLabel = isTargetSelected ? selectedEdgesCount === 1 : true;
+  } else {
+    // 在空白处右键，如果当前仅选中了一个节点或一个边
+    canChangeLabel = (selectedNodesCount === 1 && selectedEdgesCount === 0) || (selectedNodesCount === 0 && selectedEdgesCount === 1);
+  }
+
+  const canChangeColor = contextMenuTarget.type === 'node' || hasSelectedNodes;
+  const canChangeType = contextMenuTarget.type === 'node' || hasSelectedNodes;
+
   return (
     <div className='h-full w-full'>
       {/* <h1>Project</h1> */}
@@ -683,6 +733,7 @@ const ProjectPage = () => {
             onConnect={onConnect}
             onPaneContextMenu={onPaneContextMenu}
             onNodeContextMenu={onNodeContextMenu}
+            onEdgeContextMenu={onEdgeContextMenu}
             onNodeDragStart={onNodeDragStart}
             onNodeDragStop={onNodeDragStop}
             onInit={setReactFlowInstance}
@@ -696,13 +747,13 @@ const ProjectPage = () => {
 
         <ContextMenuContent>
           <ContextMenuItem onClick={AddNodes}>Add Nodes</ContextMenuItem>
-          <ContextMenuItem onClick={DeleteNodes}>Delete Nodes</ContextMenuItem>
-          <ContextMenuItem onClick={DeleteEdges}>Delete Edges</ContextMenuItem>
+          <ContextMenuItem onClick={DeleteNodes} disabled={!canDeleteNodes}>Delete Nodes</ContextMenuItem>
+          <ContextMenuItem onClick={DeleteEdges} disabled={!canDeleteEdges}>Delete Edges</ContextMenuItem>
           <ContextMenuSeparator />
-          <ContextMenuItem onClick={OpenLabelDialog}>Change Label / Add Label</ContextMenuItem>
-          <ContextMenuItem onClick={OpenColorDialog}>Change Color</ContextMenuItem>
+          <ContextMenuItem onClick={OpenLabelDialog} disabled={!canChangeLabel}>Change Label / Add Label</ContextMenuItem>
+          <ContextMenuItem onClick={OpenColorDialog} disabled={!canChangeColor}>Change Color</ContextMenuItem>
           <ContextMenuSub>
-            <ContextMenuSubTrigger>Change Node Type</ContextMenuSubTrigger>
+            <ContextMenuSubTrigger disabled={!canChangeType}>Change Node Type</ContextMenuSubTrigger>
             <ContextMenuSubContent>
               {NODE_TYPE_OPTIONS.map((type) => (
                 <ContextMenuItem key={type} onClick={() => ChangeNodeTypes(type)}>
