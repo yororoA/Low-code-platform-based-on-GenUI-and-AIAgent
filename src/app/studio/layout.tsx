@@ -11,8 +11,12 @@ import {
 } from "@/components/ui/accordion"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Separator } from "@/components/ui"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import {
+  ResizableHandle,
+  ResizablePanel,
+  ResizablePanelGroup,
+} from "@/components/ui/resizable"
 import {
   Tooltip,
   TooltipContent,
@@ -46,8 +50,8 @@ import { useShallow } from "zustand/shallow"
 
 type StudioPreviewPayload = {
   topic: string
-  structureText: string
-  styleText: string
+  uiTree: unknown
+  styles: unknown
 }
 
 type TimelineChildItem = {
@@ -64,50 +68,6 @@ type TimelineRoundItem = {
   userText: string
   assistantTitle: string
   children: TimelineChildItem[]
-}
-
-function extractJsonObjectByKey(raw: string, key: string): Record<string, unknown> | null {
-  if (!raw) return null
-  const keyMark = `"${key}"`
-  for (let start = 0; start < raw.length; start++) {
-    if (raw[start] !== "{") continue
-    let depth = 0
-    let inString = false
-    let escaped = false
-    for (let end = start; end < raw.length; end++) {
-      const ch = raw[end]
-      if (inString) {
-        if (escaped) {
-          escaped = false
-        } else if (ch === "\\") {
-          escaped = true
-        } else if (ch === "\"") {
-          inString = false
-        }
-        continue
-      }
-      if (ch === "\"") {
-        inString = true
-        continue
-      }
-      if (ch === "{") depth++
-      if (ch === "}") {
-        depth--
-        if (depth === 0) {
-          const candidate = raw.slice(start, end + 1)
-          if (!candidate.includes(keyMark)) break
-          try {
-            const parsed = JSON.parse(candidate) as Record<string, unknown>
-            if (Object.prototype.hasOwnProperty.call(parsed, key)) return parsed
-          } catch {
-            // continue scanning
-          }
-          break
-        }
-      }
-    }
-  }
-  return null
 }
 
 export default function StudioLayout({ children }: { children: ReactNode }) {
@@ -138,6 +98,7 @@ export default function StudioLayout({ children }: { children: ReactNode }) {
   );
 
   const { currentProject } = useWorkflowStore();
+  const { goToHistoryIndex, currentHistoryIndex } = useWorkflowStore();
   useEffect(() => {
     setWorkersAllowed(!!window.Worker);
     return () => {
@@ -261,13 +222,13 @@ export default function StudioLayout({ children }: { children: ReactNode }) {
   // 渲染预览
   const parsedPreview = useMemo(() => {
     if (!previewPayload) return null
-    const structureObj = extractJsonObjectByKey(previewPayload.structureText, "uiTree")
-    const styleObj = extractJsonObjectByKey(previewPayload.styleText, "styles")
-    const rawUiTree = structureObj?.uiTree
-    const rawStyles = styleObj?.styles
+
+    const rawUiTree = previewPayload.uiTree
+    const rawStyles = previewPayload.styles
 
     let parsedTree: UiTreeNode | null = null
     let parseError = ""
+
     if (typeof rawUiTree === "string") {
       try {
         const parsed = JSON.parse(rawUiTree) as unknown
@@ -278,6 +239,7 @@ export default function StudioLayout({ children }: { children: ReactNode }) {
     } else if (isUiTreeNode(rawUiTree)) {
       parsedTree = rawUiTree
     }
+
     if (!parsedTree) {
       parseError = "未能从 STRUCTURE 展开内容中解析 uiTree。"
     }
@@ -305,7 +267,7 @@ export default function StudioLayout({ children }: { children: ReactNode }) {
 
   return (
     <SidebarProvider>
-      <div className="flex min-h-screen w-full">
+      <div className="flex h-screen w-full overflow-hidden">
         {!isPreviewMode && (
           <Sidebar variant="inset" className="border-r">
             <SidebarHeader>
@@ -438,36 +400,41 @@ export default function StudioLayout({ children }: { children: ReactNode }) {
             <div className="flex flex-1 min-h-0">
               <main className="flex-1 min-w-0 overflow-hidden">
                 {isPreviewMode ? (
-                  <div className="grid grid-cols-1 lg:grid-cols-[minmax(480px,58%)_1fr] h-full">
-                    <ChatDetailsContext.Provider value={details}>
-                      <ScrollArea className="h-full border-r [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
-                        {children}
+                  <ResizablePanelGroup direction="horizontal" className="h-full min-h-0">
+                    <ResizablePanel defaultSize={50} minSize={20} maxSize={80}>
+                      <div className="h-full min-h-0 overflow-hidden overscroll-contain">
+                        <ChatDetailsContext.Provider value={details}>
+                          {children}
+                        </ChatDetailsContext.Provider>
+                      </div>
+                    </ResizablePanel>
+                    <ResizableHandle withHandle />
+                    <ResizablePanel defaultSize={50} minSize={20} maxSize={80}>
+                      <ScrollArea className="h-full min-h-0 bg-muted/20 p-4 overscroll-contain">
+                        <Card>
+                          <CardHeader className="flex flex-row items-start justify-between gap-3 sticky top-0 bg-card z-10">
+                            <div>
+                              <CardTitle className="text-base">{parsedPreview?.topic ?? "渲染预览"}</CardTitle>
+                            </div>
+                            <Button variant="outline" size="sm" onClick={() => setPreviewPayload(null)}>
+                              关闭预览
+                            </Button>
+                          </CardHeader>
+                          <CardContent className="space-y-3">
+                            {parsedPreview?.parsedTree ? (
+                              <div className="rounded-md border bg-background p-3">
+                                {renderNode(parsedPreview.parsedTree, parsedPreview.styleClassById)}
+                              </div>
+                            ) : (
+                              <div className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
+                                {parsedPreview?.parseError || "暂无可渲染内容。"}
+                              </div>
+                            )}
+                          </CardContent>
+                        </Card>
                       </ScrollArea>
-                    </ChatDetailsContext.Provider>
-                    <ScrollArea className="h-full bg-muted/20 p-4">
-                      <Card>
-                        <CardHeader className="flex flex-row items-start justify-between gap-3">
-                          <div>
-                            <CardTitle className="text-base">{parsedPreview?.topic ?? "渲染预览"}</CardTitle>
-                          </div>
-                          <Button variant="outline" size="sm" onClick={() => setPreviewPayload(null)}>
-                            关闭预览
-                          </Button>
-                        </CardHeader>
-                        <CardContent className="space-y-3">
-                          {parsedPreview?.parsedTree ? (
-                            <div className="rounded-md border bg-background p-3">
-                              {renderNode(parsedPreview.parsedTree, parsedPreview.styleClassById)}
-                            </div>
-                          ) : (
-                            <div className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
-                              {parsedPreview?.parseError || "暂无可渲染内容。"}
-                            </div>
-                          )}
-                        </CardContent>
-                      </Card>
-                    </ScrollArea>
-                  </div>
+                    </ResizablePanel>
+                  </ResizablePanelGroup>
                 ) : (
                   <ChatDetailsContext.Provider value={details}>
                     {children}
@@ -476,7 +443,7 @@ export default function StudioLayout({ children }: { children: ReactNode }) {
               </main>
               
               {!isPreviewMode && shouldShowInspector && (
-                <aside ref={inspectorRef} className="w-80 border-l bg-background flex flex-col shrink-0 overflow-hidden">
+                <aside ref={inspectorRef} className="w-80 border-l bg-background flex h-full min-h-0 flex-col shrink-0 overflow-hidden">
                   <div className="border-b p-4 shrink-0">
                     <h2 className="text-sm font-semibold">Inspector</h2>
                     <p className="text-xs text-muted-foreground mt-1">
@@ -484,31 +451,50 @@ export default function StudioLayout({ children }: { children: ReactNode }) {
                     </p>
                   </div>
                   
-                  <ScrollArea className="flex-1 min-h-0 p-4">
+                  <ScrollArea className="flex-1 min-h-0 p-4 overscroll-contain">
                     {isWorkflowProject ? (
                       currentProject && currentProject.historyOperations.length > 0 ? (
                         <div className="relative pl-5">
                           <div className="absolute left-2 top-0 bottom-0 w-px bg-foreground/25" />
                           <div className="space-y-2">
-                            {currentProject.historyOperations.map((operation, index) => (
-                              <div 
-                                key={index} 
-                                className="relative rounded-md border border-foreground/20 bg-card px-3 py-2"
-                              >
-                                <span className="absolute -left-[18px] top-3 h-2.5 w-2.5 rounded-full border border-primary/70 bg-primary/30" />
-                                <div className="text-xs font-medium">{operation.description}</div>
-                                <div className="text-[11px] text-muted-foreground mt-1">
-                                  {new Date(operation.timestamp).toLocaleString('zh-CN', {
-                                    month: '2-digit',
-                                    day: '2-digit',
-                                    hour: '2-digit',
-                                    minute: '2-digit',
-                                    second: '2-digit',
-                                    hour12: false,
-                                  })}
+                            {currentProject.historyOperations.map((operation, index) => {
+                              const isCurrentPosition = index === currentHistoryIndex;
+                              return (
+                                <div 
+                                  key={index} 
+                                  className={cn(
+                                    "relative rounded-md border px-3 py-2 cursor-pointer transition-all",
+                                    isCurrentPosition 
+                                      ? "border-primary/60 bg-primary/10" 
+                                      : "border-foreground/20 bg-card hover:border-primary/30"
+                                  )}
+                                  onClick={() => goToHistoryIndex(index)}
+                                >
+                                  <span className={cn(
+                                    "absolute -left-[18px] top-3 h-2.5 w-2.5 rounded-full border",
+                                    isCurrentPosition 
+                                      ? "border-primary bg-primary" 
+                                      : "border-primary/70 bg-primary/30"
+                                  )} />
+                                  <div className="text-xs font-medium">{operation.description}</div>
+                                  <div className="text-[11px] text-muted-foreground mt-1">
+                                    {new Date(operation.timestamp).toLocaleString('zh-CN', {
+                                      month: '2-digit',
+                                      day: '2-digit',
+                                      hour: '2-digit',
+                                      minute: '2-digit',
+                                      second: '2-digit',
+                                      hour12: false,
+                                    })}
+                                  </div>
+                                  {isCurrentPosition && (
+                                    <div className="absolute right-2 top-1/2 -translate-y-1/2">
+                                      <span className="text-[10px] text-primary font-medium">当前</span>
+                                    </div>
+                                  )}
                                 </div>
-                              </div>
-                            ))}
+                              );
+                            })}
                           </div>
                         </div>
                       ) : (

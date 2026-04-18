@@ -7,16 +7,12 @@ import {
   Card,
   CardContent,
   CardDescription,
+  CardFooter,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "@/components/ui/accordion"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import { AlertCircle } from "lucide-react"
 import { AdminAgentMessage } from "../api/chat/model"
 import { DBManager } from "@/lib/dbtest"
@@ -25,9 +21,42 @@ import { useSearchParams, useRouter } from "next/navigation"
 import { DataItem, DataItemSummary } from "@/types";
 import { useChatStreamingStore } from "@/store/chatStreamingStore";
 import { useShallow } from "zustand/shallow"
-// import { todo } from "node:test"
 
 const STAGE_INFO_RE = /^\[(ADMIN|STRUCTURE|ALIGNMENT|STYLE)\]\s*:?\s*(.+)$/i
+
+function extractStructureAndStyleFromParts(message: AdminAgentMessage): {
+  uiTree: unknown
+  styles: unknown
+} {
+  let uiTree: unknown = null
+  let styles: unknown = null
+  if (!message.parts) return { uiTree, styles }
+  for (const part of message.parts) {
+    if (part.type !== "text") continue
+    const text = part.text.trim()
+    if (!text.startsWith("{")) continue
+    try {
+      const parsed = JSON.parse(text) as Record<string, unknown>
+      if (parsed && typeof parsed === "object") {
+        if ("uiTree" in parsed && uiTree === null) uiTree = parsed.uiTree
+        if ("styles" in parsed && styles === null) styles = parsed.styles
+      }
+    } catch {
+      // not valid JSON
+    }
+  }
+  return { uiTree, styles }
+}
+
+function getStageLabel(stage: string): string {
+  switch (stage) {
+    case "ADMIN": return "Thinking for response..."
+    case "STRUCTURE": return "Structure designing..."
+    case "ALIGNMENT": return "Checking alignment..."
+    case "STYLE": return "Style designing..."
+    default: return `${stage}...`
+  }
+}
 
 
 type DisplayInfo =
@@ -37,8 +66,8 @@ type DisplayInfo =
 
 type StagePreviewPayload = {
   topic: string
-  structureText: string
-  styleText: string
+  uiTree: unknown
+  styles: unknown
 }
 
 type TimelineChildItem = {
@@ -398,25 +427,16 @@ export default function BasicUI() {
 
   const getPreviewPayload = (
     message: AdminAgentMessage,
-    displayInfos: DisplayInfo[],
   ): StagePreviewPayload | null => {
     if (message.role !== "assistant") return null
     const payload = getShowResponsePayload(message) as { topic?: string } | undefined
     const topic = payload?.topic?.trim()
     if (!topic) return null
 
-    const lastStructure = [...displayInfos].reverse().find(
-      (info): info is Extract<DisplayInfo, { type: "stage" }> =>
-        info.type === "stage" && info.stage === "STRUCTURE",
-    )
-    const lastStyle = [...displayInfos].reverse().find(
-      (info): info is Extract<DisplayInfo, { type: "stage" }> =>
-        info.type === "stage" && info.stage === "STYLE",
-    )
-    const structureText = lastStructure?.details.join("\n").trim() ?? ""
-    const styleText = lastStyle?.details.join("\n").trim() ?? ""
-    if (!structureText || !styleText) return null
-    return { topic, structureText, styleText }
+    const { uiTree, styles } = extractStructureAndStyleFromParts(message)
+    if (uiTree === null) return null
+
+    return { topic, uiTree, styles }
   }
 
   const timelineRounds = (() => {
@@ -437,7 +457,7 @@ export default function BasicUI() {
       if (message.role !== "assistant") continue
 
       const displayInfos = getDisplayText(message)
-      const previewPayload = getPreviewPayload(message, displayInfos)
+      const previewPayload = getPreviewPayload(message)
       const assistantPayload = getShowResponsePayload(message) as { topic?: string } | undefined
       const assistantTopic = assistantPayload?.topic?.trim()
       const roundId = `round-${message.id}-${index}`
@@ -526,6 +546,9 @@ export default function BasicUI() {
     const container = messagesContainerRef.current
     if (!container) return
 
+    const scrollViewport = container.querySelector('[data-slot="scroll-area-viewport"]') as HTMLElement | null
+    if (!scrollViewport) return
+
     let rafId = 0
     const syncActiveAssistant = () => {
       const assistantNodes = Array.from(
@@ -536,7 +559,7 @@ export default function BasicUI() {
         return
       }
 
-      const scrollTop = container.scrollTop
+      const scrollTop = scrollViewport.scrollTop
       let activeNode = assistantNodes[0]
       for (const node of assistantNodes) {
         if (node.offsetTop - scrollTop <= 40) {
@@ -554,114 +577,102 @@ export default function BasicUI() {
     }
 
     syncActiveAssistant()
-    container.addEventListener("scroll", handleScroll, { passive: true })
+    scrollViewport.addEventListener("scroll", handleScroll, { passive: true })
 
     return () => {
       if (rafId) cancelAnimationFrame(rafId)
-      container.removeEventListener("scroll", handleScroll)
+      scrollViewport.removeEventListener("scroll", handleScroll)
       dispatchEvent("studioTimelineActiveChange", { assistantTargetId: "" })
     }
   }, [normalizedMessages])
 
   return (
-    <div className="h-full p-4 md:p-6 flex flex-col">
-      <Card className="flex flex-1 flex-col min-h-0">
-        <CardHeader>
+    <div className="h-full min-h-0 p-4 md:p-6 flex flex-col overflow-hidden">
+      <Card className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
+        <CardHeader className="shrink-0">
           <CardTitle>{topic}</CardTitle>
           <CardDescription>输入需求并实时接收 Agent 流式输出。</CardDescription>
         </CardHeader>
 
-        <CardContent className="flex min-h-0 flex-1 flex-col gap-4">
-          <div ref={messagesContainerRef} className="flex-1 space-y-3 overflow-y-auto rounded-md border bg-muted/20 p-3 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
-            {messages.length === 0 ? (
-              <div className="text-sm text-muted-foreground">
-                还没有消息，输入内容后点击 Send 开始对话。
-              </div>
-            ) : (
-              normalizedMessages.map((message, index) => {
-                const isUser = message.role === "user"
-                const displayInfos = getDisplayText(message)
-                const previewPayload = getPreviewPayload(message, displayInfos)
-
-                return (
-                  <div
-                    key={`${message.id}-${index}`}
-                    id={`studio-msg-${message.id}-${index}`}
-                    data-message-role={message.role}
-                    className={`flex ${isUser ? "justify-end" : "justify-start"}`}
-                  >
-                    <div className="max-w-[80%] space-y-2">
-                      {displayInfos.map((info, idx) => {
-                        if (info.type === "stage") {
-                          return (
-                            <Accordion
-                              key={`${message.id}-info-${idx}`}
-                              id={`studio-msg-${message.id}-${index}-info-${idx}`}
-                              type="single"
-                              collapsible
-                              className="rounded-md border bg-amber-50 px-3 text-xs text-amber-900"
-                            >
-                              <AccordionItem value={`${message.id}-stage-${idx}`} className="border-b-0">
-                                <AccordionTrigger className="py-2 text-xs text-amber-900 hover:no-underline">
-                                  <span className="text-left">
-                                    <span className="font-semibold">[{info.stage}]</span>{" "}
-                                    {info.text}
-                                  </span>
-                                </AccordionTrigger>
-                                <AccordionContent className="pt-1 pb-2">
-                                  {info.details.length > 0 ? (
-                                    <div className="whitespace-pre-wrap break-words text-xs text-amber-950/90">
-                                      {info.details.join("\n")}
-                                    </div>
-                                  ) : (
-                                    <div className="text-xs text-amber-800/80">(no detail)</div>
-                                  )}
-                                </AccordionContent>
-                              </AccordionItem>
-                            </Accordion>
-                          )
-                        }
-
-                        if (info.text) {
-                          return (
-                            <div
-                              key={`${message.id}-info-${idx}`}
-                              id={`studio-msg-${message.id}-${index}-info-${idx}`}
-                              className={`whitespace-pre-wrap break-words rounded-lg px-3 py-2 text-sm ${isUser
-                                ? "bg-primary text-primary-foreground"
-                                : "bg-card border text-card-foreground"
-                                }`}
-                            >
-                              {info.text}
-                            </div>
-                          )
-                        }
-
-                        return null
-                      })}
-                      {!isUser && previewPayload ? (
-                        <Card
-                          id={`studio-msg-${message.id}-${index}-preview`}
-                          className="cursor-pointer border-primary/30 bg-primary/5 transition-colors hover:bg-primary/10"
-                          onClick={() => {
-                            dispatchEvent<StagePreviewPayload>("studioPreviewOpen", previewPayload)
-                          }}
-                        >
-                          <CardHeader className="py-3">
-                            <CardTitle className="text-sm">{previewPayload.topic}</CardTitle>
-                            <CardDescription>点击查看本轮结构/样式渲染预览</CardDescription>
-                          </CardHeader>
-                        </Card>
-                      ) : null}
-                    </div>
+        <CardContent className="flex-1 min-h-0 p-4 pt-0 overflow-hidden">
+          <div ref={messagesContainerRef} className="h-full min-h-0 rounded-md border bg-muted/20 overflow-hidden">
+            <ScrollArea className="h-full min-h-0 overscroll-contain">
+              <div className="space-y-3 p-3">
+                {messages.length === 0 ? (
+                  <div className="text-sm text-muted-foreground">
+                    还没有消息，输入内容后点击 Send 开始对话。
                   </div>
-                )
-              })
-            )}
-          </div>
+                ) : (
+                  normalizedMessages.map((message, index) => {
+                    const isUser = message.role === "user"
+                    const displayInfos = getDisplayText(message)
+                    const previewPayload = getPreviewPayload(message)
 
+                    return (
+                      <div
+                        key={`${message.id}-${index}`}
+                        id={`studio-msg-${message.id}-${index}`}
+                        data-message-role={message.role}
+                        className={`flex ${isUser ? "justify-end" : "justify-start"}`}
+                      >
+                        <div className="max-w-[80%] space-y-2">
+                          {displayInfos.map((info, idx) => {
+                            if (info.type === "stage") {
+                              return (
+                                <div
+                                  key={`${message.id}-info-${idx}`}
+                                  id={`studio-msg-${message.id}-${index}-info-${idx}`}
+                                  className="px-3 py-1 text-xs text-muted-foreground/60 italic"
+                                >
+                                  {getStageLabel(info.stage)}
+                                </div>
+                              )
+                            }
+
+                            if (info.text) {
+                              return (
+                                <div
+                                  key={`${message.id}-info-${idx}`}
+                                  id={`studio-msg-${message.id}-${index}-info-${idx}`}
+                                  className={`whitespace-pre-wrap break-words rounded-lg px-3 py-2 text-sm ${isUser
+                                    ? "bg-primary text-primary-foreground"
+                                    : "bg-card border text-card-foreground"
+                                    }`}
+                                >
+                                  {info.text}
+                                </div>
+                              )
+                            }
+
+                            return null
+                          })}
+                          {!isUser && previewPayload ? (
+                            <Card
+                              id={`studio-msg-${message.id}-${index}-preview`}
+                              className="cursor-pointer border-primary/30 bg-primary/5 transition-colors hover:bg-primary/10"
+                              onClick={() => {
+                                dispatchEvent<StagePreviewPayload>("studioPreviewOpen", previewPayload)
+                              }}
+                            >
+                              <CardHeader className="py-3">
+                                <CardTitle className="text-sm">{previewPayload.topic}</CardTitle>
+                                <CardDescription>点击查看本轮结构/样式渲染预览</CardDescription>
+                              </CardHeader>
+                            </Card>
+                          ) : null}
+                        </div>
+                      </div>
+                    )
+                  })
+                )}
+              </div>
+            </ScrollArea>
+          </div>
+        </CardContent>
+
+        <CardFooter className="shrink-0 flex-col gap-2 p-4 pt-0">
           {error && (
-            <Alert variant="destructive">
+            <Alert variant="destructive" className="w-full">
               <AlertCircle className="h-4 w-4" />
               <AlertTitle>错误</AlertTitle>
               <AlertDescription>
@@ -670,7 +681,7 @@ export default function BasicUI() {
             </Alert>
           )}
 
-          <form onSubmit={handleSubmit} className="mt-auto flex items-end gap-2">
+          <form onSubmit={handleSubmit} className="w-full flex items-end gap-2">
             <textarea
               id="prompt-input"
               name="prompt"
@@ -690,7 +701,7 @@ export default function BasicUI() {
               </Button>
             )}
           </form>
-        </CardContent>
+        </CardFooter>
       </Card>
     </div>
   )
