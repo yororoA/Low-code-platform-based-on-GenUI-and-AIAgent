@@ -1701,6 +1701,1600 @@ export const componentsMeta: ComponentMeta[] = [
       props: {},
     },
   },
+
+  // ─── Drawer 系列 ───
+  {
+    name: "Drawer",
+    description: "抽屉式侧边弹窗根容器。必须与 DrawerTrigger、DrawerContent 等子组件组合使用。",
+    propsSchema: {
+      open: "boolean（受控的打开状态）",
+      onOpenChange: "function（打开状态变化回调）",
+    },
+    dslExample: {
+      type: "Drawer",
+      props: {},
+    },
+  },
+  {
+    name: "DrawerTrigger",
+    description: "触发 Drawer 打开的元素包裹器。放在 Drawer 内部。",
+    propsSchema: {
+      asChild: "boolean（是否使用子元素作为触发器）",
+    },
+    dslExample: {
+      type: "DrawerTrigger",
+      props: { asChild: true },
+    },
+  },
+  {
+    name: "DrawerContent",
+    description: "Drawer 的内容面板。内部放置 DrawerHeader、DrawerFooter 等。",
+    propsSchema: {
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "DrawerContent",
+      props: {},
+    },
+  },
+  {
+    name: "DrawerHeader",
+    description: "Drawer 的头部区域包裹器。内部放置 DrawerTitle 和 DrawerDescription。",
+    propsSchema: {
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "DrawerHeader",
+      props: {},
+    },
+  },
+  {
+    name: "DrawerTitle",
+    description: "Drawer 的标题。放在 DrawerHeader 内部。",
+    propsSchema: {
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "DrawerTitle",
+      props: {},
+    },
+  },
+  {
+    name: "DrawerDescription",
+    description: "Drawer 的描述文本。放在 DrawerHeader 内部。",
+    propsSchema: {
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "DrawerDescription",
+      props: {},
+    },
+  },
+  {
+    name: "DrawerFooter",
+    description: "Drawer 底部操作区域。通常放置按钮。",
+    propsSchema: {
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "DrawerFooter",
+      props: {},
+    },
+  },
+  {
+    name: "DrawerClose",
+    description: "点击后关闭 Drawer 的包裹组件。可以包裹 Button 等。",
+    propsSchema: {
+      asChild: "boolean（是否使用子元素作为关闭触发器）",
+    },
+    dslExample: {
+      type: "DrawerClose",
+      props: { asChild: true },
+    },
+  },
+
+  // ─── HoverCard 系列 ───
+  {
+    name: "HoverCard",
+    description: "悬停卡片根容器。鼠标悬停时显示额外信息。必须与 HoverCardTrigger、HoverCardContent 组合使用。",
+    propsSchema: {
+      openDelay: "number（打开延迟毫秒数，默认 700）",
+      closeDelay: "number（关闭延迟毫秒数，默认 300）",
+    },
+    dslExample: {
+      type: "HoverCard",
+      props: {},
+    },
+  },
+  {
+    name: "HoverCardTrigger",
+    description: "触发 HoverCard 显示的元素。放在 HoverCard 内部。",
+    propsSchema: {
+      asChild: "boolean（是否使用子元素作为触发器）",
+    },
+    dslExample: {
+      type: "HoverCardTrigger",
+      props: { asChild: true },
+    },
+  },
+  {
+    name: "HoverCardContent",
+    description: "HoverCard 的内容面板。放在 HoverCard 内部。",
+    propsSchema: {
+      align: '"start" | "center" | "end"（对齐方式，默认 center）',
+      sideOffset: "number（距离触发器的偏移量，默认 4）",
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "HoverCardContent",
+      props: {},
+    },
+  },
+
+  // ─── InputOTP 系列 ───
+  {
+    name: "InputOTP",
+    description: "一次性密码输入框根容器。用于验证码等场景。内部放置 InputOTPGroup。",
+    propsSchema: {
+      maxLength: "number（最大输入长度，必需）",
+      disabled: "boolean（是否禁用）",
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "InputOTP",
+      props: { maxLength: 6 },
+    },
+  },
+  {
+    name: "InputOTPGroup",
+    description: "OTP 输入框的分组容器。内部放置 InputOTPSlot。",
+    propsSchema: {
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "InputOTPGroup",
+      props: {},
+    },
+  },
+  {
+    name: "InputOTPSlot",
+    description: "OTP 输入框的单个字符槽位。放在 InputOTPGroup 内部。",
+    propsSchema: {
+      index: "number（槽位索引，必需）",
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "InputOTPSlot",
+      props: { index: 0 },
+    },
+  },
+  {
+    name: "InputOTPSeparator",
+    description: "OTP 输入框组之间的分隔符。",
+    propsSchema: {
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "InputOTPSeparator",
+      props: {},
+    },
+  },
+
+  // ─── Kbd 系列 ───
+  {
+    name: "Kbd",
+    description: "键盘按键样式组件。用于展示快捷键提示。",
+    propsSchema: {
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "Kbd",
+      props: {},
+    },
+  },
+  {
+    name: "KbdGroup",
+    description: "键盘按键组合容器。用于展示组合快捷键。",
+    propsSchema: {
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "KbdGroup",
+      props: {},
+    },
+  },
+
+  // ─── Menubar 系列 ───
+  {
+    name: "Menubar",
+    description: "菜单栏根容器（类似桌面应用顶部菜单）。内部放置 MenubarMenu。",
+    propsSchema: {
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "Menubar",
+      props: {},
+    },
+  },
+  {
+    name: "MenubarMenu",
+    description: "菜单栏的单个菜单项容器。内部放置 MenubarTrigger 和 MenubarContent。",
+    propsSchema: {},
+    dslExample: {
+      type: "MenubarMenu",
+      props: {},
+    },
+  },
+  {
+    name: "MenubarTrigger",
+    description: "菜单栏的触发按钮。放在 MenubarMenu 内部。",
+    propsSchema: {
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "MenubarTrigger",
+      props: {},
+    },
+  },
+  {
+    name: "MenubarContent",
+    description: "菜单栏的下拉内容面板。放在 MenubarMenu 内部。",
+    propsSchema: {
+      align: '"start" | "center" | "end"（对齐方式，默认 start）',
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "MenubarContent",
+      props: {},
+    },
+  },
+  {
+    name: "MenubarItem",
+    description: "菜单栏中的一个可点击选项。",
+    propsSchema: {
+      inset: "boolean（是否缩进）",
+      variant: '"default" | "destructive"（视觉变体）',
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "MenubarItem",
+      props: {},
+    },
+  },
+  {
+    name: "MenubarLabel",
+    description: "菜单栏中的分组标签文本。",
+    propsSchema: {
+      inset: "boolean（是否缩进）",
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "MenubarLabel",
+      props: {},
+    },
+  },
+  {
+    name: "MenubarSeparator",
+    description: "菜单栏中的分隔线。",
+    propsSchema: {
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "MenubarSeparator",
+      props: {},
+    },
+  },
+  {
+    name: "MenubarShortcut",
+    description: "菜单栏选项右侧的快捷键文本提示。",
+    propsSchema: {
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "MenubarShortcut",
+      props: {},
+    },
+  },
+  {
+    name: "MenubarCheckboxItem",
+    description: "菜单栏中带复选框的选项。",
+    propsSchema: {
+      checked: "boolean（是否选中）",
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "MenubarCheckboxItem",
+      props: { checked: true },
+    },
+  },
+  {
+    name: "MenubarRadioGroup",
+    description: "菜单栏中的单选分组。",
+    propsSchema: {
+      value: "string（当前选中值）",
+    },
+    dslExample: {
+      type: "MenubarRadioGroup",
+      props: {},
+    },
+  },
+  {
+    name: "MenubarRadioItem",
+    description: "菜单栏中的单选选项。放在 MenubarRadioGroup 内部。",
+    propsSchema: {
+      value: "string（选项值）",
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "MenubarRadioItem",
+      props: { value: "option1" },
+    },
+  },
+  {
+    name: "MenubarSub",
+    description: "菜单栏的子菜单容器。内部放置 MenubarSubTrigger 和 MenubarSubContent。",
+    propsSchema: {},
+    dslExample: {
+      type: "MenubarSub",
+      props: {},
+    },
+  },
+  {
+    name: "MenubarSubTrigger",
+    description: "触发子菜单展开的选项。放在 MenubarSub 内部。",
+    propsSchema: {
+      inset: "boolean（是否缩进）",
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "MenubarSubTrigger",
+      props: {},
+    },
+  },
+  {
+    name: "MenubarSubContent",
+    description: "子菜单的内容面板。放在 MenubarSub 内部。",
+    propsSchema: {
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "MenubarSubContent",
+      props: {},
+    },
+  },
+
+  // ─── NativeSelect 系列 ───
+  {
+    name: "NativeSelect",
+    description: "原生 HTML select 下拉选择框。内部放置 NativeSelectOption。",
+    propsSchema: {
+      size: '"sm" | "default"（尺寸）',
+      disabled: "boolean（是否禁用）",
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "NativeSelect",
+      props: {},
+    },
+  },
+  {
+    name: "NativeSelectOption",
+    description: "原生 select 的选项。",
+    propsSchema: {
+      value: "string（选项值）",
+      disabled: "boolean（是否禁用）",
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "NativeSelectOption",
+      props: { value: "option1" },
+    },
+  },
+  {
+    name: "NativeSelectOptGroup",
+    description: "原生 select 的选项分组。",
+    propsSchema: {
+      label: "string（分组标签）",
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "NativeSelectOptGroup",
+      props: { label: "分组1" },
+    },
+  },
+
+  // ─── NavigationMenu 系列 ───
+  {
+    name: "NavigationMenu",
+    description: "导航菜单根容器。内部放置 NavigationMenuList。",
+    propsSchema: {
+      viewport: "boolean（是否使用视口显示下拉内容，默认 true）",
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "NavigationMenu",
+      props: {},
+    },
+  },
+  {
+    name: "NavigationMenuList",
+    description: "导航菜单的列表容器。内部放置 NavigationMenuItem。",
+    propsSchema: {
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "NavigationMenuList",
+      props: {},
+    },
+  },
+  {
+    name: "NavigationMenuItem",
+    description: "导航菜单的单个项目。内部放置 NavigationMenuTrigger 和 NavigationMenuContent。",
+    propsSchema: {
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "NavigationMenuItem",
+      props: {},
+    },
+  },
+  {
+    name: "NavigationMenuTrigger",
+    description: "导航菜单的触发按钮。放在 NavigationMenuItem 内部。",
+    propsSchema: {
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "NavigationMenuTrigger",
+      props: {},
+    },
+  },
+  {
+    name: "NavigationMenuContent",
+    description: "导航菜单的下拉内容面板。放在 NavigationMenuItem 内部。",
+    propsSchema: {
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "NavigationMenuContent",
+      props: {},
+    },
+  },
+  {
+    name: "NavigationMenuLink",
+    description: "导航菜单中的链接项。",
+    propsSchema: {
+      href: "string（链接地址）",
+      active: "boolean（是否为当前激活项）",
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "NavigationMenuLink",
+      props: { href: "/" },
+    },
+  },
+  {
+    name: "NavigationMenuIndicator",
+    description: "导航菜单的指示器（显示当前选中项位置）。",
+    propsSchema: {
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "NavigationMenuIndicator",
+      props: {},
+    },
+  },
+
+  // ─── Pagination 系列 ───
+  {
+    name: "Pagination",
+    description: "分页导航根容器。内部放置 PaginationContent。",
+    propsSchema: {
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "Pagination",
+      props: {},
+    },
+  },
+  {
+    name: "PaginationContent",
+    description: "分页的内容列表容器。内部放置 PaginationItem。",
+    propsSchema: {
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "PaginationContent",
+      props: {},
+    },
+  },
+  {
+    name: "PaginationItem",
+    description: "分页的单个项目容器。内部放置 PaginationLink、PaginationPrevious 等。",
+    propsSchema: {
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "PaginationItem",
+      props: {},
+    },
+  },
+  {
+    name: "PaginationLink",
+    description: "分页中的页码链接。",
+    propsSchema: {
+      href: "string（链接地址）",
+      isActive: "boolean（是否为当前页）",
+      size: '"default" | "sm" | "lg" | "icon"（尺寸）',
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "PaginationLink",
+      props: { href: "/page/1", isActive: true },
+    },
+  },
+  {
+    name: "PaginationPrevious",
+    description: "分页的「上一页」按钮。",
+    propsSchema: {
+      href: "string（链接地址）",
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "PaginationPrevious",
+      props: { href: "/page/prev" },
+    },
+  },
+  {
+    name: "PaginationNext",
+    description: "分页的「下一页」按钮。",
+    propsSchema: {
+      href: "string（链接地址）",
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "PaginationNext",
+      props: { href: "/page/next" },
+    },
+  },
+  {
+    name: "PaginationEllipsis",
+    description: "分页中的省略号，用于表示隐藏的中间页码。",
+    propsSchema: {
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "PaginationEllipsis",
+      props: {},
+    },
+  },
+
+  // ─── Popover 系列 ───
+  {
+    name: "Popover",
+    description: "弹出气泡根容器。必须与 PopoverTrigger、PopoverContent 组合使用。",
+    propsSchema: {
+      open: "boolean（受控的打开状态）",
+      onOpenChange: "function（打开状态变化回调）",
+    },
+    dslExample: {
+      type: "Popover",
+      props: {},
+    },
+  },
+  {
+    name: "PopoverTrigger",
+    description: "触发 Popover 打开的元素。放在 Popover 内部。",
+    propsSchema: {
+      asChild: "boolean（是否使用子元素作为触发器）",
+    },
+    dslExample: {
+      type: "PopoverTrigger",
+      props: { asChild: true },
+    },
+  },
+  {
+    name: "PopoverContent",
+    description: "Popover 的内容面板。放在 Popover 内部。",
+    propsSchema: {
+      align: '"start" | "center" | "end"（对齐方式，默认 center）',
+      sideOffset: "number（距离触发器的偏移量，默认 4）",
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "PopoverContent",
+      props: {},
+    },
+  },
+  {
+    name: "PopoverHeader",
+    description: "Popover 的头部区域包裹器。",
+    propsSchema: {
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "PopoverHeader",
+      props: {},
+    },
+  },
+  {
+    name: "PopoverTitle",
+    description: "Popover 的标题。",
+    propsSchema: {
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "PopoverTitle",
+      props: {},
+    },
+  },
+  {
+    name: "PopoverDescription",
+    description: "Popover 的描述文本。",
+    propsSchema: {
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "PopoverDescription",
+      props: {},
+    },
+  },
+
+  // ─── Progress ───
+  {
+    name: "Progress",
+    description: "进度条组件。用于展示任务完成进度。",
+    propsSchema: {
+      value: "number（当前进度值，0-100）",
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "Progress",
+      props: { value: 60 },
+    },
+  },
+
+  // ─── RadioGroup 系列 ───
+  {
+    name: "RadioGroup",
+    description: "单选按钮组容器。内部放置多个 RadioGroupItem。",
+    propsSchema: {
+      value: "string（当前选中值）",
+      onValueChange: "function（选中值变化回调）",
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "RadioGroup",
+      props: {},
+    },
+  },
+  {
+    name: "RadioGroupItem",
+    description: "单选按钮项。放在 RadioGroup 内部。",
+    propsSchema: {
+      value: "string（选项值，必需）",
+      disabled: "boolean（是否禁用）",
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "RadioGroupItem",
+      props: { value: "option1" },
+    },
+  },
+
+  // ─── Resizable 系列 ───
+  {
+    name: "ResizablePanelGroup",
+    description: "可调整大小的面板组容器。内部放置 ResizablePanel 和 ResizableHandle。",
+    propsSchema: {
+      direction: '"horizontal" | "vertical"（排列方向）',
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "ResizablePanelGroup",
+      props: { direction: "horizontal" },
+    },
+  },
+  {
+    name: "ResizablePanel",
+    description: "可调整大小的单个面板。放在 ResizablePanelGroup 内部。",
+    propsSchema: {
+      defaultSize: "number（默认大小百分比）",
+      minSize: "number（最小大小百分比）",
+      maxSize: "number（最大大小百分比）",
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "ResizablePanel",
+      props: { defaultSize: 50 },
+    },
+  },
+  {
+    name: "ResizableHandle",
+    description: "面板之间的拖拽分隔条。放在 ResizablePanelGroup 内部的 ResizablePanel 之间。",
+    propsSchema: {
+      withHandle: "boolean（是否显示拖拽手柄图标）",
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "ResizableHandle",
+      props: { withHandle: true },
+    },
+  },
+
+  // ─── ScrollArea 系列 ───
+  {
+    name: "ScrollArea",
+    description: "自定义滚动条容器。内部内容超出时显示美观的滚动条。",
+    propsSchema: {
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "ScrollArea",
+      props: { className: "h-72 w-48" },
+    },
+  },
+  {
+    name: "ScrollBar",
+    description: "自定义滚动条。可单独使用或在 ScrollArea 内部覆盖默认滚动条。",
+    propsSchema: {
+      orientation: '"vertical" | "horizontal"（滚动条方向，默认 vertical）',
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "ScrollBar",
+      props: {},
+    },
+  },
+
+  // ─── Select 系列 ───
+  {
+    name: "Select",
+    description: "下拉选择器根容器。必须与 SelectTrigger、SelectContent 等子组件组合使用。",
+    propsSchema: {
+      value: "string（当前选中值）",
+      onValueChange: "function（选中值变化回调）",
+      disabled: "boolean（是否禁用）",
+    },
+    dslExample: {
+      type: "Select",
+      props: {},
+    },
+  },
+  {
+    name: "SelectTrigger",
+    description: "下拉选择器的触发按钮。内部放置 SelectValue。",
+    propsSchema: {
+      size: '"sm" | "default"（尺寸）',
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "SelectTrigger",
+      props: {},
+    },
+  },
+  {
+    name: "SelectValue",
+    description: "下拉选择器显示当前选中值的占位组件。放在 SelectTrigger 内部。",
+    propsSchema: {
+      placeholder: "string（无选中值时的占位文本）",
+    },
+    dslExample: {
+      type: "SelectValue",
+      props: { placeholder: "请选择" },
+    },
+  },
+  {
+    name: "SelectContent",
+    description: "下拉选择器的选项面板。内部放置 SelectItem。",
+    propsSchema: {
+      position: '"item-aligned" | "popper"（定位方式）',
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "SelectContent",
+      props: {},
+    },
+  },
+  {
+    name: "SelectItem",
+    description: "下拉选择器的单个选项。放在 SelectContent 内部。",
+    propsSchema: {
+      value: "string（选项值，必需）",
+      disabled: "boolean（是否禁用）",
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "SelectItem",
+      props: { value: "option1" },
+    },
+  },
+  {
+    name: "SelectGroup",
+    description: "下拉选择器的选项分组容器。内部放置 SelectItem。",
+    propsSchema: {},
+    dslExample: {
+      type: "SelectGroup",
+      props: {},
+    },
+  },
+  {
+    name: "SelectLabel",
+    description: "下拉选择器分组的标签文本。放在 SelectGroup 内部。",
+    propsSchema: {
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "SelectLabel",
+      props: {},
+    },
+  },
+  {
+    name: "SelectSeparator",
+    description: "下拉选择器中的分隔线。",
+    propsSchema: {
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "SelectSeparator",
+      props: {},
+    },
+  },
+
+  // ─── Sheet 系列 ───
+  {
+    name: "Sheet",
+    description: "侧边滑出面板根容器。必须与 SheetTrigger、SheetContent 等子组件组合使用。",
+    propsSchema: {
+      open: "boolean（受控的打开状态）",
+      onOpenChange: "function（打开状态变化回调）",
+    },
+    dslExample: {
+      type: "Sheet",
+      props: {},
+    },
+  },
+  {
+    name: "SheetTrigger",
+    description: "触发 Sheet 打开的元素。放在 Sheet 内部。",
+    propsSchema: {
+      asChild: "boolean（是否使用子元素作为触发器）",
+    },
+    dslExample: {
+      type: "SheetTrigger",
+      props: { asChild: true },
+    },
+  },
+  {
+    name: "SheetContent",
+    description: "Sheet 的内容面板。内部放置 SheetHeader、SheetFooter 等。",
+    propsSchema: {
+      side: '"top" | "right" | "bottom" | "left"（滑出方向，默认 right）',
+      showCloseButton: "boolean（是否显示关闭按钮，默认 true）",
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "SheetContent",
+      props: { side: "right" },
+    },
+  },
+  {
+    name: "SheetHeader",
+    description: "Sheet 的头部区域包裹器。内部放置 SheetTitle 和 SheetDescription。",
+    propsSchema: {
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "SheetHeader",
+      props: {},
+    },
+  },
+  {
+    name: "SheetTitle",
+    description: "Sheet 的标题。放在 SheetHeader 内部。",
+    propsSchema: {
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "SheetTitle",
+      props: {},
+    },
+  },
+  {
+    name: "SheetDescription",
+    description: "Sheet 的描述文本。放在 SheetHeader 内部。",
+    propsSchema: {
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "SheetDescription",
+      props: {},
+    },
+  },
+  {
+    name: "SheetFooter",
+    description: "Sheet 底部操作区域。通常放置按钮。",
+    propsSchema: {
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "SheetFooter",
+      props: {},
+    },
+  },
+  {
+    name: "SheetClose",
+    description: "点击后关闭 Sheet 的包裹组件。",
+    propsSchema: {
+      asChild: "boolean（是否使用子元素作为关闭触发器）",
+    },
+    dslExample: {
+      type: "SheetClose",
+      props: { asChild: true },
+    },
+  },
+
+  // ─── Sidebar 系列 ───
+  {
+    name: "SidebarProvider",
+    description: "侧边栏上下文提供者。必须包裹整个应用或页面，为 Sidebar 提供状态管理。",
+    propsSchema: {
+      defaultOpen: "boolean（默认是否展开）",
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "SidebarProvider",
+      props: { defaultOpen: true },
+    },
+  },
+  {
+    name: "Sidebar",
+    description: "侧边栏容器。内部放置 SidebarHeader、SidebarContent、SidebarFooter。",
+    propsSchema: {
+      side: '"left" | "right"（侧边栏位置，默认 left）',
+      variant: '"sidebar" | "floating" | "inset"（视觉变体）',
+      collapsible: '"offcanvas" | "icon" | "none"（折叠模式）',
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "Sidebar",
+      props: {},
+    },
+  },
+  {
+    name: "SidebarHeader",
+    description: "侧边栏的头部区域。",
+    propsSchema: {
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "SidebarHeader",
+      props: {},
+    },
+  },
+  {
+    name: "SidebarContent",
+    description: "侧边栏的主要内容区域（可滚动）。",
+    propsSchema: {
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "SidebarContent",
+      props: {},
+    },
+  },
+  {
+    name: "SidebarFooter",
+    description: "侧边栏的底部区域。",
+    propsSchema: {
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "SidebarFooter",
+      props: {},
+    },
+  },
+  {
+    name: "SidebarTrigger",
+    description: "侧边栏的展开/折叠切换按钮。",
+    propsSchema: {
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "SidebarTrigger",
+      props: {},
+    },
+  },
+  {
+    name: "SidebarRail",
+    description: "侧边栏的拖拽调整区域。",
+    propsSchema: {
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "SidebarRail",
+      props: {},
+    },
+  },
+  {
+    name: "SidebarInset",
+    description: "侧边栏的主内容区域占位。",
+    propsSchema: {
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "SidebarInset",
+      props: {},
+    },
+  },
+  {
+    name: "SidebarInput",
+    description: "侧边栏内的搜索输入框。",
+    propsSchema: {
+      placeholder: "string（占位文本）",
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "SidebarInput",
+      props: { placeholder: "搜索..." },
+    },
+  },
+  {
+    name: "SidebarSeparator",
+    description: "侧边栏内的分隔线。",
+    propsSchema: {
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "SidebarSeparator",
+      props: {},
+    },
+  },
+  {
+    name: "SidebarGroup",
+    description: "侧边栏的分组容器。内部放置 SidebarGroupLabel 和 SidebarGroupContent。",
+    propsSchema: {
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "SidebarGroup",
+      props: {},
+    },
+  },
+  {
+    name: "SidebarGroupLabel",
+    description: "侧边栏分组的标签文本。",
+    propsSchema: {
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "SidebarGroupLabel",
+      props: {},
+    },
+  },
+  {
+    name: "SidebarGroupContent",
+    description: "侧边栏分组的内容容器。",
+    propsSchema: {
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "SidebarGroupContent",
+      props: {},
+    },
+  },
+  {
+    name: "SidebarGroupAction",
+    description: "侧边栏分组的操作按钮。",
+    propsSchema: {
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "SidebarGroupAction",
+      props: {},
+    },
+  },
+  {
+    name: "SidebarMenu",
+    description: "侧边栏的菜单列表容器。内部放置 SidebarMenuItem。",
+    propsSchema: {
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "SidebarMenu",
+      props: {},
+    },
+  },
+  {
+    name: "SidebarMenuItem",
+    description: "侧边栏菜单的单个项目。内部放置 SidebarMenuButton。",
+    propsSchema: {
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "SidebarMenuItem",
+      props: {},
+    },
+  },
+  {
+    name: "SidebarMenuButton",
+    description: "侧边栏菜单的按钮项。",
+    propsSchema: {
+      isActive: "boolean（是否为激活状态）",
+      variant: '"default" | "outline"（视觉变体）',
+      size: '"default" | "sm" | "lg"（尺寸）',
+      tooltip: "string | object（折叠时的提示信息）",
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "SidebarMenuButton",
+      props: {},
+    },
+  },
+  {
+    name: "SidebarMenuAction",
+    description: "侧边栏菜单项的操作按钮。",
+    propsSchema: {
+      showOnHover: "boolean（是否仅在悬停时显示）",
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "SidebarMenuAction",
+      props: {},
+    },
+  },
+  {
+    name: "SidebarMenuBadge",
+    description: "侧边栏菜单项的徽章。",
+    propsSchema: {
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "SidebarMenuBadge",
+      props: {},
+    },
+  },
+  {
+    name: "SidebarMenuSub",
+    description: "侧边栏菜单的子菜单容器。",
+    propsSchema: {
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "SidebarMenuSub",
+      props: {},
+    },
+  },
+  {
+    name: "SidebarMenuSubItem",
+    description: "侧边栏子菜单的单个项目。",
+    propsSchema: {
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "SidebarMenuSubItem",
+      props: {},
+    },
+  },
+  {
+    name: "SidebarMenuSubButton",
+    description: "侧边栏子菜单的按钮项。",
+    propsSchema: {
+      isActive: "boolean（是否为激活状态）",
+      size: '"sm" | "md"（尺寸）',
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "SidebarMenuSubButton",
+      props: {},
+    },
+  },
+
+  // ─── Skeleton ───
+  {
+    name: "Skeleton",
+    description: "骨架屏/加载占位组件。用于内容加载时显示的占位动画。",
+    propsSchema: {
+      className: "string（Tailwind CSS 类名，用于控制宽高等）",
+    },
+    dslExample: {
+      type: "Skeleton",
+      props: { className: "h-12 w-12 rounded-full" },
+    },
+  },
+
+  // ─── Slider ───
+  {
+    name: "Slider",
+    description: "滑块选择器组件。用于选择数值范围。",
+    propsSchema: {
+      value: "number[]（当前值数组）",
+      defaultValue: "number[]（默认值数组）",
+      min: "number（最小值，默认 0）",
+      max: "number（最大值，默认 100）",
+      step: "number（步进值）",
+      disabled: "boolean（是否禁用）",
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "Slider",
+      props: { defaultValue: [50], max: 100, step: 1 },
+    },
+  },
+
+  // ─── Spinner ───
+  {
+    name: "Spinner",
+    description: "加载旋转图标组件。用于表示加载状态。",
+    propsSchema: {
+      className: "string（Tailwind CSS 类名，用于控制大小和颜色）",
+    },
+    dslExample: {
+      type: "Spinner",
+      props: { className: "size-6" },
+    },
+  },
+
+  // ─── Switch ───
+  {
+    name: "Switch",
+    description: "开关切换组件。用于二选一的场景。",
+    propsSchema: {
+      checked: "boolean（是否选中）",
+      disabled: "boolean（是否禁用）",
+      size: '"sm" | "default"（尺寸）',
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "Switch",
+      props: { checked: false },
+    },
+  },
+
+  // ─── Tabs 系列 ───
+  {
+    name: "Tabs",
+    description: "选项卡根容器。必须与 TabsList、TabsTrigger、TabsContent 组合使用。",
+    propsSchema: {
+      defaultValue: "string（默认激活的选项卡值）",
+      value: "string（受控的激活值）",
+      orientation: '"horizontal" | "vertical"（方向，默认 horizontal）',
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "Tabs",
+      props: { defaultValue: "tab1" },
+    },
+  },
+  {
+    name: "TabsList",
+    description: "选项卡的标签列表容器。内部放置 TabsTrigger。",
+    propsSchema: {
+      variant: '"default" | "line"（视觉变体）',
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "TabsList",
+      props: {},
+    },
+  },
+  {
+    name: "TabsTrigger",
+    description: "选项卡的单个标签按钮。放在 TabsList 内部。",
+    propsSchema: {
+      value: "string（选项卡值，必需）",
+      disabled: "boolean（是否禁用）",
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "TabsTrigger",
+      props: { value: "tab1" },
+    },
+  },
+  {
+    name: "TabsContent",
+    description: "选项卡的内容面板。放在 Tabs 内部，与 TabsTrigger 对应。",
+    propsSchema: {
+      value: "string（对应的选项卡值，必需）",
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "TabsContent",
+      props: { value: "tab1" },
+    },
+  },
+
+  // ─── Toggle 系列 ───
+  {
+    name: "Toggle",
+    description: "切换按钮组件。用于切换选中/未选中状态。",
+    propsSchema: {
+      pressed: "boolean（是否按下）",
+      disabled: "boolean（是否禁用）",
+      variant: '"default" | "outline"（视觉变体）',
+      size: '"default" | "sm" | "lg"（尺寸）',
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "Toggle",
+      props: { variant: "outline" },
+    },
+  },
+
+  // ─── ToggleGroup 系列 ───
+  {
+    name: "ToggleGroup",
+    description: "切换按钮组容器。内部放置 ToggleGroupItem。",
+    propsSchema: {
+      type: '"single" | "multiple"（选择模式）',
+      value: "string | string[]（当前选中值）",
+      defaultValue: "string | string[]（默认选中值）",
+      variant: '"default" | "outline"（视觉变体）',
+      size: '"default" | "sm" | "lg"（尺寸）',
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "ToggleGroup",
+      props: { type: "single" },
+    },
+  },
+  {
+    name: "ToggleGroupItem",
+    description: "切换按钮组的单个按钮项。放在 ToggleGroup 内部。",
+    propsSchema: {
+      value: "string（按钮值，必需）",
+      disabled: "boolean（是否禁用）",
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "ToggleGroupItem",
+      props: { value: "option1" },
+    },
+  },
+
+  // ─── Tooltip 系列 ───
+  {
+    name: "TooltipProvider",
+    description: "Tooltip 上下文提供者。必须包裹使用 Tooltip 的区域。",
+    propsSchema: {
+      delayDuration: "number（显示延迟毫秒数，默认 0）",
+    },
+    dslExample: {
+      type: "TooltipProvider",
+      props: {},
+    },
+  },
+  {
+    name: "Tooltip",
+    description: "提示气泡根容器。必须与 TooltipTrigger、TooltipContent 组合使用。",
+    propsSchema: {},
+    dslExample: {
+      type: "Tooltip",
+      props: {},
+    },
+  },
+  {
+    name: "TooltipTrigger",
+    description: "触发 Tooltip 显示的元素。放在 Tooltip 内部。",
+    propsSchema: {
+      asChild: "boolean（是否使用子元素作为触发器）",
+    },
+    dslExample: {
+      type: "TooltipTrigger",
+      props: { asChild: true },
+    },
+  },
+  {
+    name: "TooltipContent",
+    description: "Tooltip 的内容面板。放在 Tooltip 内部。",
+    propsSchema: {
+      side: '"top" | "right" | "bottom" | "left"（弹出方向）',
+      sideOffset: "number（距离触发器的偏移量）",
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "TooltipContent",
+      props: { side: "top" },
+    },
+  },
+
+  // ─── Empty 系列 ───
+  {
+    name: "Empty",
+    description: "空状态容器。用于展示无数据时的占位内容。内部组合 EmptyHeader、EmptyContent。",
+    propsSchema: {
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "Empty",
+      props: {},
+    },
+  },
+  {
+    name: "EmptyHeader",
+    description: "空状态的头部区域。内部放置 EmptyMedia、EmptyTitle、EmptyDescription。",
+    propsSchema: {
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "EmptyHeader",
+      props: {},
+    },
+  },
+  {
+    name: "EmptyMedia",
+    description: "空状态的图标/媒体区域。",
+    propsSchema: {
+      variant: '"default" | "icon"（视觉变体）',
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "EmptyMedia",
+      props: { variant: "icon" },
+    },
+  },
+  {
+    name: "EmptyTitle",
+    description: "空状态的标题。",
+    propsSchema: {
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "EmptyTitle",
+      props: {},
+    },
+  },
+  {
+    name: "EmptyDescription",
+    description: "空状态的描述文本。",
+    propsSchema: {
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "EmptyDescription",
+      props: {},
+    },
+  },
+  {
+    name: "EmptyContent",
+    description: "空状态的内容区域。通常放置操作按钮。",
+    propsSchema: {
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "EmptyContent",
+      props: {},
+    },
+  },
+
+  // ─── Item 系列 ───
+  {
+    name: "ItemGroup",
+    description: "列表项分组容器。内部放置多个 Item。",
+    propsSchema: {
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "ItemGroup",
+      props: {},
+    },
+  },
+  {
+    name: "Item",
+    description: "列表项组件。内部组合 ItemMedia、ItemContent、ItemActions。",
+    propsSchema: {
+      variant: '"default" | "outline" | "muted"（视觉变体）',
+      size: '"default" | "sm"（尺寸）',
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "Item",
+      props: {},
+    },
+  },
+  {
+    name: "ItemMedia",
+    description: "列表项的媒体区域（图标或图片）。",
+    propsSchema: {
+      variant: '"default" | "icon" | "image"（媒体类型）',
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "ItemMedia",
+      props: { variant: "icon" },
+    },
+  },
+  {
+    name: "ItemContent",
+    description: "列表项的内容区域。内部放置 ItemTitle、ItemDescription。",
+    propsSchema: {
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "ItemContent",
+      props: {},
+    },
+  },
+  {
+    name: "ItemTitle",
+    description: "列表项的标题。",
+    propsSchema: {
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "ItemTitle",
+      props: {},
+    },
+  },
+  {
+    name: "ItemDescription",
+    description: "列表项的描述文本。",
+    propsSchema: {
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "ItemDescription",
+      props: {},
+    },
+  },
+  {
+    name: "ItemActions",
+    description: "列表项的操作按钮区域。",
+    propsSchema: {
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "ItemActions",
+      props: {},
+    },
+  },
+  {
+    name: "ItemSeparator",
+    description: "列表项之间的分隔线。",
+    propsSchema: {
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "ItemSeparator",
+      props: {},
+    },
+  },
+  {
+    name: "ItemHeader",
+    description: "列表项的头部区域。",
+    propsSchema: {
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "ItemHeader",
+      props: {},
+    },
+  },
+  {
+    name: "ItemFooter",
+    description: "列表项的底部区域。",
+    propsSchema: {
+      className: "string（Tailwind CSS 类名）",
+    },
+    dslExample: {
+      type: "ItemFooter",
+      props: {},
+    },
+  },
+
+  // ─── Toaster ───
+  {
+    name: "Toaster",
+    description: "Toast 消息通知容器。通常放在应用根组件中，配合 toast() 函数使用。",
+    propsSchema: {
+      position: '"top-left" | "top-center" | "top-right" | "bottom-left" | "bottom-center" | "bottom-right"（位置）',
+      richColors: "boolean（是否使用丰富颜色）",
+    },
+    dslExample: {
+      type: "Toaster",
+      props: {},
+    },
+  },
 ]
 
 export const componentsMetaByName: Record<string, ComponentMeta> = Object.fromEntries(
