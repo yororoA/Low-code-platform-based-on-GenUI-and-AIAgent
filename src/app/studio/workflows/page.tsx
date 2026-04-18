@@ -5,7 +5,6 @@ import { useRouter } from 'next/navigation';
 import { PlusIcon, LayoutGridIcon, ClockIcon, MoreVerticalIcon, TrashIcon, EditIcon, CopyIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   DropdownMenu,
