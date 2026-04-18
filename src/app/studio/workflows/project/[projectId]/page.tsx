@@ -33,13 +33,16 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
+import { useWorkflowStore } from '@/store/workflowStore';
+import { HistoryOperationType } from '@/types';
 
 type WorkflowNodeType = 'input' | 'output' | 'default';
 
@@ -63,81 +66,69 @@ const createDefaultDraft = (): AddNodeDraft => ({
   color: '#d1d5db',
 });
 
-/**
- * 根据背景颜色（Hex 格式）计算其亮白度，返回该反色的黑/白值
- * @param hexColor 16 进制颜色字符串 (e.g. #ffffff)
- */
 const getInvertedTextColor = (hexColor: string) => {
   const hex = hexColor.replace('#', '');
   const r = parseInt(hex.substring(0, 2), 16);
   const g = parseInt(hex.substring(2, 4), 16);
   const b = parseInt(hex.substring(4, 6), 16);
-  // 使用经典的亮度公式计算
   const brightness = (r * 299 + g * 587 + b * 114) / 1000;
   return brightness > 128 ? '#000000' : '#ffffff';
 };
 
-// test
-// const initialNode = {
-//   id: 'first-node',
-//   data: {
-//     label: 'first node',
-//   },
-//   position: { x: 0, y: 0 },
-//   style: { backgroundColor: 'lightblue' },
-//   type: 'input' as WorkflowNodeType,
-// };
-
 const nodeColor = (node: Node) => `${node.style?.backgroundColor ?? 'lightgray'}`;
 
 const ProjectPage = () => {
-  // 从路由参数中获取项目 ID
   const params = useParams<{ projectId: string }>();
-  console.log(params);
+  const router = useRouter();
+  const projectId = params.projectId;
 
-  // --- 状态管理 ---
-  // 当前画布上的节点和边
+  const {
+    currentProject,
+    initProject,
+    setTopic,
+    addHistoryOperation,
+    updateGraph,
+    saveToDB,
+    isAutoSaveEnabled,
+    setAutoSaveEnabled,
+    loadFromDB,
+    goToHistoryIndex,
+    currentHistoryIndex,
+  } = useWorkflowStore();
+
   const [nodes, setNodes] = useState<Node[]>([]);
   const [edges, setEdges] = useState<Edge[]>([]);
-  // 历史记录栈，用于实现撤销 (Back) 和重做 (Forward)
-  const [historyBackStack, setHistoryBackStack] = useState<GraphSnapshot[]>([]);
-  const [historyForwardStack, setHistoryForwardStack] = useState<GraphSnapshot[]>([]);
-  // ReactFlow 实例，用于坐标转换等操作
+  const [historySnapshotsLocal, setHistorySnapshotsLocal] = useState<GraphSnapshot[]>([]);
+  const [currentHistoryIndexLocal, setCurrentHistoryIndexLocal] = useState<number>(-1);
   const [reactFlowInstance, setReactFlowInstance] = useState<ReactFlowInstance<Node, Edge> | null>(null);
-  // 记录最后一次右键点击时的 Flow 坐标，用于在该位置生成新节点
   const [lastContextPosition, setLastContextPosition] = useState<XYPosition>({ x: 0, y: 0 });
-  // 记录当前触发右键菜单的元素类型和 ID
   const [contextMenuTarget, setContextMenuTarget] = useState<{
     type: 'pane' | 'node' | 'edge';
     id: string | null;
   }>({ type: 'pane', id: null });
 
-  // 节点添加弹窗的状态
   const [addDialogOpen, setAddDialogOpen] = useState(false);
-  // label 修改弹窗的状态
   const [labelDialogOpen, setLabelDialogOpen] = useState(false);
   const [labelDraft, setLabelDraft] = useState<string>('');
-  // 颜色修改弹窗的状态
   const [colorDialogOpen, setColorDialogOpen] = useState(false);
   const [colorDraft, setColorDraft] = useState<string>('#d1d5db');
+  const [renameDialogOpen, setRenameDialogOpen] = useState(false);
+  const [renameDraft, setRenameDraft] = useState<string>('');
+  const [saveDraftDialogOpen, setSaveDraftDialogOpen] = useState(false);
 
-  // 弹窗中点击“继续添加”后暂存的节点列表
   const [queuedDrafts, setQueuedDrafts] = useState<AddNodeDraft[]>([]);
-  // 当前正在输入的节点草稿
   const [draft, setDraft] = useState<AddNodeDraft>(createDefaultDraft);
 
-  // 使用 ref 保存最新图数据，避免在异步回调或闭包中读取到过期的 state。
   const nodesRef = useRef(nodes);
   const edgesRef = useRef(edges);
 
-  // 拖拽历史记录会话：只在拖拽开始和结束时处理历史记录，避免拖拽过程中的高频触发
   const dragSessionRef = useRef<{
     nodeId: string;
     startPosition: XYPosition;
     snapshot: GraphSnapshot;
   } | null>(null);
+  const initializedProjectIdRef = useRef<string | null>(null);
 
-  // 同步 ref 与 state
   useEffect(() => {
     nodesRef.current = nodes;
   }, [nodes]);
@@ -146,22 +137,114 @@ const ProjectPage = () => {
     edgesRef.current = edges;
   }, [edges]);
 
-  /**
-   * 创建当前画布状态的深度克隆快照
-   */
+  useEffect(() => {
+    if (projectId) {
+      initProject(projectId);
+    }
+  }, [projectId, initProject]);
+
+  useEffect(() => {
+    if (!currentProject || currentProject.id !== projectId) return;
+    if (initializedProjectIdRef.current === currentProject.id) return;
+
+    initializedProjectIdRef.current = currentProject.id;
+    const projectNodes = currentProject.nodes;
+    const projectEdges = currentProject.edges;
+
+    queueMicrotask(() => {
+      setNodes(projectNodes);
+      setEdges(projectEdges);
+    });
+    nodesRef.current = projectNodes;
+    edgesRef.current = projectEdges;
+
+    const baseSnapshot: GraphSnapshot = {
+      nodes: structuredClone(projectNodes),
+      edges: structuredClone(projectEdges),
+    };
+    const operationCount = currentProject.historyOperations.length;
+    const snapshots =
+      Array.isArray(currentProject.historySnapshots) &&
+      currentProject.historySnapshots.length === operationCount + 1
+        ? currentProject.historySnapshots.map((snapshot) => ({
+          nodes: structuredClone(snapshot.nodes),
+          edges: structuredClone(snapshot.edges),
+        }))
+        : [baseSnapshot];
+    const index = operationCount - 1;
+
+    queueMicrotask(() => {
+      setHistorySnapshotsLocal(snapshots);
+      setCurrentHistoryIndexLocal(index);
+      goToHistoryIndex(index);
+    });
+  }, [currentProject, projectId, goToHistoryIndex]);
+
+  useEffect(() => {
+    initializedProjectIdRef.current = null;
+  }, [projectId]);
+
   const createSnapshot = useCallback((): GraphSnapshot => ({
     nodes: structuredClone(nodesRef.current),
     edges: structuredClone(edgesRef.current),
   }), []);
 
-  /**
-   * 统一的图数据更新入口，处理历史记录逻辑
-   * @param updater 更新函数，接收当前状态并返回新状态
-   * @param options 配置项，recordHistory 控制是否记录到撤销栈
-   */
+  const restoreSnapshotAt = useCallback((targetHistoryIndex: number, syncStore: boolean = true) => {
+    const targetSnapshot = historySnapshotsLocal[targetHistoryIndex + 1];
+    if (!targetSnapshot) return;
+
+    const restoredNodes = structuredClone(targetSnapshot.nodes);
+    const restoredEdges = structuredClone(targetSnapshot.edges);
+    nodesRef.current = restoredNodes;
+    edgesRef.current = restoredEdges;
+    setNodes(restoredNodes);
+    setEdges(restoredEdges);
+    setCurrentHistoryIndexLocal(targetHistoryIndex);
+
+    if (syncStore) {
+      goToHistoryIndex(targetHistoryIndex);
+    }
+  }, [historySnapshotsLocal, goToHistoryIndex]);
+
+  const pushHistoryEntry = useCallback((
+    type: HistoryOperationType,
+    description: string,
+    affectedIds?: string[],
+    snapshotOverride?: GraphSnapshot,
+  ) => {
+    const nextHistoryIndex = currentHistoryIndexLocal + 1;
+    const snapshotToAppend = snapshotOverride ?? createSnapshot();
+
+    setHistorySnapshotsLocal((prev) => {
+      const keepCount = Math.max(1, currentHistoryIndexLocal + 2);
+      const base = prev.length ? prev.slice(0, keepCount) : [createSnapshot()];
+      return [
+        ...base,
+        {
+          nodes: structuredClone(snapshotToAppend.nodes),
+          edges: structuredClone(snapshotToAppend.edges),
+        },
+      ];
+    });
+
+    setCurrentHistoryIndexLocal(nextHistoryIndex);
+    addHistoryOperation(type, description, affectedIds, {
+      nodes: structuredClone(snapshotToAppend.nodes),
+      edges: structuredClone(snapshotToAppend.edges),
+    });
+    goToHistoryIndex(nextHistoryIndex);
+  }, [addHistoryOperation, createSnapshot, currentHistoryIndexLocal, goToHistoryIndex]);
+
+  useEffect(() => {
+    if (currentHistoryIndex === currentHistoryIndexLocal) return;
+    queueMicrotask(() => {
+      restoreSnapshotAt(currentHistoryIndex, false);
+    });
+  }, [currentHistoryIndex, currentHistoryIndexLocal, restoreSnapshotAt]);
+
   const applyGraphUpdate = useCallback((
     updater: (current: GraphSnapshot) => GraphSnapshot,
-    options?: { recordHistory?: boolean },
+    options?: { recordHistory?: boolean; operationType?: HistoryOperationType; description?: string; affectedIds?: string[] },
   ) => {
     const recordHistory = options?.recordHistory ?? true;
     const current: GraphSnapshot = {
@@ -170,27 +253,30 @@ const ProjectPage = () => {
     };
     const next = updater(current);
 
-    // 如果数据没有变化，则不进行更新
     if (next.nodes === current.nodes && next.edges === current.edges) {
       return;
     }
 
-    // 如果需要记录历史，则将当前快照压入 Back 栈，并清空 Forward 栈
-    if (recordHistory) {
-      setHistoryBackStack((prev) => [...prev, createSnapshot()]);
-      setHistoryForwardStack([]);
-    }
-
-    // 更新 ref 和 state
     nodesRef.current = next.nodes;
     edgesRef.current = next.edges;
     setNodes(next.nodes);
     setEdges(next.edges);
-  }, [createSnapshot]);
 
-  /**
-   * 开启拖拽历史记录会话
-   */
+    updateGraph(next.nodes, next.edges, false);
+
+    if (recordHistory && options?.operationType) {
+      pushHistoryEntry(
+        options.operationType,
+        options.description || '',
+        options.affectedIds,
+        {
+          nodes: structuredClone(next.nodes),
+          edges: structuredClone(next.edges),
+        },
+      );
+    }
+  }, [updateGraph, pushHistoryEntry]);
+
   const startDragHistory = useCallback((node: Node) => {
     dragSessionRef.current = {
       nodeId: node.id,
@@ -199,9 +285,6 @@ const ProjectPage = () => {
     };
   }, [createSnapshot]);
 
-  /**
-   * 提交拖拽历史记录：如果位置发生了实际偏移，则将开始时的快照存入历史
-   */
   const commitDragHistory = useCallback((node: Node) => {
     const session = dragSessionRef.current;
     dragSessionRef.current = null;
@@ -215,29 +298,22 @@ const ProjectPage = () => {
       return;
     }
 
-    setHistoryBackStack((prev) => [...prev, session.snapshot]);
-    setHistoryForwardStack([]);
-  }, []);
+    pushHistoryEntry('node_moved', 'Node Moved', [node.id], {
+      nodes: structuredClone(nodesRef.current),
+      edges: structuredClone(edgesRef.current),
+    });
+  }, [pushHistoryEntry]);
 
-  /**
-   * 重置添加节点弹窗的状态
-   */
   const resetAddDialogState = useCallback(() => {
     setQueuedDrafts([]);
     setDraft(createDefaultDraft());
   }, []);
 
-  /**
-   * 关闭添加节点弹窗
-   */
   const closeAddDialog = useCallback(() => {
     setAddDialogOpen(false);
     resetAddDialogState();
   }, [resetAddDialogState]);
 
-  /**
-   * 将屏幕坐标转换为 Flow 画布坐标
-   */
   const screenToFlowPosition = useCallback((clientX: number, clientY: number): XYPosition => {
     if (!reactFlowInstance) {
       return { x: clientX, y: clientY };
@@ -245,9 +321,6 @@ const ProjectPage = () => {
     return reactFlowInstance.screenToFlowPosition({ x: clientX, y: clientY });
   }, [reactFlowInstance]);
 
-  /**
-   * 计算点到线段的最短距离，用于检测节点是否被拖拽到边上
-   */
   const pointToSegmentDistance = useCallback(
     (p: XYPosition, a: XYPosition, b: XYPosition) => {
       const abx = b.x - a.x;
@@ -270,9 +343,6 @@ const ProjectPage = () => {
     [],
   );
 
-  /**
-   * 获取节点的中心点位置
-   */
   const getNodeCenter = useCallback((node: Node): XYPosition => {
     const width = node.measured?.width ?? node.width ?? 0;
     const height = node.measured?.height ?? node.height ?? 0;
@@ -284,9 +354,6 @@ const ProjectPage = () => {
     };
   }, []);
 
-  /**
-   * 查找距离指定节点最近的边，并判断是否在吸附阈值内
-   */
   const findClosestEdgeForNode = useCallback((draggedNode: Node) => {
     const draggedCenter = getNodeCenter(draggedNode);
     const nodeMap = new Map(nodes.map((node) => [node.id, node]));
@@ -317,11 +384,8 @@ const ProjectPage = () => {
     return matchedEdge;
   }, [edges, getNodeCenter, nodes, pointToSegmentDistance]);
 
-  // --- ReactFlow 事件回调 ---
-
   const onNodesChange = useCallback(
     (changes: NodeChange<Node>[]) => {
-      // position 变更通常来自拖拽过程，这里recordHistory设为false以避免高频入栈
       const hasPositionChange = changes.some((change) => change.type === 'position');
 
       applyGraphUpdate(({ nodes: currentNodes, edges: currentEdges }) => ({
@@ -347,32 +411,23 @@ const ProjectPage = () => {
       applyGraphUpdate(({ nodes: currentNodes, edges: currentEdges }) => ({
         nodes: currentNodes,
         edges: addEdge(params, currentEdges),
-      }));
+      }), { operationType: 'edge_added', description: 'Edge Added' });
     },
     [applyGraphUpdate],
   );
 
-  /**
-   * 画布空白处右键：转换坐标，更新右键目标为 pane
-   */
   const onPaneContextMenu = useCallback((event: MouseEvent | React.MouseEvent<Element, MouseEvent>) => {
     const flowPos = screenToFlowPosition(event.clientX, event.clientY);
     setContextMenuTarget({ type: 'pane', id: null });
     setLastContextPosition(flowPos);
   }, [screenToFlowPosition]);
 
-  /**
-   * 节点右键：转换坐标，更新右键目标为 node
-   */
   const onNodeContextMenu = useCallback((event: MouseEvent | React.MouseEvent<Element, MouseEvent>, node: Node) => {
     const flowPos = screenToFlowPosition(event.clientX, event.clientY);
     setContextMenuTarget({ type: 'node', id: node.id });
     setLastContextPosition(flowPos);
   }, [screenToFlowPosition]);
 
-  /**
-   * 边右键：转换坐标，更新右键目标为 edge
-   */
   const onEdgeContextMenu = useCallback((event: MouseEvent | React.MouseEvent<Element, MouseEvent>, edge: Edge) => {
     const flowPos = screenToFlowPosition(event.clientX, event.clientY);
     setContextMenuTarget({ type: 'edge', id: edge.id });
@@ -384,10 +439,8 @@ const ProjectPage = () => {
   }, [startDragHistory]);
 
   const onNodeDragStop = useCallback((_: React.MouseEvent, draggedNode: Node) => {
-    // 拖拽结束：提交历史并尝试执行“插入边”逻辑
     commitDragHistory(draggedNode);
 
-    // 只有 default 类型节点支持拖拽插入边
     if (draggedNode.type !== 'default') {
       return;
     }
@@ -403,7 +456,6 @@ const ProjectPage = () => {
         return { nodes: currentNodes, edges: currentEdges };
       }
 
-      // 拆分边： a -> b 变为 a -> new -> b
       const splitEdgeOne: Edge = {
         ...targetEdge,
         id: `${targetEdge.source}-${draggedNode.id}-${Date.now()}-left`,
@@ -421,12 +473,9 @@ const ProjectPage = () => {
           .filter((edge) => edge.id !== targetEdge.id)
           .concat(splitEdgeOne, splitEdgeTwo),
       };
-    }, { recordHistory: false }); // 此处不记录是因为 commitDragHistory 已经处理过一次
+    }, { recordHistory: false, operationType: 'edge_inserted', description: 'Edge Inserted' });
   }, [applyGraphUpdate, commitDragHistory, findClosestEdgeForNode]);
 
-  /**
-   * 将当前正在输入的内容暂存，以便继续添加下一个
-   */
   const appendCurrentDraftToQueue = useCallback(() => {
     const normalizedLabel = draft.label.trim();
     if (!normalizedLabel) {
@@ -441,23 +490,14 @@ const ProjectPage = () => {
     return true;
   }, [draft]);
 
-  /**
-   * 打开添加节点弹窗
-   */
   const AddNodes = () => {
     setAddDialogOpen(true);
   };
 
-  /**
-   * 弹窗中的“继续添加”
-   */
   const ContinueAddNodes = () => {
     appendCurrentDraftToQueue();
   };
 
-  /**
-   * 弹窗中的“确认”：合并所有暂存草稿并应用更新
-   */
   const ConfirmAddNodes = () => {
     const normalizedLabel = draft.label.trim();
     const allDrafts = normalizedLabel
@@ -469,12 +509,14 @@ const ProjectPage = () => {
       return;
     }
 
+    const newNodeIds = allDrafts.map((_, index) => `node-${Date.now()}-${index}`);
+    const operationType: HistoryOperationType = allDrafts.length > 1 ? 'nodes_added' : 'node_added';
+
     applyGraphUpdate(({ nodes: currentNodes, edges: currentEdges }) => ({
       nodes: [
         ...currentNodes,
-        // 根据网格布局略微偏移多个新节点
         ...allDrafts.map((item, index) => ({
-          id: `node-${Date.now()}-${index}`,
+          id: newNodeIds[index],
           data: { label: item.label },
           type: item.type,
           position: {
@@ -488,16 +530,12 @@ const ProjectPage = () => {
         })),
       ],
       edges: currentEdges,
-    }));
+    }), { operationType, description: allDrafts.length > 1 ? `Nodes Added (${allDrafts.length})` : 'Node Added', affectedIds: newNodeIds });
 
     closeAddDialog();
   };
 
-  /**
-   * 删除选中的节点及边
-   */
   const DeleteNodes = () => {
-    // 确定待删除的 ID 集合：如果右键了一个未选中的节点，则只删这一个；如果右键了选区内的节点，则删除整批
     const selectedNodeIds = new Set(nodes.filter((node) => node.selected).map((node) => node.id));
     let nodeIdsToDelete = new Set<string>();
 
@@ -515,17 +553,15 @@ const ProjectPage = () => {
       return;
     }
 
+    const operationType: HistoryOperationType = nodeIdsToDelete.size > 1 ? 'nodes_deleted' : 'node_deleted';
+
     applyGraphUpdate(({ nodes: currentNodes, edges: currentEdges }) => ({
       nodes: currentNodes.filter((node) => !nodeIdsToDelete.has(node.id)),
       edges: currentEdges.filter((edge) => !nodeIdsToDelete.has(edge.source) && !nodeIdsToDelete.has(edge.target)),
-    }));
+    }), { operationType, description: nodeIdsToDelete.size > 1 ? `Nodes Deleted (${nodeIdsToDelete.size})` : 'Node Deleted', affectedIds: Array.from(nodeIdsToDelete) });
   };
 
-  /**
-   * 删除选中的边
-   */
   const DeleteEdges = () => {
-    // 确定待删除的 ID 集合
     const selectedEdgeIds = new Set(edgesRef.current.filter((e) => e.selected).map((e) => e.id));
     let edgeIdsToDelete = new Set<string>();
 
@@ -541,16 +577,14 @@ const ProjectPage = () => {
 
     if (!edgeIdsToDelete.size) return;
 
+    const operationType: HistoryOperationType = edgeIdsToDelete.size > 1 ? 'edges_deleted' : 'edge_deleted';
+
     applyGraphUpdate(({ nodes: currentNodes, edges: currentEdges }) => ({
       nodes: currentNodes,
       edges: currentEdges.filter((edge) => !edgeIdsToDelete.has(edge.id)),
-    }));
+    }), { operationType, description: edgeIdsToDelete.size > 1 ? `Edges Deleted (${edgeIdsToDelete.size})` : 'Edge Deleted', affectedIds: Array.from(edgeIdsToDelete) });
   };
 
-  /**
-   * 修改 Label 弹窗打开逻辑 (Node 或 Edge)
-   * 仅当选中单个节点或单条边时有效
-   */
   const OpenLabelDialog = () => {
     const selectedNodes = nodesRef.current.filter((n) => n.selected);
     const selectedEdges = edgesRef.current.filter((e) => e.selected);
@@ -564,9 +598,6 @@ const ProjectPage = () => {
     }
   };
 
-  /**
-   * 确认修改 Label
-   */
   const ConfirmChangeLabel = () => {
     applyGraphUpdate(({ nodes: currentNodes, edges: currentEdges }) => {
       const selectedNodes = currentNodes.filter((n) => n.selected);
@@ -588,13 +619,10 @@ const ProjectPage = () => {
         };
       }
       return { nodes: currentNodes, edges: currentEdges };
-    });
+    }, { operationType: 'label_changed', description: 'Label Changed' });
     setLabelDialogOpen(false);
   };
 
-  /**
-   * 修改颜色弹窗打开逻辑
-   */
   const OpenColorDialog = () => {
     const selectedNodes = nodesRef.current.filter((n) => n.selected);
     const selectedEdges = edgesRef.current.filter((e) => e.selected);
@@ -606,9 +634,6 @@ const ProjectPage = () => {
     setColorDialogOpen(true);
   };
 
-  /**
-   * 确认修改颜色 (支持多选批量)
-   */
   const ConfirmChangeColor = () => {
     applyGraphUpdate(({ nodes: currentNodes, edges: currentEdges }) => {
       const selectedNodeIds = new Set(currentNodes.filter((n) => n.selected).map((n) => n.id));
@@ -622,7 +647,6 @@ const ProjectPage = () => {
                 style: {
                   ...n.style,
                   backgroundColor: colorDraft,
-                  // 字体颜色跟随背景自动反显
                   color: getInvertedTextColor(colorDraft),
                 },
               }
@@ -632,13 +656,10 @@ const ProjectPage = () => {
           selectedEdgeIds.has(e.id) ? { ...e, style: { ...e.style, stroke: colorDraft } } : e
         ),
       };
-    });
+    }, { operationType: 'color_changed', description: 'Color Changed' });
     setColorDialogOpen(false);
   };
 
-  /**
-   * 修改节点类型 (支持多选批量)
-   */
   const ChangeNodeTypes = (type: WorkflowNodeType) => {
     applyGraphUpdate(({ nodes: currentNodes, edges: currentEdges }) => {
       const selectedNodeIds = new Set(currentNodes.filter((n) => n.selected).map((n) => n.id));
@@ -646,129 +667,186 @@ const ProjectPage = () => {
         nodes: currentNodes.map((n) => (selectedNodeIds.has(n.id) ? { ...n, type } : n)),
         edges: currentEdges, 
       };
-    });
+    }, { operationType: 'type_changed', description: 'Type Changed' });
   };
 
-  /**
-   * 撤销 (Undo)
-   */
-  const Back = () => {
-    if (!historyBackStack.length) {
+  const Back = useCallback(() => {
+    if (currentHistoryIndexLocal < 0) {
       return;
     }
 
-    const previous = historyBackStack[historyBackStack.length - 1];
-    const currentSnapshot = createSnapshot();
+    restoreSnapshotAt(currentHistoryIndexLocal - 1);
+  }, [currentHistoryIndexLocal, restoreSnapshotAt]);
 
-    setHistoryBackStack((prev) => prev.slice(0, -1));
-    setHistoryForwardStack((prev) => [currentSnapshot, ...prev]);
-
-    const restoredNodes = structuredClone(previous.nodes);
-    const restoredEdges = structuredClone(previous.edges);
-    nodesRef.current = restoredNodes;
-    edgesRef.current = restoredEdges;
-    setNodes(restoredNodes);
-    setEdges(restoredEdges);
-  };
-
-  /**
-   * 重做 (Redo)
-   */
-  const Forward = () => {
-    if (!historyForwardStack.length) {
+  const Forward = useCallback(() => {
+    const maxHistoryIndex = (currentProject?.historyOperations.length ?? 0) - 1;
+    if (currentHistoryIndexLocal >= maxHistoryIndex) {
       return;
     }
 
-    const next = historyForwardStack[0];
-    const currentSnapshot = createSnapshot();
+    restoreSnapshotAt(currentHistoryIndexLocal + 1);
+  }, [currentProject?.historyOperations.length, currentHistoryIndexLocal, restoreSnapshotAt]);
 
-    setHistoryForwardStack((prev) => prev.slice(1));
-    setHistoryBackStack((prev) => [...prev, currentSnapshot]);
+  const OpenRenameDialog = useCallback(() => {
+    if (currentProject) {
+      setRenameDraft(currentProject.topic);
+      setRenameDialogOpen(true);
+    }
+  }, [currentProject]);
 
-    const restoredNodes = structuredClone(next.nodes);
-    const restoredEdges = structuredClone(next.edges);
-    nodesRef.current = restoredNodes;
-    edgesRef.current = restoredEdges;
-    setNodes(restoredNodes);
-    setEdges(restoredEdges);
-  };
+  const ConfirmRename = useCallback(() => {
+    setTopic(renameDraft);
+    setRenameDialogOpen(false);
+  }, [renameDraft, setTopic]);
 
+  const handleAutoSaveChange = useCallback((checked: boolean | 'indeterminate') => {
+    setAutoSaveEnabled(checked === true);
+  }, [setAutoSaveEnabled]);
+
+  useEffect(() => {
+    return () => {
+      setAutoSaveEnabled(false);
+    };
+  }, [setAutoSaveEnabled]);
+
+  const handleBack = useCallback(async () => {
+    const existingProject = await loadFromDB(projectId);
+    if (!existingProject) {
+      setSaveDraftDialogOpen(true);
+    } else {
+      router.push('/studio/workflows');
+    }
+  }, [projectId, loadFromDB, router]);
+
+  const handleSaveDraft = useCallback(async () => {
+    await saveToDB();
+    setSaveDraftDialogOpen(false);
+    router.push('/studio/workflows');
+  }, [saveToDB, router]);
+
+  const handleDiscardDraft = useCallback(() => {
+    setSaveDraftDialogOpen(false);
+    router.push('/studio/workflows');
+  }, [router]);
 
   const hasSelectedNodes = nodes.some(n => n.selected);
   const hasSelectedEdges = edges.some(e => e.selected);
   const selectedNodesCount = nodes.filter(n => n.selected).length;
   const selectedEdgesCount = edges.filter(e => e.selected).length;
 
-  // 判断是否可以在右键位置或针对选中项进行操作
   const canDeleteNodes = contextMenuTarget.type === 'node' || hasSelectedNodes;
   const canDeleteEdges = contextMenuTarget.type === 'edge' || hasSelectedEdges;
 
-  // Change Label 仅在选中单个元素（Node 或 Edge）时可用
   let canChangeLabel = false;
   if (contextMenuTarget.type === 'node') {
-    // 如果右键在节点上，如果是多选且包含此节点，则算多选；如果未选中或仅中此节点，算单选
     const isTargetSelected = nodes.find(n => n.id === contextMenuTarget.id)?.selected;
     canChangeLabel = isTargetSelected ? selectedNodesCount === 1 : true;
   } else if (contextMenuTarget.type === 'edge') {
     const isTargetSelected = edges.find(e => e.id === contextMenuTarget.id)?.selected;
     canChangeLabel = isTargetSelected ? selectedEdgesCount === 1 : true;
   } else {
-    // 在空白处右键，如果当前仅选中了一个节点或一个边
     canChangeLabel = (selectedNodesCount === 1 && selectedEdgesCount === 0) || (selectedNodesCount === 0 && selectedEdgesCount === 1);
   }
 
   const canChangeColor = contextMenuTarget.type === 'node' || hasSelectedNodes;
   const canChangeType = contextMenuTarget.type === 'node' || hasSelectedNodes;
+  const maxHistoryIndex = (currentProject?.historyOperations.length ?? 0) - 1;
 
   return (
-    <div className='h-full w-full'>
-      {/* <h1>Project</h1> */}
-      <ContextMenu>
-        <ContextMenuTrigger className="w-full h-full">
-          <ReactFlow
-            nodes={nodes}
-            edges={edges}
-            onNodesChange={onNodesChange}
-            onEdgesChange={onEdgesChange}
-            onConnect={onConnect}
-            onPaneContextMenu={onPaneContextMenu}
-            onNodeContextMenu={onNodeContextMenu}
-            onEdgeContextMenu={onEdgeContextMenu}
-            onNodeDragStart={onNodeDragStart}
-            onNodeDragStop={onNodeDragStop}
-            onInit={setReactFlowInstance}
-            fitView
+    <div className='h-full w-full flex flex-col'>
+      <div className='h-12 border-b bg-background flex items-center px-4 gap-2 shrink-0'>
+        <div className='flex items-center gap-2'>
+          <Button variant="ghost" size="sm" onClick={handleBack}>
+            ← Back
+          </Button>
+          <span className='text-sm font-medium'>{currentProject?.topic || 'Unnamed Project'}</span>
+        </div>
+        <div className='flex items-center gap-3 ml-auto'>
+          <div className="flex items-center space-x-2">
+            <Checkbox
+              id="auto-save"
+              checked={isAutoSaveEnabled}
+              onCheckedChange={handleAutoSaveChange}
+            />
+            <label
+              htmlFor="auto-save"
+              className="text-xs font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
+            >
+              Auto Save
+            </label>
+          </div>
+          <Button variant="ghost" size="sm" onClick={OpenRenameDialog}>
+            Rename
+          </Button>
+          <Button variant="ghost" size="sm" onClick={() => saveToDB()}>
+            Save to Local DB
+          </Button>
+          <Button 
+            variant="ghost" 
+            size="sm" 
+            onClick={Back}
+            disabled={currentHistoryIndexLocal < 0}
           >
-            <Background />
-            <Controls />
-            <MiniMap nodeColor={nodeColor} />
-          </ReactFlow>
-        </ContextMenuTrigger>
+            Undo
+          </Button>
+          <Button 
+            variant="ghost" 
+            size="sm" 
+            onClick={Forward}
+            disabled={currentHistoryIndexLocal >= maxHistoryIndex}
+          >
+            Redo
+          </Button>
+        </div>
+      </div>
 
-        <ContextMenuContent>
-          <ContextMenuItem onClick={AddNodes}>Add Nodes</ContextMenuItem>
-          <ContextMenuItem onClick={DeleteNodes} disabled={!canDeleteNodes}>Delete Nodes</ContextMenuItem>
-          <ContextMenuItem onClick={DeleteEdges} disabled={!canDeleteEdges}>Delete Edges</ContextMenuItem>
-          <ContextMenuSeparator />
-          <ContextMenuItem onClick={OpenLabelDialog} disabled={!canChangeLabel}>Change Label / Add Label</ContextMenuItem>
-          <ContextMenuItem onClick={OpenColorDialog} disabled={!canChangeColor}>Change Color</ContextMenuItem>
-          <ContextMenuSub>
-            <ContextMenuSubTrigger disabled={!canChangeType}>Change Node Type</ContextMenuSubTrigger>
-            <ContextMenuSubContent>
-              {NODE_TYPE_OPTIONS.map((type) => (
-                <ContextMenuItem key={type} onClick={() => ChangeNodeTypes(type)}>
-                  {type}
-                </ContextMenuItem>
-              ))}
-            </ContextMenuSubContent>
-          </ContextMenuSub>
-          <ContextMenuSeparator />
-          <ContextMenuItem onClick={Back} disabled={historyBackStack.length === 0}>Back</ContextMenuItem>
-          <ContextMenuItem onClick={Forward} disabled={historyForwardStack.length === 0}>Forward</ContextMenuItem>
-        </ContextMenuContent>
-      </ContextMenu>
+      <div className='flex-1 min-h-0'>
+        <ContextMenu>
+          <ContextMenuTrigger className="w-full h-full">
+            <ReactFlow
+              nodes={nodes}
+              edges={edges}
+              onNodesChange={onNodesChange}
+              onEdgesChange={onEdgesChange}
+              onConnect={onConnect}
+              onPaneContextMenu={onPaneContextMenu}
+              onNodeContextMenu={onNodeContextMenu}
+              onEdgeContextMenu={onEdgeContextMenu}
+              onNodeDragStart={onNodeDragStart}
+              onNodeDragStop={onNodeDragStop}
+              onInit={setReactFlowInstance}
+              fitView
+            >
+              <Background />
+              <Controls />
+              <MiniMap nodeColor={nodeColor} />
+            </ReactFlow>
+          </ContextMenuTrigger>
 
-      {/* 修改 Label 弹窗 */}
+          <ContextMenuContent>
+            <ContextMenuItem onClick={AddNodes}>Add Nodes</ContextMenuItem>
+            <ContextMenuItem onClick={DeleteNodes} disabled={!canDeleteNodes}>Delete Nodes</ContextMenuItem>
+            <ContextMenuItem onClick={DeleteEdges} disabled={!canDeleteEdges}>Delete Edges</ContextMenuItem>
+            <ContextMenuSeparator />
+            <ContextMenuItem onClick={OpenLabelDialog} disabled={!canChangeLabel}>Change Label / Add Label</ContextMenuItem>
+            <ContextMenuItem onClick={OpenColorDialog} disabled={!canChangeColor}>Change Color</ContextMenuItem>
+            <ContextMenuSub>
+              <ContextMenuSubTrigger disabled={!canChangeType}>Change Node Type</ContextMenuSubTrigger>
+              <ContextMenuSubContent>
+                {NODE_TYPE_OPTIONS.map((type) => (
+                  <ContextMenuItem key={type} onClick={() => ChangeNodeTypes(type)}>
+                    {type}
+                  </ContextMenuItem>
+                ))}
+              </ContextMenuSubContent>
+            </ContextMenuSub>
+            <ContextMenuSeparator />
+            <ContextMenuItem onClick={Back} disabled={currentHistoryIndexLocal < 0}>Back</ContextMenuItem>
+            <ContextMenuItem onClick={Forward} disabled={currentHistoryIndexLocal >= maxHistoryIndex}>Forward</ContextMenuItem>
+          </ContextMenuContent>
+        </ContextMenu>
+      </div>
+
       <Dialog open={labelDialogOpen} onOpenChange={setLabelDialogOpen}>
         <DialogContent>
           <DialogHeader>
@@ -790,7 +868,6 @@ const ProjectPage = () => {
         </DialogContent>
       </Dialog>
 
-      {/* 修改颜色弹窗 */}
       <Dialog open={colorDialogOpen} onOpenChange={setColorDialogOpen}>
         <DialogContent>
           <DialogHeader>
@@ -809,6 +886,27 @@ const ProjectPage = () => {
           <DialogFooter>
             <Button variant="outline" onClick={() => setColorDialogOpen(false)}>取消</Button>
             <Button onClick={ConfirmChangeColor}>确认</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={renameDialogOpen} onOpenChange={setRenameDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>重命名项目</DialogTitle>
+            <DialogDescription>修改当前项目的名称。</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <Label>项目名称</Label>
+            <Input
+              value={renameDraft}
+              onChange={(e) => setRenameDraft(e.target.value)}
+              placeholder="请输入项目名称"
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRenameDialogOpen(false)}>取消</Button>
+            <Button onClick={ConfirmRename}>确认</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -883,6 +981,21 @@ const ProjectPage = () => {
             <Button variant="outline" onClick={closeAddDialog}>取消</Button>
             <Button variant="secondary" onClick={ContinueAddNodes}>继续添加</Button>
             <Button onClick={ConfirmAddNodes}>确认</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={saveDraftDialogOpen} onOpenChange={setSaveDraftDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>保存草稿</DialogTitle>
+            <DialogDescription>
+              当前项目尚未保存到数据库。是否保存草稿？
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={handleDiscardDraft}>不保存</Button>
+            <Button onClick={handleSaveDraft}>保存草稿</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
