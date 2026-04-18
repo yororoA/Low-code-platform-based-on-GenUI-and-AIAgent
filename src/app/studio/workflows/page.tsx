@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { PlusIcon, LayoutGridIcon, ClockIcon, MoreVerticalIcon, TrashIcon, EditIcon, CopyIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -29,42 +29,24 @@ import {
 } from '@/components/ui/empty';
 import { Skeleton } from '@/components/ui/skeleton';
 import { generateHexId } from '@/lib/hexStr';
-
-interface Project {
-  id: string;
-  name: string;
-  description: string;
-  lastModified: string;
-  status: 'draft' | 'published';
-}
-
-const PROJECTS_PLACEHOLDER: Project[] = [
-  {
-    id: 'f3a2b1c0d9e8f7a6',
-    name: 'Customer Onboarding',
-    description: 'Automated workflow for new customer validation and CRM sync.',
-    lastModified: '2026-04-15',
-    status: 'published',
-  },
-  {
-    id: '1a2b3c4d5e6f7g8h',
-    name: 'Inventory Alert',
-    description: 'Trigger inventory restock requests based on threshold events.',
-    lastModified: '2026-04-12',
-    status: 'draft',
-  },
-  {
-    id: '8h7g6f5e4d3c2b1a',
-    name: 'Payment Reconciliation',
-    description: 'Daily stripe transaction mapping to internal ledger nodes.',
-    lastModified: '2026-04-10',
-    status: 'published',
-  },
-];
+import { useWorkflowStore } from '@/store/workflowStore';
+import { WorkflowProjectSummary } from '@/types';
 
 const WorkflowsHome = () => {
   const router = useRouter();
-  const [isLoading, setIsLoading] = React.useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [projects, setProjects] = useState<WorkflowProjectSummary[]>([]);
+  const { loadAllFromDB, deleteFromDB } = useWorkflowStore();
+
+  useEffect(() => {
+    const loadProjects = async () => {
+      setIsLoading(true);
+      const allProjects = await loadAllFromDB();
+      setProjects(allProjects);
+      setIsLoading(false);
+    };
+    loadProjects();
+  }, [loadAllFromDB]);
 
   const handleNewProject = () => {
     const newId = generateHexId();
@@ -75,14 +57,24 @@ const WorkflowsHome = () => {
     router.push(`/studio/workflows/project/${id}`);
   };
 
-  const handleDeleteProject = (id: string, e: React.MouseEvent) => {
+  const handleDeleteProject = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    console.log('Delete project:', id);
+    await deleteFromDB(id);
+    setProjects(prev => prev.filter(p => p.id !== id));
   };
 
   const handleDuplicateProject = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     console.log('Duplicate project:', id);
+  };
+
+  const formatDate = (date: Date) => {
+    const d = new Date(date);
+    return d.toLocaleDateString('zh-CN', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    });
   };
 
   return (
@@ -106,7 +98,7 @@ const WorkflowsHome = () => {
           </Tooltip>
         </div>
 
-        {PROJECTS_PLACEHOLDER.length === 0 ? (
+        {!isLoading && projects.length === 0 ? (
           <Empty className="min-h-[400px] border rounded-lg">
             <EmptyHeader>
               <EmptyMedia variant="icon">
@@ -143,7 +135,7 @@ const WorkflowsHome = () => {
                 </Card>
               ))
             ) : (
-              PROJECTS_PLACEHOLDER.map((project) => (
+              projects.map((project) => (
                 <Card 
                   key={project.id} 
                   className="group hover:shadow-lg transition-all duration-200 cursor-pointer border-muted-foreground/20 hover:border-primary/30" 
@@ -152,12 +144,9 @@ const WorkflowsHome = () => {
                   <CardHeader className="pb-3">
                     <div className="flex justify-between items-start">
                       <CardTitle className="text-xl group-hover:text-primary transition-colors">
-                        {project.name}
+                        {project.topic}
                       </CardTitle>
                       <div className="flex items-center gap-2">
-                        <Badge variant={project.status === 'published' ? 'default' : 'secondary'}>
-                          {project.status}
-                        </Badge>
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
                             <Button 
@@ -190,13 +179,13 @@ const WorkflowsHome = () => {
                       </div>
                     </div>
                     <CardDescription className="line-clamp-2 mt-2">
-                      {project.description}
+                      Workflow project with {project.id}
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
                     <div className="flex items-center text-xs text-muted-foreground gap-1">
                       <ClockIcon className="w-3 h-3" />
-                      <span>Last modified: {project.lastModified}</span>
+                      <span>Last modified: {formatDate(project.timestamp)}</span>
                     </div>
                   </CardContent>
                   <CardFooter className="pt-0 flex justify-end">
