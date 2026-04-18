@@ -217,16 +217,7 @@ const registry: Record<string, RenderFn> = {
     />
   ),
 
-  Select: (node, className, children) => (
-    <select key={node.id} className={className} defaultValue="">
-      {children.length > 0 ? children : <option value="">请选择</option>}
-    </select>
-  ),
-  Option: (node, className, children) => (
-    <option key={node.id} className={className} value={str(node, "value") ?? ""}>
-      {children.length > 0 ? children : str(node, "label") ?? ""}
-    </option>
-  ),
+
 
   Checkbox: (node, className) => (
     <Ui.Checkbox
@@ -674,6 +665,420 @@ const registry: Record<string, RenderFn> = {
   ChartTooltipContent: () => null,
   ChartLegend: () => null,
   ChartLegendContent: () => null,
+
+  // ─── Drawer ───
+  Drawer: (node, _cls, children) => (
+    <Ui.Drawer key={node.id} defaultOpen>{children}</Ui.Drawer>
+  ),
+  DrawerTrigger: (node, className, children) => (
+    <Ui.DrawerTrigger key={node.id} className={className} asChild={bool(node, "asChild")}>
+      {children.length === 1 ? children[0] : <span>{children}</span>}
+    </Ui.DrawerTrigger>
+  ),
+  DrawerContent: simple(Ui.DrawerContent),
+  DrawerHeader: simple(Ui.DrawerHeader),
+  DrawerTitle: simple(Ui.DrawerTitle),
+  DrawerDescription: simple(Ui.DrawerDescription),
+  DrawerFooter: simple(Ui.DrawerFooter),
+  DrawerClose: (node, className, children) => (
+    <Ui.DrawerClose key={node.id} className={className} asChild={bool(node, "asChild")}>
+      {children.length === 1 ? children[0] : <span>{children}</span>}
+    </Ui.DrawerClose>
+  ),
+
+  // ─── HoverCard ───
+  HoverCard: (node, _cls, children) => (
+    <Ui.HoverCard key={node.id}>{children}</Ui.HoverCard>
+  ),
+  HoverCardTrigger: (node, className, children) => (
+    <Ui.HoverCardTrigger key={node.id} className={className} asChild={bool(node, "asChild")}>
+      {children.length === 1 ? children[0] : <span>{children}</span>}
+    </Ui.HoverCardTrigger>
+  ),
+  HoverCardContent: (node, className, children) => (
+    <Ui.HoverCardContent key={node.id} className={className} align={oneOf(node, "align", ["start", "center", "end"] as const, "center")}>
+      {children}
+    </Ui.HoverCardContent>
+  ),
+
+  // ─── InputOTP ───
+  InputOTP: (node, className, children) => (
+    <Ui.InputOTP key={node.id} className={className} maxLength={num(node, "maxLength") ?? 6} disabled={bool(node, "disabled")}>
+      {children}
+    </Ui.InputOTP>
+  ),
+  InputOTPGroup: simple(Ui.InputOTPGroup),
+  InputOTPSlot: (node, className) => (
+    <Ui.InputOTPSlot key={node.id} className={className} index={num(node, "index") ?? 0} />
+  ),
+  InputOTPSeparator: simple(Ui.InputOTPSeparator),
+
+  // ─── Kbd ───
+  Kbd: simple(Ui.Kbd),
+  KbdGroup: simple(Ui.KbdGroup),
+
+  // ─── Menubar ───
+  Menubar: simple(Ui.Menubar),
+  MenubarMenu: (node, _cls, children) => (
+    <Ui.MenubarMenu key={node.id}>{children}</Ui.MenubarMenu>
+  ),
+  MenubarTrigger: simple(Ui.MenubarTrigger),
+  MenubarContent: simple(Ui.MenubarContent),
+  MenubarItem: (node, className, children) => (
+    <Ui.MenubarItem key={node.id} className={className} inset={bool(node, "inset")} variant={oneOf(node, "variant", ["default", "destructive"] as const, "default")}>
+      {children}
+    </Ui.MenubarItem>
+  ),
+  MenubarLabel: (node, className, children) => (
+    <Ui.MenubarLabel key={node.id} className={className} inset={bool(node, "inset")}>
+      {children}
+    </Ui.MenubarLabel>
+  ),
+  MenubarSeparator: (node, className) => (
+    <Ui.MenubarSeparator key={node.id} className={className} />
+  ),
+  MenubarShortcut: simple(Ui.MenubarShortcut),
+  MenubarCheckboxItem: (node, className, children) => (
+    <Ui.MenubarCheckboxItem key={node.id} className={className} checked={bool(node, "checked")}>
+      {children}
+    </Ui.MenubarCheckboxItem>
+  ),
+  MenubarRadioGroup: (node, _cls, children) => (
+    <Ui.MenubarRadioGroup key={node.id} value={str(node, "value")}>
+      {children}
+    </Ui.MenubarRadioGroup>
+  ),
+  MenubarRadioItem: (node, className, children) => (
+    <Ui.MenubarRadioItem key={node.id} className={className} value={str(node, "value") ?? ""}>
+      {children}
+    </Ui.MenubarRadioItem>
+  ),
+  MenubarSub: (node, _cls, children) => (
+    <Ui.MenubarSub key={node.id}>{children}</Ui.MenubarSub>
+  ),
+  MenubarSubTrigger: (node, className, children) => (
+    <Ui.MenubarSubTrigger key={node.id} className={className} inset={bool(node, "inset")}>
+      {children}
+    </Ui.MenubarSubTrigger>
+  ),
+  MenubarSubContent: simple(Ui.MenubarSubContent),
+
+  // ─── NativeSelect ───
+  NativeSelect: (node, className, children) => (
+    <Ui.NativeSelect key={node.id} className={className} size={oneOf(node, "size", ["sm", "default"] as const, "default")} disabled={bool(node, "disabled")}>
+      {children.length > 0 ? children : <Ui.NativeSelectOption value="">请选择</Ui.NativeSelectOption>}
+    </Ui.NativeSelect>
+  ),
+  NativeSelectOption: (node, className, children) => (
+    <Ui.NativeSelectOption key={node.id} className={className} value={str(node, "value") ?? ""} disabled={bool(node, "disabled")}>
+      {children.length > 0 ? children : str(node, "label") ?? ""}
+    </Ui.NativeSelectOption>
+  ),
+  NativeSelectOptGroup: (node, className, children) => (
+    <Ui.NativeSelectOptGroup key={node.id} className={className} label={str(node, "label") ?? ""}>
+      {children}
+    </Ui.NativeSelectOptGroup>
+  ),
+
+  // ─── NavigationMenu ───
+  NavigationMenu: (node, className, children) => (
+    <Ui.NavigationMenu key={node.id} className={className}>
+      {children}
+    </Ui.NavigationMenu>
+  ),
+  NavigationMenuList: simple(Ui.NavigationMenuList),
+  NavigationMenuItem: simple(Ui.NavigationMenuItem),
+  NavigationMenuTrigger: simple(Ui.NavigationMenuTrigger),
+  NavigationMenuContent: simple(Ui.NavigationMenuContent),
+  NavigationMenuLink: (node, className, children) => (
+    <Ui.NavigationMenuLink key={node.id} className={className} href={str(node, "href")}>
+      {children}
+    </Ui.NavigationMenuLink>
+  ),
+  NavigationMenuIndicator: simple(Ui.NavigationMenuIndicator),
+
+  // ─── Pagination ───
+  Pagination: simple(Ui.Pagination),
+  PaginationContent: simple(Ui.PaginationContent),
+  PaginationItem: simple(Ui.PaginationItem),
+  PaginationLink: (node, className, children) => (
+    <Ui.PaginationLink key={node.id} className={className} href={str(node, "href")} isActive={bool(node, "isActive")}>
+      {children}
+    </Ui.PaginationLink>
+  ),
+  PaginationPrevious: (node, className, children) => (
+    <Ui.PaginationPrevious key={node.id} className={className} href={str(node, "href")}>
+      {children}
+    </Ui.PaginationPrevious>
+  ),
+  PaginationNext: (node, className, children) => (
+    <Ui.PaginationNext key={node.id} className={className} href={str(node, "href")}>
+      {children}
+    </Ui.PaginationNext>
+  ),
+  PaginationEllipsis: (node, className) => (
+    <Ui.PaginationEllipsis key={node.id} className={className} />
+  ),
+
+  // ─── Popover ───
+  Popover: (node, _cls, children) => (
+    <Ui.Popover key={node.id} defaultOpen>{children}</Ui.Popover>
+  ),
+  PopoverTrigger: (node, className, children) => (
+    <Ui.PopoverTrigger key={node.id} className={className} asChild={bool(node, "asChild")}>
+      {children.length === 1 ? children[0] : <span>{children}</span>}
+    </Ui.PopoverTrigger>
+  ),
+  PopoverContent: (node, className, children) => (
+    <Ui.PopoverContent key={node.id} className={className} align={oneOf(node, "align", ["start", "center", "end"] as const, "center")}>
+      {children}
+    </Ui.PopoverContent>
+  ),
+  PopoverHeader: simple(Ui.PopoverHeader),
+  PopoverTitle: simple(Ui.PopoverTitle),
+  PopoverDescription: simple(Ui.PopoverDescription),
+
+  // ─── Progress ───
+  Progress: (node, className) => (
+    <Ui.Progress key={node.id} className={className} value={num(node, "value")} />
+  ),
+
+  // ─── RadioGroup ───
+  RadioGroup: (node, className, children) => (
+    <Ui.RadioGroup key={node.id} className={className} value={str(node, "value")}>
+      {children}
+    </Ui.RadioGroup>
+  ),
+  RadioGroupItem: (node, className) => (
+    <Ui.RadioGroupItem key={node.id} className={className} value={str(node, "value") ?? ""} disabled={bool(node, "disabled")} />
+  ),
+
+  // ─── Resizable ───
+  ResizablePanelGroup: (node, className, children) => (
+    <Ui.ResizablePanelGroup key={node.id} className={className} {...{ direction: oneOf(node, "direction", ["horizontal", "vertical"] as const, "horizontal") }}>
+      {children}
+    </Ui.ResizablePanelGroup>
+  ),
+  ResizablePanel: (node, className, children) => (
+    <Ui.ResizablePanel key={node.id} className={className} defaultSize={num(node, "defaultSize")}>
+      {children}
+    </Ui.ResizablePanel>
+  ),
+  ResizableHandle: (node, className) => (
+    <Ui.ResizableHandle key={node.id} className={className} withHandle={bool(node, "withHandle")} />
+  ),
+
+  // ─── ScrollArea ───
+  ScrollArea: simple(Ui.ScrollArea),
+  ScrollBar: (node, className) => (
+    <Ui.ScrollBar key={node.id} className={className} orientation={oneOf(node, "orientation", ["vertical", "horizontal"] as const, "vertical")} />
+  ),
+
+  // ─── Select ───
+  Select: (node, _cls, children) => (
+    <Ui.Select key={node.id} defaultValue={str(node, "defaultValue")}>{children}</Ui.Select>
+  ),
+  SelectTrigger: (node, className, children) => (
+    <Ui.SelectTrigger key={node.id} className={className} size={oneOf(node, "size", ["sm", "default"] as const, "default")}>
+      {children}
+    </Ui.SelectTrigger>
+  ),
+  SelectValue: (node) => (
+    <Ui.SelectValue key={node.id} placeholder={str(node, "placeholder")} />
+  ),
+  SelectContent: simple(Ui.SelectContent),
+  SelectItem: (node, className, children) => (
+    <Ui.SelectItem key={node.id} className={className} value={str(node, "value") ?? ""}>
+      {children}
+    </Ui.SelectItem>
+  ),
+  SelectGroup: simple(Ui.SelectGroup),
+  SelectLabel: simple(Ui.SelectLabel),
+  SelectSeparator: (node, className) => (
+    <Ui.SelectSeparator key={node.id} className={className} />
+  ),
+
+  // ─── Sheet ───
+  Sheet: (node, _cls, children) => (
+    <Ui.Sheet key={node.id} defaultOpen>{children}</Ui.Sheet>
+  ),
+  SheetTrigger: (node, className, children) => (
+    <Ui.SheetTrigger key={node.id} className={className} asChild={bool(node, "asChild")}>
+      {children.length === 1 ? children[0] : <span>{children}</span>}
+    </Ui.SheetTrigger>
+  ),
+  SheetContent: (node, className, children) => (
+    <Ui.SheetContent key={node.id} className={className} side={oneOf(node, "side", ["top", "right", "bottom", "left"] as const, "right")} showCloseButton={bool(node, "showCloseButton") ?? true}>
+      {children}
+    </Ui.SheetContent>
+  ),
+  SheetHeader: simple(Ui.SheetHeader),
+  SheetTitle: simple(Ui.SheetTitle),
+  SheetDescription: simple(Ui.SheetDescription),
+  SheetFooter: simple(Ui.SheetFooter),
+  SheetClose: (node, className, children) => (
+    <Ui.SheetClose key={node.id} className={className} asChild={bool(node, "asChild")}>
+      {children.length === 1 ? children[0] : <span>{children}</span>}
+    </Ui.SheetClose>
+  ),
+
+  // ─── Sidebar（简化预览，不包含完整交互） ───
+  SidebarProvider: (node, className, children) => (
+    <div key={node.id} data-slot="sidebar-provider" className={className}>
+      {children}
+    </div>
+  ),
+  Sidebar: (node, className, children) => (
+    <div key={node.id} data-slot="sidebar" className={cn("flex h-full w-64 flex-col bg-sidebar text-sidebar-foreground border-r", className)}>
+      {children}
+    </div>
+  ),
+  SidebarHeader: simple(Ui.SidebarHeader),
+  SidebarContent: simple(Ui.SidebarContent),
+  SidebarFooter: simple(Ui.SidebarFooter),
+  SidebarTrigger: simple(Ui.SidebarTrigger),
+  SidebarRail: simple(Ui.SidebarRail),
+  SidebarInset: simple(Ui.SidebarInset),
+  SidebarInput: (node, className) => (
+    <Ui.SidebarInput key={node.id} className={className} placeholder={str(node, "placeholder")} />
+  ),
+  SidebarSeparator: simple(Ui.SidebarSeparator),
+  SidebarGroup: simple(Ui.SidebarGroup),
+  SidebarGroupLabel: simple(Ui.SidebarGroupLabel),
+  SidebarGroupContent: simple(Ui.SidebarGroupContent),
+  SidebarGroupAction: simple(Ui.SidebarGroupAction),
+  SidebarMenu: simple(Ui.SidebarMenu),
+  SidebarMenuItem: simple(Ui.SidebarMenuItem),
+  SidebarMenuButton: (node, className, children) => (
+    <Ui.SidebarMenuButton key={node.id} className={className} isActive={bool(node, "isActive")} variant={oneOf(node, "variant", ["default", "outline"] as const, "default")} size={oneOf(node, "size", ["default", "sm", "lg"] as const, "default")}>
+      {children}
+    </Ui.SidebarMenuButton>
+  ),
+  SidebarMenuAction: (node, className, children) => (
+    <Ui.SidebarMenuAction key={node.id} className={className} showOnHover={bool(node, "showOnHover")}>
+      {children}
+    </Ui.SidebarMenuAction>
+  ),
+  SidebarMenuBadge: simple(Ui.SidebarMenuBadge),
+  SidebarMenuSub: simple(Ui.SidebarMenuSub),
+  SidebarMenuSubItem: simple(Ui.SidebarMenuSubItem),
+  SidebarMenuSubButton: (node, className, children) => (
+    <Ui.SidebarMenuSubButton key={node.id} className={className} isActive={bool(node, "isActive")} size={oneOf(node, "size", ["sm", "md"] as const, "md")}>
+      {children}
+    </Ui.SidebarMenuSubButton>
+  ),
+
+  // ─── Skeleton ───
+  Skeleton: simple(Ui.Skeleton),
+
+  // ─── Slider ───
+  Slider: (node, className) => (
+    <Ui.Slider key={node.id} className={className} defaultValue={node.props?.defaultValue as number[] | undefined} max={num(node, "max")} min={num(node, "min")} step={num(node, "step")} disabled={bool(node, "disabled")} />
+  ),
+
+  // ─── Spinner ───
+  Spinner: simple(Ui.Spinner),
+
+  // ─── Switch ───
+  Switch: (node, className) => (
+    <Ui.Switch key={node.id} className={className} checked={bool(node, "checked")} disabled={bool(node, "disabled")} size={oneOf(node, "size", ["sm", "default"] as const, "default")} />
+  ),
+
+  // ─── Tabs ───
+  Tabs: (node, className, children) => (
+    <Ui.Tabs key={node.id} className={className} defaultValue={str(node, "defaultValue")}>
+      {children}
+    </Ui.Tabs>
+  ),
+  TabsList: (node, className, children) => (
+    <Ui.TabsList key={node.id} className={className} variant={oneOf(node, "variant", ["default", "line"] as const, "default")}>
+      {children}
+    </Ui.TabsList>
+  ),
+  TabsTrigger: (node, className, children) => (
+    <Ui.TabsTrigger key={node.id} className={className} value={str(node, "value") ?? ""} disabled={bool(node, "disabled")}>
+      {children}
+    </Ui.TabsTrigger>
+  ),
+  TabsContent: (node, className, children) => (
+    <Ui.TabsContent key={node.id} className={className} value={str(node, "value") ?? ""}>
+      {children}
+    </Ui.TabsContent>
+  ),
+
+  // ─── Toggle ───
+  Toggle: (node, className, children) => (
+    <Ui.Toggle key={node.id} className={className} pressed={bool(node, "pressed")} disabled={bool(node, "disabled")} variant={oneOf(node, "variant", ["default", "outline"] as const, "default")} size={oneOf(node, "size", ["default", "sm", "lg"] as const, "default")}>
+      {children}
+    </Ui.Toggle>
+  ),
+
+  // ─── ToggleGroup ───
+  ToggleGroup: (node, className, children) => (
+    <Ui.ToggleGroup key={node.id} className={className} type={oneOf(node, "type", ["single", "multiple"] as const, "single")} variant={oneOf(node, "variant", ["default", "outline"] as const, "default")} size={oneOf(node, "size", ["default", "sm", "lg"] as const, "default")}>
+      {children}
+    </Ui.ToggleGroup>
+  ),
+  ToggleGroupItem: (node, className, children) => (
+    <Ui.ToggleGroupItem key={node.id} className={className} value={str(node, "value") ?? ""} disabled={bool(node, "disabled")}>
+      {children}
+    </Ui.ToggleGroupItem>
+  ),
+
+  // ─── Tooltip ───
+  TooltipProvider: (node, _cls, children) => (
+    <Ui.TooltipProvider key={node.id} delayDuration={num(node, "delayDuration") ?? 0}>
+      {children}
+    </Ui.TooltipProvider>
+  ),
+  Tooltip: (node, _cls, children) => (
+    <Ui.Tooltip key={node.id}>{children}</Ui.Tooltip>
+  ),
+  TooltipTrigger: (node, className, children) => (
+    <Ui.TooltipTrigger key={node.id} className={className} asChild={bool(node, "asChild")}>
+      {children.length === 1 ? children[0] : <span>{children}</span>}
+    </Ui.TooltipTrigger>
+  ),
+  TooltipContent: (node, className, children) => (
+    <Ui.TooltipContent key={node.id} className={className} side={oneOf(node, "side", ["top", "right", "bottom", "left"] as const, "top")} sideOffset={num(node, "sideOffset")}>
+      {children}
+    </Ui.TooltipContent>
+  ),
+
+  // ─── Empty ───
+  Empty: simple(Ui.Empty),
+  EmptyHeader: simple(Ui.EmptyHeader),
+  EmptyMedia: (node, className, children) => (
+    <Ui.EmptyMedia key={node.id} className={className} variant={oneOf(node, "variant", ["default", "icon"] as const, "default")}>
+      {children}
+    </Ui.EmptyMedia>
+  ),
+  EmptyTitle: simple(Ui.EmptyTitle),
+  EmptyDescription: simple(Ui.EmptyDescription),
+  EmptyContent: simple(Ui.EmptyContent),
+
+  // ─── Item ───
+  ItemGroup: simple(Ui.ItemGroup),
+  Item: (node, className, children) => (
+    <Ui.Item key={node.id} className={className} variant={oneOf(node, "variant", ["default", "outline", "muted"] as const, "default")} size={oneOf(node, "size", ["default", "sm"] as const, "default")}>
+      {children}
+    </Ui.Item>
+  ),
+  ItemMedia: (node, className, children) => (
+    <Ui.ItemMedia key={node.id} className={className} variant={oneOf(node, "variant", ["default", "icon", "image"] as const, "default")}>
+      {children}
+    </Ui.ItemMedia>
+  ),
+  ItemContent: simple(Ui.ItemContent),
+  ItemTitle: simple(Ui.ItemTitle),
+  ItemDescription: simple(Ui.ItemDescription),
+  ItemActions: simple(Ui.ItemActions),
+  ItemSeparator: simple(Ui.ItemSeparator),
+  ItemHeader: simple(Ui.ItemHeader),
+  ItemFooter: simple(Ui.ItemFooter),
+
+  // ─── Toaster ───
+  Toaster: () => <Ui.Toaster key="toaster" />,
 }
 
 // ── 渲染引擎 ──
