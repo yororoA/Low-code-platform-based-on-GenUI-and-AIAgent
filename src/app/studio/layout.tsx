@@ -2,6 +2,7 @@
 import { useEffect, type ReactNode, useMemo, useRef, useState, type MouseEvent } from "react"
 import Link from "next/link"
 import { usePathname, useSearchParams } from "next/navigation"
+import { HomeIcon, WorkflowIcon, HistoryIcon, ChevronRightIcon } from "lucide-react"
 import {
   Accordion,
   AccordionContent,
@@ -11,12 +12,35 @@ import {
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Separator } from "@/components/ui"
+import { ScrollArea } from "@/components/ui/scroll-area"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
+import {
+  Sidebar,
+  SidebarContent,
+  SidebarFooter,
+  SidebarGroup,
+  SidebarGroupContent,
+  SidebarGroupLabel,
+  SidebarHeader,
+  SidebarInset,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  SidebarProvider,
+  SidebarSeparator,
+  SidebarTrigger,
+} from "@/components/ui/sidebar"
 import { DBManager } from "@/lib/dbtest"
 import { cn } from "@/lib/utils"
 import { DataItemSummary } from "@/types"
 import { ChatDetailsContext } from "@/contexts";
 import { isUiTreeNode, renderNode, type UiTreeNode } from "@/lib/renderByAST";
 import { useChatStreamingStore } from "@/store/chatStreamingStore";
+import { useWorkflowStore } from "@/store/workflowStore";
 import { useShallow } from "zustand/shallow"
 
 
@@ -102,15 +126,18 @@ export default function StudioLayout({ children }: { children: ReactNode }) {
   const isHomeSelected = pathname === "/studio";
   const isPromptSectionSelected = pathname?.startsWith("/studio/prompts");
   const isHistorySelected = pathname === "/studio/prompts/history";
+  const isWorkflowProject = pathname?.includes("/studio/workflows/project/");
+  const shouldShowInspector = (isPromptSectionSelected && !isHistorySelected) || isWorkflowProject;
 
   const { setWorkersAllowed, terminateTask, terminateWorker } = useChatStreamingStore(
-    // 使用 useShallow 优化性能: 仅在依赖项发生变化时重新计算
     useShallow(state => ({
       setWorkersAllowed: state.setWorkersAllowed,
       terminateTask: state.terminateTask,
       terminateWorker: state.terminateWorker
     }))
   );
+
+  const { currentProject } = useWorkflowStore();
   useEffect(() => {
     setWorkersAllowed(!!window.Worker);
     return () => {
@@ -277,192 +304,298 @@ export default function StudioLayout({ children }: { children: ReactNode }) {
 
 
   return (
-    <div className="min-h-dvh w-full bg-background">
-      <div className="h-14 border-b flex items-center px-4">
-        <div className="font-semibold">GenUI + Agent Studio</div>
-        <div className="ml-auto flex gap-2">{/* actions */}</div>
-      </div>
-
-      <div className={cn("grid h-[calc(100dvh-56px)]", isPreviewMode ? "grid-cols-1" : "grid-cols-1 lg:grid-cols-[240px_1fr_300px]")}>
-        {!isPreviewMode ? (
-          <aside className="border-b p-3 flex flex-col gap-2 lg:border-b-0 lg:border-r overflow-y-auto">
-            <Accordion type="single" collapsible className="w-full">
-              <AccordionItem value="home" className="border-b-0">
-                <AccordionTrigger className="rounded-md px-2 py-2 text-sm hover:no-underline hover:bg-accent">
-                  <div className="flex w-full items-center justify-between gap-2">
-                    <Link
-                      href="/studio"
-                      className={cn(
-                        "rounded-md px-2 py-1.5 text-sm transition-colors",
-                        isHomeSelected
-                          ? "bg-primary/10 text-primary font-medium"
-                          : "hover:bg-accent text-foreground",
-                      )}
-                    >
-                      Home
-                    </Link>
-                    {isPromptSectionSelected && selectedPrompt ? (
-                      <span className="max-w-[110px] truncate rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
-                        {selectedPrompt.topic}
-                      </span>
-                    ) : null}
-                  </div>
-                </AccordionTrigger>
-                <AccordionContent className="pb-0">
-                  <div className="flex flex-col gap-1 pl-2">
-                    {details.slice(0, 5).map(({ id, topic }) => (
-                      <Link
-                        key={id}
-                        href={`/studio/prompts?id=${id}`}
-                        className={cn(
-                          "group flex items-center justify-between rounded-md border px-2 py-1.5 text-sm transition-colors",
-                          selectedPromptId === id
-                            ? "border-primary/40 bg-primary/10 text-primary"
-                            : "border-transparent text-muted-foreground hover:border-border hover:bg-accent hover:text-foreground",
-                        )}
-                      >
-                        {topic}
-                        {selectedPromptId === id ? (
-                          <span className="rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-semibold text-primary-foreground">
-                            选中
-                          </span>
-                        ) : null}
-                      </Link>
-                    ))}
-                    <Separator />
-                    <Link
-                      key={"historyPrompts"}
-                      href={`/studio/prompts/history`}
-                      className={cn(
-                        "group flex items-center justify-between rounded-md border px-2 py-1.5 text-sm transition-colors font-medium",
-                        isHistorySelected
-                          ? "border-primary/50 bg-primary/10 text-primary"
-                          : "border-primary/20 bg-primary/5 text-primary hover:border-primary/40 hover:bg-primary/10 hover:text-primary",
-                      )}
-                    >
-                      所有历史记录
-                    </Link>
-                  </div>
-                </AccordionContent>
-              </AccordionItem>
-            </Accordion>
-            {/* <Link href="/studio/projects">Projects</Link> */}
-            <Link href="/studio/workflows">Workflows</Link>
-            <Separator className="my-2" />
-            <div className="text-xs text-muted-foreground">Workspace Navigation</div>
-          </aside>
-        ) : null}
-        <main className="flex-1 min-w-0 h-full overflow-hidden">
-          <div className={cn("h-full", isPreviewMode ? "grid grid-cols-1 lg:grid-cols-[minmax(480px,58%)_1fr]" : "overflow-y-auto")}>
-            <ChatDetailsContext.Provider value={details}>
-              <div className={cn("h-full", isPreviewMode ? "overflow-y-auto border-r" : "")}>{children}</div>
-            </ChatDetailsContext.Provider>
-            {isPreviewMode ? (
-              <div className="h-full overflow-y-auto bg-muted/20 p-4">
-                <Card className="h-full">
-                  <CardHeader className="flex flex-row items-start justify-between gap-3">
-                    <div>
-                      <CardTitle className="text-base">{parsedPreview?.topic ?? "渲染预览"}</CardTitle>
-                      {/* <CardDescription>来自最后一条 STRUCTURE / STYLE 展开内容</CardDescription> */}
-                    </div>
-                    <Button variant="outline" size="sm" onClick={() => setPreviewPayload(null)}>
-                      关闭预览
-                    </Button>
-                  </CardHeader>
-                  <CardContent className="space-y-3">
-                    {parsedPreview?.parsedTree ? (
-                      <div className="rounded-md border bg-background p-3">
-                        {renderNode(parsedPreview.parsedTree, parsedPreview.styleClassById)}
-                      </div>
-                    ) : (
-                      <div className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
-                        {parsedPreview?.parseError || "暂无可渲染内容。"}
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
+    <SidebarProvider>
+      <div className="flex min-h-screen w-full">
+        {!isPreviewMode && (
+          <Sidebar variant="inset" className="border-r">
+            <SidebarHeader>
+              <div className="flex items-center gap-2 px-2 py-1">
+                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+                  <WorkflowIcon className="h-4 w-4" />
+                </div>
+                <div className="flex flex-col">
+                  <span className="text-sm font-semibold">GenUI Studio</span>
+                  <span className="text-xs text-muted-foreground">Agent Platform</span>
+                </div>
               </div>
-            ) : null}
-          </div>
-        </main>
-        {!isPreviewMode ? (
-          <aside ref={inspectorRef} className="hidden h-full border-l p-3 lg:flex lg:flex-col overflow-visible relative">
-            <div className="text-sm text-muted-foreground">Inspector</div>
-            <div className="mt-3 min-h-0 flex-1 overflow-y-auto overflow-x-visible [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
-              {timelineRounds.length === 0 ? (
-                <Card>
-                  <CardContent className="py-4 text-xs text-muted-foreground">
-                    暂无时间轴数据，发送消息后会在这里按轮次记录 user / assistant 信息。
-                  </CardContent>
-                </Card>
-              ) : (
-                <div className="relative pl-5">
-                  <div className="absolute left-2 top-0 bottom-0 w-px bg-foreground/25" />
-                  <Accordion type="multiple" className="space-y-2">
-                    {timelineRounds.map((round) => (
-                      <AccordionItem key={round.id} value={round.id} className={cn("relative overflow-visible rounded-md border border-foreground/20 bg-card px-2 py-1", activeAssistantTargetId === round.assistantTargetId ? "border-primary/60 bg-primary/5" : "")}>
-                        <span className="absolute -left-[18px] top-4 h-2.5 w-2.5 rounded-full border border-primary/70 bg-primary/30" />
-                        <div
-                          className="group relative"
-                          onMouseEnter={(event) => handleHoverEnter(event, round.userText)}
-                          onMouseLeave={handleHoverLeave}
+            </SidebarHeader>
+            
+            <SidebarSeparator />
+            
+            <SidebarContent>
+              <SidebarGroup>
+                <SidebarGroupLabel>导航</SidebarGroupLabel>
+                <SidebarGroupContent>
+                  <SidebarMenu>
+                    <SidebarMenuItem>
+                      <SidebarMenuButton 
+                        asChild 
+                        isActive={isHomeSelected}
+                        tooltip="主页"
+                      >
+                        <Link href="/studio">
+                          <HomeIcon className="h-4 w-4" />
+                          <span>Home</span>
+                        </Link>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                    
+                    <SidebarMenuItem>
+                      <SidebarMenuButton 
+                        asChild 
+                        isActive={pathname?.startsWith("/studio/workflows")}
+                        tooltip="工作流管理"
+                      >
+                        <Link href="/studio/workflows">
+                          <WorkflowIcon className="h-4 w-4" />
+                          <span>Workflows</span>
+                        </Link>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  </SidebarMenu>
+                </SidebarGroupContent>
+              </SidebarGroup>
+              
+              <SidebarSeparator />
+              
+              <SidebarGroup>
+                <SidebarGroupLabel>最近对话</SidebarGroupLabel>
+                <SidebarGroupContent>
+                  <ScrollArea className="h-[200px]">
+                    <div className="space-y-1 pr-2">
+                      {details.slice(0, 5).map(({ id, topic }) => (
+                        <Link
+                          key={id}
+                          href={`/studio/prompts?id=${id}`}
+                          className={cn(
+                            "group flex items-center justify-between rounded-md border px-2 py-1.5 text-sm transition-colors",
+                            selectedPromptId === id
+                              ? "border-primary/40 bg-primary/10 text-primary"
+                              : "border-transparent text-muted-foreground hover:border-border hover:bg-accent hover:text-foreground",
+                          )}
                         >
-                          <div className="px-2 pb-1 text-[11px] font-medium text-muted-foreground">
-                            {formatTimelineTime(round.timestamp)}
+                          <span className="truncate">{topic}</span>
+                          {selectedPromptId === id && (
+                            <span className="ml-2 rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-semibold text-primary-foreground">
+                              选中
+                            </span>
+                          )}
+                        </Link>
+                      ))}
+                    </div>
+                  </ScrollArea>
+                  
+                  <div className="mt-2">
+                    <SidebarMenuButton 
+                      asChild 
+                      isActive={isHistorySelected}
+                      className="w-full"
+                    >
+                      <Link href="/studio/prompts/history">
+                        <HistoryIcon className="h-4 w-4" />
+                        <span>所有历史记录</span>
+                        <ChevronRightIcon className="ml-auto h-4 w-4" />
+                      </Link>
+                    </SidebarMenuButton>
+                  </div>
+                </SidebarGroupContent>
+              </SidebarGroup>
+            </SidebarContent>
+            
+            <SidebarFooter>
+              <div className="text-xs text-muted-foreground px-2">
+                Workspace Navigation
+              </div>
+            </SidebarFooter>
+          </Sidebar>
+        )}
+        
+        <SidebarInset>
+          <div className="flex flex-col h-full">
+            {!isPreviewMode && (
+              <header className="flex h-14 items-center gap-4 border-b bg-background px-6 shrink-0">
+                <SidebarTrigger />
+                <div className="flex-1">
+                  <h1 className="text-lg font-semibold">GenUI + Agent Studio</h1>
+                </div>
+                <div className="flex items-center gap-2">
+                  {isPromptSectionSelected && selectedPrompt && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span className="max-w-[200px] truncate rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
+                          {selectedPrompt.topic}
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>{selectedPrompt.topic}</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  )}
+                </div>
+              </header>
+            )}
+            
+            <div className="flex flex-1 min-h-0">
+              <main className="flex-1 min-w-0 overflow-hidden">
+                {isPreviewMode ? (
+                  <div className="grid grid-cols-1 lg:grid-cols-[minmax(480px,58%)_1fr] h-full">
+                    <ChatDetailsContext.Provider value={details}>
+                      <ScrollArea className="h-full border-r [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+                        {children}
+                      </ScrollArea>
+                    </ChatDetailsContext.Provider>
+                    <ScrollArea className="h-full bg-muted/20 p-4">
+                      <Card>
+                        <CardHeader className="flex flex-row items-start justify-between gap-3">
+                          <div>
+                            <CardTitle className="text-base">{parsedPreview?.topic ?? "渲染预览"}</CardTitle>
                           </div>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className={cn("h-auto w-full justify-start px-2 py-1.5 text-left", activeAssistantTargetId === round.assistantTargetId ? "bg-primary/10 text-primary hover:bg-primary/15" : "")}
-                            onClick={() => handleTimelineScrollTo(round.assistantTargetId)}
-                          >
-                            <span className="line-clamp-2 text-xs">{round.assistantTitle}</span>
+                          <Button variant="outline" size="sm" onClick={() => setPreviewPayload(null)}>
+                            关闭预览
                           </Button>
+                        </CardHeader>
+                        <CardContent className="space-y-3">
+                          {parsedPreview?.parsedTree ? (
+                            <div className="rounded-md border bg-background p-3">
+                              {renderNode(parsedPreview.parsedTree, parsedPreview.styleClassById)}
+                            </div>
+                          ) : (
+                            <div className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
+                              {parsedPreview?.parseError || "暂无可渲染内容。"}
+                            </div>
+                          )}
+                        </CardContent>
+                      </Card>
+                    </ScrollArea>
+                  </div>
+                ) : (
+                  <ChatDetailsContext.Provider value={details}>
+                    {children}
+                  </ChatDetailsContext.Provider>
+                )}
+              </main>
+              
+              {!isPreviewMode && shouldShowInspector && (
+                <aside ref={inspectorRef} className="w-80 border-l bg-background flex flex-col shrink-0 overflow-hidden">
+                  <div className="border-b p-4 shrink-0">
+                    <h2 className="text-sm font-semibold">Inspector</h2>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {isWorkflowProject ? '操作历史记录' : '时间轴与对话记录'}
+                    </p>
+                  </div>
+                  
+                  <ScrollArea className="flex-1 min-h-0 p-4">
+                    {isWorkflowProject ? (
+                      currentProject && currentProject.historyOperations.length > 0 ? (
+                        <div className="relative pl-5">
+                          <div className="absolute left-2 top-0 bottom-0 w-px bg-foreground/25" />
+                          <div className="space-y-2">
+                            {currentProject.historyOperations.map((operation, index) => (
+                              <div 
+                                key={index} 
+                                className="relative rounded-md border border-foreground/20 bg-card px-3 py-2"
+                              >
+                                <span className="absolute -left-[18px] top-3 h-2.5 w-2.5 rounded-full border border-primary/70 bg-primary/30" />
+                                <div className="text-xs font-medium">{operation.description}</div>
+                                <div className="text-[11px] text-muted-foreground mt-1">
+                                  {new Date(operation.timestamp).toLocaleString('zh-CN', {
+                                    month: '2-digit',
+                                    day: '2-digit',
+                                    hour: '2-digit',
+                                    minute: '2-digit',
+                                    second: '2-digit',
+                                    hour12: false,
+                                  })}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
                         </div>
-                        <AccordionTrigger className="px-2 py-1.5 text-xs hover:no-underline">
-                          展开子项 ({round.children.length})
-                        </AccordionTrigger>
-                        <AccordionContent className="pb-1">
-                          <div className="space-y-1 pl-2">
-                            {round.children.map((child) => (
+                      ) : (
+                        <Card>
+                          <CardContent className="py-4 text-xs text-muted-foreground">
+                            暂无操作历史记录，进行节点操作后会在这里显示。
+                          </CardContent>
+                        </Card>
+                      )
+                    ) : timelineRounds.length === 0 ? (
+                      <Card>
+                        <CardContent className="py-4 text-xs text-muted-foreground">
+                          暂无时间轴数据，发送消息后会在这里按轮次记录 user / assistant 信息。
+                        </CardContent>
+                      </Card>
+                    ) : (
+                      <div className="relative pl-5">
+                        <div className="absolute left-2 top-0 bottom-0 w-px bg-foreground/25" />
+                        <Accordion type="multiple" className="space-y-2">
+                          {timelineRounds.map((round) => (
+                            <AccordionItem key={round.id} value={round.id} className={cn("relative overflow-visible rounded-md border border-foreground/20 bg-card px-2 py-1", activeAssistantTargetId === round.assistantTargetId ? "border-primary/60 bg-primary/5" : "")}>
+                              <span className="absolute -left-[18px] top-4 h-2.5 w-2.5 rounded-full border border-primary/70 bg-primary/30" />
                               <div
-                                key={child.id}
                                 className="group relative"
                                 onMouseEnter={(event) => handleHoverEnter(event, round.userText)}
                                 onMouseLeave={handleHoverLeave}
                               >
+                                <div className="px-2 pb-1 text-[11px] font-medium text-muted-foreground">
+                                  {formatTimelineTime(round.timestamp)}
+                                </div>
                                 <Button
-                                  variant="outline"
+                                  variant="ghost"
                                   size="sm"
-                                  className="h-auto w-full justify-start px-2 py-1 text-left text-xs"
-                                  onClick={() => handleTimelineScrollTo(child.targetId)}
+                                  className={cn("h-auto w-full justify-start px-2 py-1.5 text-left", activeAssistantTargetId === round.assistantTargetId ? "bg-primary/10 text-primary hover:bg-primary/15" : "")}
+                                  onClick={() => handleTimelineScrollTo(round.assistantTargetId)}
                                 >
-                                  <span className="line-clamp-2">{child.label}</span>
+                                  <span className="line-clamp-2 text-xs">{round.assistantTitle}</span>
                                 </Button>
                               </div>
-                            ))}
-                          </div>
-                        </AccordionContent>
-                      </AccordionItem>
-                    ))}
-                  </Accordion>
-                </div>
+                              <AccordionTrigger className="px-2 py-1.5 text-xs hover:no-underline">
+                                展开子项 ({round.children.length})
+                              </AccordionTrigger>
+                              <AccordionContent className="pb-1">
+                                <div className="space-y-1 pl-2">
+                                  {round.children.map((child) => (
+                                    <div
+                                      key={child.id}
+                                      className="group relative"
+                                      onMouseEnter={(event) => handleHoverEnter(event, round.userText)}
+                                      onMouseLeave={handleHoverLeave}
+                                    >
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="h-auto w-full justify-start px-2 py-1 text-left text-xs"
+                                        onClick={() => handleTimelineScrollTo(child.targetId)}
+                                      >
+                                        <span className="line-clamp-2">{child.label}</span>
+                                      </Button>
+                                    </div>
+                                  ))}
+                                </div>
+                              </AccordionContent>
+                            </AccordionItem>
+                          ))}
+                        </Accordion>
+                      </div>
+                    )}
+                  </ScrollArea>
+                  
+                  <Card
+                    className={cn(
+                      "pointer-events-none absolute right-full z-30 mr-2 w-64 border shadow-md transition-all duration-200 ease-out",
+                      hoverVisible ? "opacity-100 visible" : "opacity-0 invisible",
+                    )}
+                    style={{ top: hoverTop }}
+                  >
+                    <CardHeader className="py-2">
+                      <CardTitle className="text-xs">{hoverUserText}</CardTitle>
+                    </CardHeader>
+                  </Card>
+                </aside>
               )}
             </div>
-            <Card
-              className={cn(
-                "pointer-events-none absolute right-full z-30 mr-2 w-64 border shadow-md transition-all duration-200 ease-out",
-                hoverVisible ? "opacity-100 visible" : "opacity-0 invisible",
-              )}
-              style={{ top: hoverTop }}
-            >
-              <CardHeader className="py-2">
-                <CardTitle className="text-xs">{hoverUserText}</CardTitle>
-              </CardHeader>
-            </Card>
-          </aside>
-        ) : null}
+          </div>
+        </SidebarInset>
       </div>
-    </div>
+    </SidebarProvider>
   )
 }

@@ -1,9 +1,9 @@
 "use client"
 
-import BasicUI from "./basicUI"
+import HomeUI from "./homeUI"
 
 export default function StudioPage() {
   return (
-    <BasicUI />
+    <HomeUI />
   )
 }
