@@ -400,7 +400,7 @@ export default function StudioLayout({ children }: { children: ReactNode }) {
             <div className="flex flex-1 min-h-0">
               <main className="flex-1 min-w-0 overflow-hidden">
                 {isPreviewMode ? (
-                  <ResizablePanelGroup direction="horizontal" className="h-full min-h-0">
+                  <ResizablePanelGroup className="h-full min-h-0">
                     <ResizablePanel defaultSize={50} minSize={20} maxSize={80}>
                       <div className="h-full min-h-0 overflow-hidden overscroll-contain">
                         <ChatDetailsContext.Provider value={details}>
