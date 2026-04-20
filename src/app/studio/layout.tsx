@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, type ReactNode, useMemo, useRef, useState, type MouseEvent } from "react"
+import { Suspense, useEffect, type ReactNode, useMemo, useRef, useState, type MouseEvent } from "react"
 import Link from "next/link"
 import { usePathname, useSearchParams } from "next/navigation"
 import { HomeIcon, WorkflowIcon, HistoryIcon, ChevronRightIcon } from "lucide-react"
@@ -70,7 +70,7 @@ type TimelineRoundItem = {
   children: TimelineChildItem[]
 }
 
-export default function StudioLayout({ children }: { children: ReactNode }) {
+function StudioLayoutContent({ children }: { children: ReactNode }) {
   const [details, setDetails] = useState<DataItemSummary[]>([]);
   const [previewPayload, setPreviewPayload] = useState<StudioPreviewPayload | null>(null);
   const [timelineRounds, setTimelineRounds] = useState<TimelineRoundItem[]>([])
@@ -400,7 +400,7 @@ export default function StudioLayout({ children }: { children: ReactNode }) {
             <div className="flex flex-1 min-h-0">
               <main className="flex-1 min-w-0 overflow-hidden">
                 {isPreviewMode ? (
-                  <ResizablePanelGroup direction="horizontal" className="h-full min-h-0">
+                  <ResizablePanelGroup className="h-full min-h-0">
                     <ResizablePanel defaultSize={50} minSize={20} maxSize={80}>
                       <div className="h-full min-h-0 overflow-hidden overscroll-contain">
                         <ChatDetailsContext.Provider value={details}>
@@ -583,5 +583,13 @@ export default function StudioLayout({ children }: { children: ReactNode }) {
         </SidebarInset>
       </div>
     </SidebarProvider>
+  )
+}
+
+export default function StudioLayout({ children }: { children: ReactNode }) {
+  return (
+    <Suspense fallback={<div>Loading Studio...</div>}>
+      <StudioLayoutContent>{children}</StudioLayoutContent>
+    </Suspense>
   )
 }
