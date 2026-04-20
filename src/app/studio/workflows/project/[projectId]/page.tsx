@@ -1,6 +1,6 @@
 'use client';
 import React from 'react';
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import {
   ReactFlow, Background, Controls,
   type Node, type Edge,
@@ -9,7 +9,7 @@ import {
   type XYPosition,
   applyEdgeChanges, applyNodeChanges,
   EdgeChange, NodeChange, addEdge,
-  MiniMap,
+  MiniMap, MarkerType,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import {
@@ -42,13 +42,21 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { useParams, useRouter } from 'next/navigation';
 import { useWorkflowStore } from '@/store/workflowStore';
-import { HistoryOperationType } from '@/types';
-
-type WorkflowNodeType = 'input' | 'output' | 'default';
+import { HistoryOperationType, WorkflowNodeType, WorkflowNodeData, WorkflowRunPayload, AgentType } from '@/types';
+import {
+  WorkflowNodeActionsContext,
+  workflowNodeTypes,
+  WORKFLOW_TYPE_OPTIONS,
+  DEFAULT_NODE_COLORS,
+  getReactFlowNodeType,
+  getWorkflowTypeFromReactFlowNode,
+  getDefaultNodeData,
+  migrateLegacyNode,
+} from '@/components/workflow/WorkflowNodes';
 
 type AddNodeDraft = {
   label: string;
-  type: WorkflowNodeType;
+  workflowType: WorkflowNodeType;
   color: string;
 };
 
@@ -57,13 +65,12 @@ type GraphSnapshot = {
   edges: Edge[];
 };
 
-const NODE_TYPE_OPTIONS: WorkflowNodeType[] = ['input', 'output', 'default'];
 const EDGE_INSERT_DISTANCE_THRESHOLD = 36;
 
 const createDefaultDraft = (): AddNodeDraft => ({
   label: '',
-  type: 'default',
-  color: '#d1d5db',
+  workflowType: 'requirement',
+  color: '#8b5cf6',
 });
 
 const getInvertedTextColor = (hexColor: string) => {
@@ -75,7 +82,146 @@ const getInvertedTextColor = (hexColor: string) => {
   return brightness > 128 ? '#000000' : '#ffffff';
 };
 
-const nodeColor = (node: Node) => `${node.style?.backgroundColor ?? 'lightgray'}`;
+const nodeColor = (node: Node) => {
+  const wt = (node.data as Record<string, unknown>)?.workflowType as WorkflowNodeType | undefined;
+  if (wt && DEFAULT_NODE_COLORS[wt]) return DEFAULT_NODE_COLORS[wt];
+  return `${node.style?.backgroundColor ?? 'lightgray'}`;
+};
+
+function validateWorkflow(nodes: Node[], edges: Edge[]): { valid: boolean; errors: string[] } {
+  const errors: string[] = [];
+  const getNodeData = (n: Node) => n.data as WorkflowNodeData;
+
+  const inputNodes = nodes.filter(n => getNodeData(n)?.workflowType === 'input');
+  const agentNodes = nodes.filter(n => getNodeData(n)?.workflowType === 'agent');
+  const outputNodes = nodes.filter(n => getNodeData(n)?.workflowType === 'output');
+
+  if (inputNodes.length === 0) errors.push('缺少输入节点(预期的页面)');
+  if (inputNodes.length > 1) errors.push('只能有一个输入节点');
+  if (agentNodes.length === 0) errors.push('至少需要一个智能体节点');
+  if (outputNodes.length === 0) errors.push('缺少输出节点');
+
+  for (const node of nodes) {
+    const data = getNodeData(node);
+    if (!data) continue;
+    if (data.workflowType !== 'output' && !data.inputText?.trim()) {
+      errors.push(`节点 "${data.label || node.id}" 的输入框不能为空`);
+    }
+  }
+
+  for (const inputNode of inputNodes) {
+    const incomingEdges = edges.filter(e => e.target === inputNode.id);
+    if (incomingEdges.length > 0) errors.push('输入节点不应有入边');
+  }
+
+  for (const outputNode of outputNodes) {
+    const outgoingEdges = edges.filter(e => e.source === outputNode.id);
+    if (outgoingEdges.length > 0) errors.push('输出节点不应有出边');
+  }
+
+  for (const node of nodes) {
+    const connectedEdges = edges.filter(e => e.source === node.id || e.target === node.id);
+    if (connectedEdges.length === 0) {
+      const data = getNodeData(node);
+      errors.push(`节点 "${data?.label || node.id}" 是孤立的，未连接到任何边`);
+    }
+  }
+
+  const visited = new Set<string>();
+  const queue = inputNodes.map(n => n.id);
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    if (visited.has(current)) continue;
+    visited.add(current);
+    for (const edge of edges) {
+      if (edge.source === current && !visited.has(edge.target)) {
+        queue.push(edge.target);
+      }
+    }
+  }
+  const outputIds = new Set(outputNodes.map(n => n.id));
+  for (const outputId of outputIds) {
+    if (!visited.has(outputId)) {
+      errors.push('输出节点不可从输入节点到达，请检查连接');
+    }
+  }
+
+  const nodeTypeMap = new Map<string, WorkflowNodeType>(
+    nodes.map((n) => [n.id, getNodeData(n)?.workflowType || 'requirement']),
+  );
+  const adjacency = new Map<string, string[]>();
+  for (const node of nodes) adjacency.set(node.id, []);
+  for (const edge of edges) adjacency.get(edge.source)?.push(edge.target);
+
+  const visitState = new Map<string, 0 | 1 | 2>();
+  const stack: string[] = [];
+  let hasInvalidCycle = false;
+
+  const dfs = (nodeId: string) => {
+    if (hasInvalidCycle) return;
+    visitState.set(nodeId, 1);
+    stack.push(nodeId);
+
+    for (const nextId of adjacency.get(nodeId) || []) {
+      if (hasInvalidCycle) break;
+
+      if (nextId === nodeId && nodeTypeMap.get(nodeId) !== 'condition') {
+        hasInvalidCycle = true;
+        break;
+      }
+
+      const nextState = visitState.get(nextId) || 0;
+      if (nextState === 0) {
+        dfs(nextId);
+      } else if (nextState === 1) {
+        const cycleStart = stack.lastIndexOf(nextId);
+        const cycleNodeIds = cycleStart >= 0 ? stack.slice(cycleStart) : [nextId];
+        const hasConditionNode = cycleNodeIds.some((id) => nodeTypeMap.get(id) === 'condition');
+        if (!hasConditionNode) {
+          hasInvalidCycle = true;
+          break;
+        }
+      }
+    }
+
+    stack.pop();
+    visitState.set(nodeId, 2);
+  };
+
+  for (const node of nodes) {
+    if ((visitState.get(node.id) || 0) === 0) dfs(node.id);
+    if (hasInvalidCycle) break;
+  }
+
+  if (hasInvalidCycle) {
+    errors.push('检测到不包含条件节点的循环依赖，仅允许通过条件节点形成循环重试');
+  }
+
+  return { valid: errors.length === 0, errors };
+}
+
+function buildWorkflowPayload(nodes: Node[], edges: Edge[]): WorkflowRunPayload {
+  const getNodeData = (n: Node) => n.data as WorkflowNodeData;
+  return {
+    nodes: nodes.map(n => {
+      const data = getNodeData(n);
+      return {
+        id: n.id,
+        type: data?.workflowType || 'requirement',
+        label: data?.label || '',
+        inputText: data?.inputText || '',
+        agentType: data?.agentType,
+      };
+    }),
+    edges: edges.map(e => ({
+      id: e.id,
+      source: e.source,
+      target: e.target,
+      sourceHandle: e.sourceHandle,
+      targetHandle: e.targetHandle,
+    })),
+  };
+}
 
 const ProjectPage = () => {
   const params = useParams<{ projectId: string }>();
@@ -111,16 +257,24 @@ const ProjectPage = () => {
   const [labelDialogOpen, setLabelDialogOpen] = useState(false);
   const [labelDraft, setLabelDraft] = useState<string>('');
   const [colorDialogOpen, setColorDialogOpen] = useState(false);
-  const [colorDraft, setColorDraft] = useState<string>('#d1d5db');
+  const [colorDraft, setColorDraft] = useState<string>('#8b5cf6');
   const [renameDialogOpen, setRenameDialogOpen] = useState(false);
   const [renameDraft, setRenameDraft] = useState<string>('');
   const [saveDraftDialogOpen, setSaveDraftDialogOpen] = useState(false);
+  const [validationDialogOpen, setValidationDialogOpen] = useState(false);
+  const [validationErrors, setValidationErrors] = useState<string[]>([]);
 
   const [queuedDrafts, setQueuedDrafts] = useState<AddNodeDraft[]>([]);
   const [draft, setDraft] = useState<AddNodeDraft>(createDefaultDraft);
 
+  const [isRunning, setIsRunning] = useState(false);
+  const [focusedNodeId, setFocusedNodeId] = useState<string | null>(null);
+  const [runStatus, setRunStatus] = useState<string>('');
+  const [runResult, setRunResult] = useState<string>('');
+
   const nodesRef = useRef(nodes);
   const edgesRef = useRef(edges);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const dragSessionRef = useRef<{
     nodeId: string;
@@ -129,18 +283,11 @@ const ProjectPage = () => {
   } | null>(null);
   const initializedProjectIdRef = useRef<string | null>(null);
 
-  useEffect(() => {
-    nodesRef.current = nodes;
-  }, [nodes]);
+  useEffect(() => { nodesRef.current = nodes; }, [nodes]);
+  useEffect(() => { edgesRef.current = edges; }, [edges]);
 
   useEffect(() => {
-    edgesRef.current = edges;
-  }, [edges]);
-
-  useEffect(() => {
-    if (projectId) {
-      initProject(projectId);
-    }
+    if (projectId) initProject(projectId);
   }, [projectId, initProject]);
 
   useEffect(() => {
@@ -148,7 +295,7 @@ const ProjectPage = () => {
     if (initializedProjectIdRef.current === currentProject.id) return;
 
     initializedProjectIdRef.current = currentProject.id;
-    const projectNodes = currentProject.nodes;
+    const projectNodes = currentProject.nodes.map(migrateLegacyNode);
     const projectEdges = currentProject.edges;
 
     queueMicrotask(() => {
@@ -167,7 +314,7 @@ const ProjectPage = () => {
       Array.isArray(currentProject.historySnapshots) &&
       currentProject.historySnapshots.length === operationCount + 1
         ? currentProject.historySnapshots.map((snapshot) => ({
-          nodes: structuredClone(snapshot.nodes),
+          nodes: structuredClone(snapshot.nodes).map(migrateLegacyNode),
           edges: structuredClone(snapshot.edges),
         }))
         : [baseSnapshot];
@@ -193,7 +340,7 @@ const ProjectPage = () => {
     const targetSnapshot = historySnapshotsLocal[targetHistoryIndex + 1];
     if (!targetSnapshot) return;
 
-    const restoredNodes = structuredClone(targetSnapshot.nodes);
+    const restoredNodes = structuredClone(targetSnapshot.nodes).map(migrateLegacyNode);
     const restoredEdges = structuredClone(targetSnapshot.edges);
     nodesRef.current = restoredNodes;
     edgesRef.current = restoredEdges;
@@ -201,9 +348,7 @@ const ProjectPage = () => {
     setEdges(restoredEdges);
     setCurrentHistoryIndexLocal(targetHistoryIndex);
 
-    if (syncStore) {
-      goToHistoryIndex(targetHistoryIndex);
-    }
+    if (syncStore) goToHistoryIndex(targetHistoryIndex);
   }, [historySnapshotsLocal, goToHistoryIndex]);
 
   const pushHistoryEntry = useCallback((
@@ -253,9 +398,7 @@ const ProjectPage = () => {
     };
     const next = updater(current);
 
-    if (next.nodes === current.nodes && next.edges === current.edges) {
-      return;
-    }
+    if (next.nodes === current.nodes && next.edges === current.edges) return;
 
     nodesRef.current = next.nodes;
     edgesRef.current = next.edges;
@@ -277,6 +420,18 @@ const ProjectPage = () => {
     }
   }, [updateGraph, pushHistoryEntry]);
 
+  const updateNodeData = useCallback((nodeId: string, updates: Partial<WorkflowNodeData>) => {
+    setNodes(prevNodes => {
+      const nextNodes = prevNodes.map(node => {
+        if (node.id !== nodeId) return node;
+        return { ...node, data: { ...node.data, ...updates } };
+      });
+      nodesRef.current = nextNodes;
+      updateGraph(nextNodes, edgesRef.current, false);
+      return nextNodes;
+    });
+  }, [updateGraph]);
+
   const startDragHistory = useCallback((node: Node) => {
     dragSessionRef.current = {
       nodeId: node.id,
@@ -288,16 +443,9 @@ const ProjectPage = () => {
   const commitDragHistory = useCallback((node: Node) => {
     const session = dragSessionRef.current;
     dragSessionRef.current = null;
-
-    if (!session || session.nodeId !== node.id) {
-      return;
-    }
-
+    if (!session || session.nodeId !== node.id) return;
     const moved = session.startPosition.x !== node.position.x || session.startPosition.y !== node.position.y;
-    if (!moved) {
-      return;
-    }
-
+    if (!moved) return;
     pushHistoryEntry('node_moved', 'Node Moved', [node.id], {
       nodes: structuredClone(nodesRef.current),
       edges: structuredClone(edgesRef.current),
@@ -315,43 +463,26 @@ const ProjectPage = () => {
   }, [resetAddDialogState]);
 
   const screenToFlowPosition = useCallback((clientX: number, clientY: number): XYPosition => {
-    if (!reactFlowInstance) {
-      return { x: clientX, y: clientY };
-    }
+    if (!reactFlowInstance) return { x: clientX, y: clientY };
     return reactFlowInstance.screenToFlowPosition({ x: clientX, y: clientY });
   }, [reactFlowInstance]);
 
   const pointToSegmentDistance = useCallback(
     (p: XYPosition, a: XYPosition, b: XYPosition) => {
-      const abx = b.x - a.x;
-      const aby = b.y - a.y;
-      const apx = p.x - a.x;
-      const apy = p.y - a.y;
+      const abx = b.x - a.x; const aby = b.y - a.y;
+      const apx = p.x - a.x; const apy = p.y - a.y;
       const abLenSq = abx * abx + aby * aby;
-
-      if (abLenSq === 0) {
-        return Math.hypot(p.x - a.x, p.y - a.y);
-      }
-
+      if (abLenSq === 0) return Math.hypot(p.x - a.x, p.y - a.y);
       const t = Math.max(0, Math.min(1, (apx * abx + apy * aby) / abLenSq));
-      const closest = {
-        x: a.x + abx * t,
-        y: a.y + aby * t,
-      };
+      const closest = { x: a.x + abx * t, y: a.y + aby * t };
       return Math.hypot(p.x - closest.x, p.y - closest.y);
-    },
-    [],
+    }, [],
   );
 
   const getNodeCenter = useCallback((node: Node): XYPosition => {
     const width = node.measured?.width ?? node.width ?? 0;
     const height = node.measured?.height ?? node.height ?? 0;
-    const x = node.position.x;
-    const y = node.position.y;
-    return {
-      x: x + width / 2,
-      y: y + height / 2,
-    };
+    return { x: node.position.x + width / 2, y: node.position.y + height / 2 };
   }, []);
 
   const findClosestEdgeForNode = useCallback((draggedNode: Node) => {
@@ -359,41 +490,29 @@ const ProjectPage = () => {
     const nodeMap = new Map(nodes.map((node) => [node.id, node]));
     let matchedEdge: Edge | null = null;
     let minDistance = Number.POSITIVE_INFINITY;
-
     for (const edge of edges) {
+      // 避免把与当前拖拽节点直接相连的边进行“拆分插入”，否则会产生自环边（如 a->a）
+      if (edge.source === draggedNode.id || edge.target === draggedNode.id) continue;
       const sourceNode = nodeMap.get(edge.source);
       const targetNode = nodeMap.get(edge.target);
-      if (!sourceNode || !targetNode) {
-        continue;
-      }
-
+      if (!sourceNode || !targetNode) continue;
       const sourceCenter = getNodeCenter(sourceNode);
       const targetCenter = getNodeCenter(targetNode);
       const distance = pointToSegmentDistance(draggedCenter, sourceCenter, targetCenter);
-
-      if (distance < minDistance) {
-        minDistance = distance;
-        matchedEdge = edge;
-      }
+      if (distance < minDistance) { minDistance = distance; matchedEdge = edge; }
     }
-
-    if (minDistance > EDGE_INSERT_DISTANCE_THRESHOLD) {
-      return null;
-    }
-
+    if (minDistance > EDGE_INSERT_DISTANCE_THRESHOLD) return null;
     return matchedEdge;
   }, [edges, getNodeCenter, nodes, pointToSegmentDistance]);
 
   const onNodesChange = useCallback(
     (changes: NodeChange<Node>[]) => {
       const hasPositionChange = changes.some((change) => change.type === 'position');
-
       applyGraphUpdate(({ nodes: currentNodes, edges: currentEdges }) => ({
         nodes: applyNodeChanges(changes, currentNodes),
         edges: currentEdges,
       }), { recordHistory: !hasPositionChange });
-    },
-    [applyGraphUpdate],
+    }, [applyGraphUpdate],
   );
 
   const onEdgesChange = useCallback(
@@ -402,8 +521,7 @@ const ProjectPage = () => {
         nodes: currentNodes,
         edges: applyEdgeChanges(changes, currentEdges),
       }));
-    },
-    [applyGraphUpdate],
+    }, [applyGraphUpdate],
   );
 
   const onConnect = useCallback(
@@ -412,8 +530,7 @@ const ProjectPage = () => {
         nodes: currentNodes,
         edges: addEdge(params, currentEdges),
       }), { operationType: 'edge_added', description: 'Edge Added' });
-    },
-    [applyGraphUpdate],
+    }, [applyGraphUpdate],
   );
 
   const onPaneContextMenu = useCallback((event: MouseEvent | React.MouseEvent<Element, MouseEvent>) => {
@@ -441,18 +558,16 @@ const ProjectPage = () => {
   const onNodeDragStop = useCallback((_: React.MouseEvent, draggedNode: Node) => {
     commitDragHistory(draggedNode);
 
-    if (draggedNode.type !== 'default') {
-      return;
-    }
+    const wt = getWorkflowTypeFromReactFlowNode(draggedNode.type);
+    if (wt === 'input' || wt === 'output') return;
 
     const closestEdge = findClosestEdgeForNode(draggedNode);
-    if (!closestEdge) {
-      return;
-    }
+    if (!closestEdge) return;
 
     applyGraphUpdate(({ nodes: currentNodes, edges: currentEdges }) => {
       const targetEdge = currentEdges.find((edge) => edge.id === closestEdge.id);
-      if (!targetEdge) {
+      if (!targetEdge) return { nodes: currentNodes, edges: currentEdges };
+      if (targetEdge.source === draggedNode.id || targetEdge.target === draggedNode.id) {
         return { nodes: currentNodes, edges: currentEdges };
       }
 
@@ -478,25 +593,14 @@ const ProjectPage = () => {
 
   const appendCurrentDraftToQueue = useCallback(() => {
     const normalizedLabel = draft.label.trim();
-    if (!normalizedLabel) {
-      return false;
-    }
-
-    setQueuedDrafts((prev) => [...prev, {
-      ...draft,
-      label: normalizedLabel,
-    }]);
+    if (!normalizedLabel) return false;
+    setQueuedDrafts((prev) => [...prev, { ...draft, label: normalizedLabel }]);
     setDraft((prev) => ({ ...prev, label: '' }));
     return true;
   }, [draft]);
 
-  const AddNodes = () => {
-    setAddDialogOpen(true);
-  };
-
-  const ContinueAddNodes = () => {
-    appendCurrentDraftToQueue();
-  };
+  const AddNodes = () => { setAddDialogOpen(true); };
+  const ContinueAddNodes = () => { appendCurrentDraftToQueue(); };
 
   const ConfirmAddNodes = () => {
     const normalizedLabel = draft.label.trim();
@@ -504,10 +608,7 @@ const ProjectPage = () => {
       ? [...queuedDrafts, { ...draft, label: normalizedLabel }]
       : [...queuedDrafts];
 
-    if (!allDrafts.length) {
-      closeAddDialog();
-      return;
-    }
+    if (!allDrafts.length) { closeAddDialog(); return; }
 
     const newNodeIds = allDrafts.map((_, index) => `node-${Date.now()}-${index}`);
     const operationType: HistoryOperationType = allDrafts.length > 1 ? 'nodes_added' : 'node_added';
@@ -517,11 +618,11 @@ const ProjectPage = () => {
         ...currentNodes,
         ...allDrafts.map((item, index) => ({
           id: newNodeIds[index],
-          data: { label: item.label },
-          type: item.type,
+          data: getDefaultNodeData(item.workflowType),
+          type: getReactFlowNodeType(item.workflowType),
           position: {
-            x: lastContextPosition.x + (index % 3) * 180,
-            y: lastContextPosition.y + Math.floor(index / 3) * 100,
+            x: lastContextPosition.x + (index % 3) * 260,
+            y: lastContextPosition.y + Math.floor(index / 3) * 120,
           },
           style: {
             backgroundColor: item.color,
@@ -538,23 +639,13 @@ const ProjectPage = () => {
   const DeleteNodes = () => {
     const selectedNodeIds = new Set(nodes.filter((node) => node.selected).map((node) => node.id));
     let nodeIdsToDelete = new Set<string>();
-
     if (contextMenuTarget.type === 'node' && contextMenuTarget.id) {
-      if (selectedNodeIds.has(contextMenuTarget.id)) {
-        nodeIdsToDelete = selectedNodeIds;
-      } else {
-        nodeIdsToDelete = new Set([contextMenuTarget.id]);
-      }
+      nodeIdsToDelete = selectedNodeIds.has(contextMenuTarget.id) ? selectedNodeIds : new Set([contextMenuTarget.id]);
     } else {
       nodeIdsToDelete = selectedNodeIds;
     }
-
-    if (!nodeIdsToDelete.size) {
-      return;
-    }
-
+    if (!nodeIdsToDelete.size) return;
     const operationType: HistoryOperationType = nodeIdsToDelete.size > 1 ? 'nodes_deleted' : 'node_deleted';
-
     applyGraphUpdate(({ nodes: currentNodes, edges: currentEdges }) => ({
       nodes: currentNodes.filter((node) => !nodeIdsToDelete.has(node.id)),
       edges: currentEdges.filter((edge) => !nodeIdsToDelete.has(edge.source) && !nodeIdsToDelete.has(edge.target)),
@@ -564,21 +655,13 @@ const ProjectPage = () => {
   const DeleteEdges = () => {
     const selectedEdgeIds = new Set(edgesRef.current.filter((e) => e.selected).map((e) => e.id));
     let edgeIdsToDelete = new Set<string>();
-
     if (contextMenuTarget.type === 'edge' && contextMenuTarget.id) {
-      if (selectedEdgeIds.has(contextMenuTarget.id)) {
-        edgeIdsToDelete = selectedEdgeIds;
-      } else {
-        edgeIdsToDelete = new Set([contextMenuTarget.id]);
-      }
+      edgeIdsToDelete = selectedEdgeIds.has(contextMenuTarget.id) ? selectedEdgeIds : new Set([contextMenuTarget.id]);
     } else {
       edgeIdsToDelete = selectedEdgeIds;
     }
-
     if (!edgeIdsToDelete.size) return;
-
     const operationType: HistoryOperationType = edgeIdsToDelete.size > 1 ? 'edges_deleted' : 'edge_deleted';
-
     applyGraphUpdate(({ nodes: currentNodes, edges: currentEdges }) => ({
       nodes: currentNodes,
       edges: currentEdges.filter((edge) => !edgeIdsToDelete.has(edge.id)),
@@ -588,7 +671,6 @@ const ProjectPage = () => {
   const OpenLabelDialog = () => {
     const selectedNodes = nodesRef.current.filter((n) => n.selected);
     const selectedEdges = edgesRef.current.filter((e) => e.selected);
-
     if (selectedNodes.length === 1 && selectedEdges.length === 0) {
       setLabelDraft((selectedNodes[0].data.label as string) || '');
       setLabelDialogOpen(true);
@@ -602,7 +684,6 @@ const ProjectPage = () => {
     applyGraphUpdate(({ nodes: currentNodes, edges: currentEdges }) => {
       const selectedNodes = currentNodes.filter((n) => n.selected);
       const selectedEdges = currentEdges.filter((e) => e.selected);
-
       if (selectedNodes.length === 1) {
         return {
           nodes: currentNodes.map((n) =>
@@ -627,9 +708,9 @@ const ProjectPage = () => {
     const selectedNodes = nodesRef.current.filter((n) => n.selected);
     const selectedEdges = edgesRef.current.filter((e) => e.selected);
     if (selectedNodes.length > 0) {
-      setColorDraft(selectedNodes[0].style?.backgroundColor as string || '#d1d5db');
+      setColorDraft(selectedNodes[0].style?.backgroundColor as string || '#8b5cf6');
     } else if (selectedEdges.length > 0) {
-      setColorDraft(selectedEdges[0].style?.stroke as string || '#d1d5db');
+      setColorDraft(selectedEdges[0].style?.stroke as string || '#8b5cf6');
     }
     setColorDialogOpen(true);
   };
@@ -638,18 +719,10 @@ const ProjectPage = () => {
     applyGraphUpdate(({ nodes: currentNodes, edges: currentEdges }) => {
       const selectedNodeIds = new Set(currentNodes.filter((n) => n.selected).map((n) => n.id));
       const selectedEdgeIds = new Set(currentEdges.filter((e) => e.selected).map((e) => e.id));
-
       return {
         nodes: currentNodes.map((n) =>
           selectedNodeIds.has(n.id)
-            ? {
-                ...n,
-                style: {
-                  ...n.style,
-                  backgroundColor: colorDraft,
-                  color: getInvertedTextColor(colorDraft),
-                },
-              }
+            ? { ...n, style: { ...n.style, backgroundColor: colorDraft, color: getInvertedTextColor(colorDraft) } }
             : n
         ),
         edges: currentEdges.map((e) =>
@@ -660,38 +733,41 @@ const ProjectPage = () => {
     setColorDialogOpen(false);
   };
 
-  const ChangeNodeTypes = (type: WorkflowNodeType) => {
+  const ChangeNodeTypes = (workflowType: WorkflowNodeType) => {
     applyGraphUpdate(({ nodes: currentNodes, edges: currentEdges }) => {
       const selectedNodeIds = new Set(currentNodes.filter((n) => n.selected).map((n) => n.id));
       return {
-        nodes: currentNodes.map((n) => (selectedNodeIds.has(n.id) ? { ...n, type } : n)),
-        edges: currentEdges, 
+        nodes: currentNodes.map((n) => {
+          if (!selectedNodeIds.has(n.id)) return n;
+          const existingData = n.data as WorkflowNodeData;
+          return {
+            ...n,
+            type: getReactFlowNodeType(workflowType),
+            data: {
+              ...existingData,
+              workflowType,
+              agentType: workflowType === 'agent' ? (existingData.agentType || 'review') : undefined,
+            },
+          };
+        }),
+        edges: currentEdges,
       };
     }, { operationType: 'type_changed', description: 'Type Changed' });
   };
 
   const Back = useCallback(() => {
-    if (currentHistoryIndexLocal < 0) {
-      return;
-    }
-
+    if (currentHistoryIndexLocal < 0) return;
     restoreSnapshotAt(currentHistoryIndexLocal - 1);
   }, [currentHistoryIndexLocal, restoreSnapshotAt]);
 
   const Forward = useCallback(() => {
     const maxHistoryIndex = (currentProject?.historyOperations.length ?? 0) - 1;
-    if (currentHistoryIndexLocal >= maxHistoryIndex) {
-      return;
-    }
-
+    if (currentHistoryIndexLocal >= maxHistoryIndex) return;
     restoreSnapshotAt(currentHistoryIndexLocal + 1);
   }, [currentProject?.historyOperations.length, currentHistoryIndexLocal, restoreSnapshotAt]);
 
   const OpenRenameDialog = useCallback(() => {
-    if (currentProject) {
-      setRenameDraft(currentProject.topic);
-      setRenameDialogOpen(true);
-    }
+    if (currentProject) { setRenameDraft(currentProject.topic); setRenameDialogOpen(true); }
   }, [currentProject]);
 
   const ConfirmRename = useCallback(() => {
@@ -704,18 +780,13 @@ const ProjectPage = () => {
   }, [setAutoSaveEnabled]);
 
   useEffect(() => {
-    return () => {
-      setAutoSaveEnabled(false);
-    };
+    return () => { setAutoSaveEnabled(false); };
   }, [setAutoSaveEnabled]);
 
   const handleBack = useCallback(async () => {
     const existingProject = await loadFromDB(projectId);
-    if (!existingProject) {
-      setSaveDraftDialogOpen(true);
-    } else {
-      router.push('/studio/workflows');
-    }
+    if (!existingProject) { setSaveDraftDialogOpen(true); }
+    else { router.push('/studio/workflows'); }
   }, [projectId, loadFromDB, router]);
 
   const handleSaveDraft = useCallback(async () => {
@@ -728,6 +799,116 @@ const ProjectPage = () => {
     setSaveDraftDialogOpen(false);
     router.push('/studio/workflows');
   }, [router]);
+
+  const runWorkflow = useCallback(async () => {
+    const validation = validateWorkflow(nodesRef.current, edgesRef.current);
+    if (!validation.valid) {
+      setValidationErrors(validation.errors);
+      setValidationDialogOpen(true);
+      return;
+    }
+
+    setIsRunning(true);
+    setRunStatus('准备中...');
+    setRunResult('');
+    setFocusedNodeId(null);
+
+    const payload = buildWorkflowPayload(nodesRef.current, edgesRef.current);
+    abortControllerRef.current = new AbortController();
+
+    try {
+      const response = await fetch('/api/workflow', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        signal: abortControllerRef.current.signal,
+      });
+
+      if (!response.ok || !response.body) {
+        throw new Error(`请求失败: ${response.status}`);
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let currentEvent = '';
+
+      const processSSELine = (line: string) => {
+        const normalizedLine = line.replace(/\r$/, '');
+        if (normalizedLine.startsWith('event: ')) {
+          currentEvent = normalizedLine.slice(7).trim();
+          return;
+        }
+
+        if (!normalizedLine.startsWith('data: ')) return;
+
+        try {
+          const data = JSON.parse(normalizedLine.slice(6));
+          if (currentEvent === 'status') {
+            if (data.type === 'building') setRunStatus(data.message);
+            else if (data.type === 'focus') setFocusedNodeId(data.nodeId);
+            else if (data.type === 'branch') setRunStatus(`分支: ${data.condition} - ${data.taken ? '进入' : '跳过'}`);
+            else if (data.type === 'agent_output') setRunStatus(`智能体输出: ${data.output?.slice(0, 80)}...`);
+          } else if (currentEvent === 'done') {
+            const finalResult = typeof data.result === 'string' ? data.result : '工作流执行完成';
+            setRunStatus('工作流执行完成');
+            setRunResult(finalResult);
+            setFocusedNodeId(null);
+          } else if (currentEvent === 'error') {
+            const errorMessage = `错误: ${data.message || '未知错误'}`;
+            setRunStatus(errorMessage);
+            setRunResult(errorMessage);
+            setFocusedNodeId(null);
+          }
+        } catch { /* ignore parse errors */ }
+      };
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          processSSELine(line);
+        }
+      }
+
+      const finalChunk = decoder.decode();
+      if (finalChunk) {
+        buffer += finalChunk;
+      }
+      if (buffer.trim()) {
+        for (const line of buffer.split('\n')) {
+          processSSELine(line);
+        }
+      }
+    } catch (error) {
+      if ((error as Error).name !== 'AbortError') {
+        const failedMessage = `执行失败: ${(error as Error).message}`;
+        setRunStatus(failedMessage);
+        setRunResult(failedMessage);
+      }
+    } finally {
+      setIsRunning(false);
+      abortControllerRef.current = null;
+    }
+  }, []);
+
+  const stopWorkflow = useCallback(() => {
+    abortControllerRef.current?.abort();
+    setIsRunning(false);
+    setFocusedNodeId(null);
+    setRunStatus('已手动停止');
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      abortControllerRef.current?.abort();
+    };
+  }, []);
 
   const hasSelectedNodes = nodes.some(n => n.selected);
   const hasSelectedEdges = edges.some(e => e.selected);
@@ -752,6 +933,32 @@ const ProjectPage = () => {
   const canChangeType = contextMenuTarget.type === 'node' || hasSelectedNodes;
   const maxHistoryIndex = (currentProject?.historyOperations.length ?? 0) - 1;
 
+  const displayNodes = useMemo(() => {
+    return nodes.map(node => ({
+      ...node,
+      data: {
+        ...node.data,
+        isFocused: node.id === focusedNodeId,
+      },
+    }));
+  }, [nodes, focusedNodeId]);
+
+  const displayEdges = useMemo(() => {
+    return edges.map(edge => ({
+      ...edge,
+      markerEnd: { type: MarkerType.ArrowClosed, color: '#64748b' },
+      style: {
+        ...edge.style,
+        stroke: edge.style?.stroke || '#64748b',
+        strokeWidth: edge.style?.strokeWidth || 1.5,
+        ...(isRunning ? { strokeDasharray: '5 5' } : {}),
+      },
+      animated: isRunning,
+    }));
+  }, [edges, isRunning]);
+
+  const draftTypeConfig = WORKFLOW_TYPE_OPTIONS.find(o => o.value === draft.workflowType);
+
   return (
     <div className='h-full w-full flex flex-col'>
       <div className='h-12 border-b bg-background flex items-center px-4 gap-2 shrink-0'>
@@ -762,6 +969,18 @@ const ProjectPage = () => {
           <span className='text-sm font-medium'>{currentProject?.topic || 'Unnamed Project'}</span>
         </div>
         <div className='flex items-center gap-3 ml-auto'>
+          {!!runStatus && (
+            <span className={isRunning ? 'text-xs text-orange-600 font-medium animate-pulse' : 'text-xs text-muted-foreground font-medium'}>{runStatus}</span>
+          )}
+          {isRunning ? (
+            <Button variant="destructive" size="sm" onClick={stopWorkflow}>
+              停止
+            </Button>
+          ) : (
+            <Button variant="default" size="sm" onClick={runWorkflow} className="bg-green-600 hover:bg-green-700">
+              ▶ 运行
+            </Button>
+          )}
           <div className="flex items-center space-x-2">
             <Checkbox
               id="auto-save"
@@ -781,17 +1000,17 @@ const ProjectPage = () => {
           <Button variant="ghost" size="sm" onClick={() => saveToDB()}>
             Save to Local DB
           </Button>
-          <Button 
-            variant="ghost" 
-            size="sm" 
+          <Button
+            variant="ghost"
+            size="sm"
             onClick={Back}
             disabled={currentHistoryIndexLocal < 0}
           >
             Undo
           </Button>
-          <Button 
-            variant="ghost" 
-            size="sm" 
+          <Button
+            variant="ghost"
+            size="sm"
             onClick={Forward}
             disabled={currentHistoryIndexLocal >= maxHistoryIndex}
           >
@@ -801,51 +1020,67 @@ const ProjectPage = () => {
       </div>
 
       <div className='flex-1 min-h-0'>
-        <ContextMenu>
-          <ContextMenuTrigger className="w-full h-full">
-            <ReactFlow
-              nodes={nodes}
-              edges={edges}
-              onNodesChange={onNodesChange}
-              onEdgesChange={onEdgesChange}
-              onConnect={onConnect}
-              onPaneContextMenu={onPaneContextMenu}
-              onNodeContextMenu={onNodeContextMenu}
-              onEdgeContextMenu={onEdgeContextMenu}
-              onNodeDragStart={onNodeDragStart}
-              onNodeDragStop={onNodeDragStop}
-              onInit={setReactFlowInstance}
-              fitView
-            >
-              <Background />
-              <Controls />
-              <MiniMap nodeColor={nodeColor} />
-            </ReactFlow>
-          </ContextMenuTrigger>
+        <WorkflowNodeActionsContext.Provider value={{ updateNodeData }}>
+          <ContextMenu>
+            <ContextMenuTrigger className="w-full h-full">
+              <ReactFlow
+                nodes={displayNodes}
+                edges={displayEdges}
+                onNodesChange={onNodesChange}
+                onEdgesChange={onEdgesChange}
+                onConnect={onConnect}
+                onPaneContextMenu={onPaneContextMenu}
+                onNodeContextMenu={onNodeContextMenu}
+                onEdgeContextMenu={onEdgeContextMenu}
+                onNodeDragStart={onNodeDragStart}
+                onNodeDragStop={onNodeDragStop}
+                onInit={setReactFlowInstance}
+                nodeTypes={workflowNodeTypes}
+                defaultEdgeOptions={{
+                  markerEnd: { type: MarkerType.ArrowClosed, color: '#64748b' },
+                  style: { stroke: '#64748b', strokeWidth: 1.5 },
+                }}
+                fitView
+              >
+                <Background />
+                <Controls />
+                <MiniMap nodeColor={nodeColor} />
+              </ReactFlow>
+            </ContextMenuTrigger>
 
-          <ContextMenuContent>
-            <ContextMenuItem onClick={AddNodes}>Add Nodes</ContextMenuItem>
-            <ContextMenuItem onClick={DeleteNodes} disabled={!canDeleteNodes}>Delete Nodes</ContextMenuItem>
-            <ContextMenuItem onClick={DeleteEdges} disabled={!canDeleteEdges}>Delete Edges</ContextMenuItem>
-            <ContextMenuSeparator />
-            <ContextMenuItem onClick={OpenLabelDialog} disabled={!canChangeLabel}>Change Label / Add Label</ContextMenuItem>
-            <ContextMenuItem onClick={OpenColorDialog} disabled={!canChangeColor}>Change Color</ContextMenuItem>
-            <ContextMenuSub>
-              <ContextMenuSubTrigger disabled={!canChangeType}>Change Node Type</ContextMenuSubTrigger>
-              <ContextMenuSubContent>
-                {NODE_TYPE_OPTIONS.map((type) => (
-                  <ContextMenuItem key={type} onClick={() => ChangeNodeTypes(type)}>
-                    {type}
-                  </ContextMenuItem>
-                ))}
-              </ContextMenuSubContent>
-            </ContextMenuSub>
-            <ContextMenuSeparator />
-            <ContextMenuItem onClick={Back} disabled={currentHistoryIndexLocal < 0}>Back</ContextMenuItem>
-            <ContextMenuItem onClick={Forward} disabled={currentHistoryIndexLocal >= maxHistoryIndex}>Forward</ContextMenuItem>
-          </ContextMenuContent>
-        </ContextMenu>
+            <ContextMenuContent>
+              <ContextMenuItem onClick={AddNodes}>添加节点</ContextMenuItem>
+              <ContextMenuItem onClick={DeleteNodes} disabled={!canDeleteNodes}>删除节点</ContextMenuItem>
+              <ContextMenuItem onClick={DeleteEdges} disabled={!canDeleteEdges}>删除边</ContextMenuItem>
+              <ContextMenuSeparator />
+              <ContextMenuItem onClick={OpenLabelDialog} disabled={!canChangeLabel}>修改标签</ContextMenuItem>
+              <ContextMenuItem onClick={OpenColorDialog} disabled={!canChangeColor}>修改颜色</ContextMenuItem>
+              <ContextMenuSub>
+                <ContextMenuSubTrigger disabled={!canChangeType}>修改节点类型</ContextMenuSubTrigger>
+                <ContextMenuSubContent>
+                  {WORKFLOW_TYPE_OPTIONS.map((opt) => (
+                    <ContextMenuItem key={opt.value} onClick={() => ChangeNodeTypes(opt.value)}>
+                      {opt.label}
+                    </ContextMenuItem>
+                  ))}
+                </ContextMenuSubContent>
+              </ContextMenuSub>
+              <ContextMenuSeparator />
+              <ContextMenuItem onClick={Back} disabled={currentHistoryIndexLocal < 0}>Back</ContextMenuItem>
+              <ContextMenuItem onClick={Forward} disabled={currentHistoryIndexLocal >= maxHistoryIndex}>Forward</ContextMenuItem>
+            </ContextMenuContent>
+          </ContextMenu>
+        </WorkflowNodeActionsContext.Provider>
       </div>
+
+      {!!runResult && (
+        <div className="border-t bg-background p-3">
+          <div className="text-xs font-medium text-muted-foreground mb-2">运行结果</div>
+          <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-md border bg-muted/40 p-3 text-xs leading-5">
+            {runResult}
+          </pre>
+        </div>
+      )}
 
       <Dialog open={labelDialogOpen} onOpenChange={setLabelDialogOpen}>
         <DialogContent>
@@ -912,10 +1147,7 @@ const ProjectPage = () => {
       </Dialog>
 
       <Dialog open={addDialogOpen} onOpenChange={(open) => {
-        if (open) {
-          setAddDialogOpen(true);
-          return;
-        }
+        if (open) { setAddDialogOpen(true); return; }
         closeAddDialog();
       }}>
         <DialogContent>
@@ -942,17 +1174,21 @@ const ProjectPage = () => {
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="outline" className="w-full justify-between">
-                    {draft.type}
+                    {draftTypeConfig?.label || draft.workflowType}
                     <span className="text-xs text-muted-foreground">▼</span>
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent className="w-[var(--radix-dropdown-menu-trigger-width)]">
-                  {NODE_TYPE_OPTIONS.map((type) => (
+                  {WORKFLOW_TYPE_OPTIONS.map((opt) => (
                     <DropdownMenuItem
-                      key={type}
-                      onClick={() => setDraft((prev) => ({ ...prev, type }))}
+                      key={opt.value}
+                      onClick={() => setDraft((prev) => ({
+                        ...prev,
+                        workflowType: opt.value,
+                        color: DEFAULT_NODE_COLORS[opt.value],
+                      }))}
                     >
-                      {type}
+                      {opt.label}
                     </DropdownMenuItem>
                   ))}
                 </DropdownMenuContent>
@@ -996,6 +1232,28 @@ const ProjectPage = () => {
           <DialogFooter>
             <Button variant="outline" onClick={handleDiscardDraft}>不保存</Button>
             <Button onClick={handleSaveDraft}>保存草稿</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={validationDialogOpen} onOpenChange={setValidationDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>工作流验证失败</DialogTitle>
+            <DialogDescription>
+              请修复以下问题后重新运行：
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2 py-4">
+            {validationErrors.map((error, index) => (
+              <div key={index} className="text-sm text-red-600 flex items-start gap-2">
+                <span className="text-red-400 mt-0.5">•</span>
+                <span>{error}</span>
+              </div>
+            ))}
+          </div>
+          <DialogFooter>
+            <Button onClick={() => setValidationDialogOpen(false)}>知道了</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

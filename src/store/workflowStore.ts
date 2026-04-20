@@ -330,12 +330,27 @@ export const useWorkflowStore = create<WorkflowProjectState>((set, get) => ({
   },
 
   saveToDB: async () => {
-    const { currentProject } = get();
+    const { currentProject, currentHistoryIndex } = get();
     if (!currentProject) return;
-    
+
+    const truncatedOperations = currentProject.historyOperations.slice(0, currentHistoryIndex + 1);
+    const truncatedSnapshots = currentProject.historySnapshots?.slice(0, currentHistoryIndex + 2) || [];
+
+    const projectToSave: WorkflowProject = {
+      ...currentProject,
+      historyOperations: truncatedOperations,
+      historySnapshots: truncatedSnapshots,
+    };
+
     try {
-      await saveWorkflowToDB(currentProject);
-      console.log('Workflow saved to DB successfully');
+      await saveWorkflowToDB(projectToSave);
+      set({
+        currentProject: produce(currentProject, (draft) => {
+          draft.historyOperations = truncatedOperations;
+          draft.historySnapshots = truncatedSnapshots;
+        }),
+      });
+      console.log('Workflow saved to DB successfully (history truncated to index', currentHistoryIndex, ')');
     } catch (error) {
       console.error('Failed to save workflow to DB:', error);
     }
