@@ -1,6 +1,6 @@
 import { wrapLanguageModel, ToolLoopAgent, InferAgentUIMessage, tool } from 'ai';
 import { deepseek } from "@ai-sdk/deepseek";
-import { devToolsMiddleware } from '@ai-sdk/devtools';
+// import { devToolsMiddleware } from '@ai-sdk/devtools';
 import * as z from 'zod';
 // import { chatTools } from './tools';
 import { interfaceStructureDesignAgentInstructions, textAgentInstructions, interfaceStylingAgentInstructions, interfaceAlignmentCriticInstructions } from './prompt';
@@ -13,9 +13,9 @@ const strictUiNeedSchema = z.enum(supportedUiNames);
 
 const model = wrapLanguageModel({
   model: deepseek("deepseek-chat"),
-  middleware: [
-    devToolsMiddleware(),
-  ]
+  middleware: process.env.NODE_ENV === 'development'
+    ? [(await import('@ai-sdk/devtools')).devToolsMiddleware()]
+    : []
 });
 
 export const ShowResponseInput_Schema = z.object({
