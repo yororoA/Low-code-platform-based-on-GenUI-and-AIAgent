@@ -3,6 +3,7 @@ import { adminAgent } from "./model"
 import { callAlignmentAgent, callStructureAgent_Stream, callStyleAgent } from "./tools";
 import { z } from "zod";
 import { componentsMetaByName } from "@/components/components-meta";
+import type { InteractionDefinition, PageDefinition } from "@/types/interaction";
 
 type AlignmentResult = Awaited<ReturnType<typeof callAlignmentAgent>>;
 type AdminToolOutput = {
@@ -263,7 +264,7 @@ STRICT RETRY FIX FOR uiNeeds:
 
           // 初始结构提示词：来自 admin 的 uiDescription
           let structurePrompt = levelONEoutput.uiDescription;
-          let levelTWOoutput: { uiTree: string; styleSummary: string } | null = null;
+          let levelTWOoutput: { uiTree: string; styleSummary: string; interactions?: InteractionDefinition[]; pages?: PageDefinition[] } | null = null;
           let finalAlignment: Awaited<ReturnType<typeof callAlignmentAgent>> | null = null;
 
           // 结构生成 + 对齐审查闭环
@@ -401,6 +402,29 @@ STRICT RETRY FIX FOR uiNeeds:
             });
             writer.write({ type: "text-end", id: styleParseFailId });
             return;
+          }
+
+          // Level 4: 输出交互定义信息
+          if (levelTWOoutput.interactions && levelTWOoutput.interactions.length > 0) {
+            const interactionId = `interaction-info-${Date.now()}`;
+            writer.write({ type: "text-start", id: interactionId });
+            writer.write({
+              type: "text-delta",
+              id: interactionId,
+              delta: `[INTERACTION]: ${levelTWOoutput.interactions.length} interaction(s) defined: ${levelTWOoutput.interactions.map(i => `${i.slot.type}(${i.nodeId})`).join(", ")}`,
+            });
+            writer.write({ type: "text-end", id: interactionId });
+          }
+
+          if (levelTWOoutput.pages && levelTWOoutput.pages.length > 0) {
+            const pagesId = `pages-info-${Date.now()}`;
+            writer.write({ type: "text-start", id: pagesId });
+            writer.write({
+              type: "text-delta",
+              id: pagesId,
+              delta: `[PAGES]: ${levelTWOoutput.pages.length} page(s) defined: ${levelTWOoutput.pages.map(p => `${p.name}(${p.id})`).join(", ")}`,
+            });
+            writer.write({ type: "text-end", id: pagesId });
           }
         }
         if (levelONEoutput.necessary && normalizedUiNeeds.length === 0) {
