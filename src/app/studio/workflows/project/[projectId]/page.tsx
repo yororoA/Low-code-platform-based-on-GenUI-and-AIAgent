@@ -52,8 +52,8 @@ import {
   getWorkflowTypeFromReactFlowNode,
   getDefaultNodeData,
   migrateLegacyNode,
-  CONDITION_TRUE_SOURCE_HANDLE_ID,
-  CONDITION_FALSE_SOURCE_HANDLE_ID,
+  BRANCH_TRUE_SOURCE_HANDLE_ID,
+  BRANCH_FALSE_SOURCE_HANDLE_ID,
   TEMP_SOURCE_HANDLE_ID,
   TEMP_TARGET_HANDLE_ID,
 } from '@/components/workflow/WorkflowNodes';
@@ -96,28 +96,27 @@ type TemplateEdgeSeed = {
 };
 
 const REVIEW_LOOP_TEMPLATE_NODES: TemplateNodeSeed[] = [
-  { id: 'tpl-input', workflowType: 'input', label: '输入', inputText: '设计一个简单的欢迎页面', x: 0, y: 0 },
-  { id: 'tpl-requirement', workflowType: 'requirement', label: '要求', inputText: '页面应简洁、现代，包含标题、按钮和基础说明', x: 260, y: 0 },
-  { id: 'tpl-design', workflowType: 'agent', label: '设计智能体', inputText: '产出页面结构与视觉设计说明', agentType: 'design', x: 520, y: 120 },
-  { id: 'tpl-review', workflowType: 'agent', label: '审查智能体', inputText: '对设计与构建结果打分并给出改进建议', agentType: 'review', x: 840, y: 120 },
-  { id: 'tpl-design-condition', workflowType: 'condition', label: '设计评分小于90（条件）', inputText: '设计评分是否小于90？true表示需要继续优化设计', x: 760, y: -90 },
-  { id: 'tpl-build', workflowType: 'agent', label: '构建智能体', inputText: '根据审查建议生成页面实现方案', agentType: 'build', x: 1130, y: 120 },
-  { id: 'tpl-build-condition', workflowType: 'condition', label: '构建评分小于90（条件）', inputText: '构建评分是否小于90？true表示需要继续优化构建', x: 1030, y: 300 },
-  { id: 'tpl-output', workflowType: 'output', label: '输出', inputText: '', x: 930, y: 470 },
+  { id: 'tpl-input', workflowType: 'input', label: '输入(预期的页面)', inputText: '一个简洁的欢迎页面', x: 0, y: 0 },
+  { id: 'tpl-requirement', workflowType: 'requirement', label: '对页面的详细要求', inputText: '极致的简洁感与现代美', x: 260, y: 0 },
+  { id: 'tpl-design', workflowType: 'agent', label: '智能体', inputText: '针对要求设计页面', agentType: 'design', x: 520, y: 0 },
+  { id: 'tpl-review', workflowType: 'agent', label: '智能体', inputText: '针对输入的设计/构建进行百分制评分, 分析是否存在可优化项', agentType: 'review', x: 840, y: 0 },
+  { id: 'tpl-design-branch', workflowType: 'branch', label: '分支', inputText: '设计评分大于等于90', x: 760, y: -120 },
+  { id: 'tpl-build', workflowType: 'agent', label: '智能体', inputText: '针对输入的设计进行页面构建', agentType: 'build', x: 1130, y: -120 },
+  { id: 'tpl-build-branch', workflowType: 'branch', label: '分支', inputText: '构建评分大于等于90', x: 1030, y: 120 },
+  { id: 'tpl-output', workflowType: 'output', label: '输出', inputText: '', x: 1350, y: 120 },
 ];
 
 const REVIEW_LOOP_TEMPLATE_EDGES: TemplateEdgeSeed[] = [
   { source: 'tpl-input', target: 'tpl-requirement', sourceSide: 'right', targetSide: 'left' },
-  { source: 'tpl-requirement', target: 'tpl-design', sourceSide: 'bottom', targetSide: 'left' },
+  { source: 'tpl-requirement', target: 'tpl-design', sourceSide: 'right', targetSide: 'left' },
   { source: 'tpl-design', target: 'tpl-review', sourceSide: 'right', targetSide: 'left' },
-  { source: 'tpl-review', target: 'tpl-design-condition', sourceSide: 'top', targetSide: 'bottom' },
-  { source: 'tpl-design-condition', target: 'tpl-design', label: '条件成立', sourceSide: 'left', targetSide: 'top' },
-  { source: 'tpl-design-condition', target: 'tpl-build', label: '条件不成立', sourceSide: 'right', targetSide: 'top' },
-  { source: 'tpl-review', target: 'tpl-build', sourceSide: 'right', targetSide: 'left' },
+  { source: 'tpl-review', target: 'tpl-design-branch', sourceSide: 'top', targetSide: 'bottom' },
+  { source: 'tpl-design-branch', target: 'tpl-design', label: '分支不成立', sourceSide: 'left', targetSide: 'top' },
+  { source: 'tpl-design-branch', target: 'tpl-build', label: '分支成立', sourceSide: 'right', targetSide: 'top' },
   { source: 'tpl-build', target: 'tpl-review', sourceSide: 'left', targetSide: 'right' },
-  { source: 'tpl-review', target: 'tpl-build-condition', sourceSide: 'bottom', targetSide: 'top' },
-  { source: 'tpl-build-condition', target: 'tpl-build', label: '条件成立', sourceSide: 'right', targetSide: 'bottom' },
-  { source: 'tpl-build-condition', target: 'tpl-output', label: '条件不成立', sourceSide: 'bottom', targetSide: 'top' },
+  { source: 'tpl-review', target: 'tpl-build-branch', sourceSide: 'bottom', targetSide: 'top' },
+  { source: 'tpl-build-branch', target: 'tpl-build', label: '分支不成立', sourceSide: 'left', targetSide: 'bottom' },
+  { source: 'tpl-build-branch', target: 'tpl-output', label: '分支成立', sourceSide: 'right', targetSide: 'left' },
 ];
 
 function buildReviewLoopTemplateGraph(anchor: XYPosition): GraphSnapshot {
@@ -143,8 +142,8 @@ function buildReviewLoopTemplateGraph(anchor: XYPosition): GraphSnapshot {
     const sourceNode = REVIEW_LOOP_TEMPLATE_NODES.find((n) => n.id === edgeSeed.source);
     const sourceHandleList = nodeOutputHandles.get(edgeSeed.source) || [];
     const targetHandleList = nodeInputHandles.get(edgeSeed.target) || [];
-    const sourceHandle = sourceNode?.workflowType === 'condition'
-      ? (String(edgeSeed.label || '').includes('不成立') ? CONDITION_FALSE_SOURCE_HANDLE_ID : CONDITION_TRUE_SOURCE_HANDLE_ID)
+    const sourceHandle = sourceNode?.workflowType === 'branch'
+      ? (String(edgeSeed.label || '').includes('不成立') ? BRANCH_FALSE_SOURCE_HANDLE_ID : BRANCH_TRUE_SOURCE_HANDLE_ID)
       : makeTemplateHandleId('out', edgeSeed.sourceSide, edgeSeed.source, sourceHandleList.length + 1);
     const targetHandle = makeTemplateHandleId('in', edgeSeed.targetSide, edgeSeed.target, targetHandleList.length + 1);
     if (!sourceHandleList.includes(sourceHandle)) sourceHandleList.push(sourceHandle);
@@ -179,8 +178,8 @@ function buildReviewLoopTemplateGraph(anchor: XYPosition): GraphSnapshot {
         inputText: seed.inputText,
         agentType: seed.agentType,
         inputHandles: nodeInputHandles.get(seed.id) || [],
-        outputHandles: seed.workflowType === 'condition'
-          ? [CONDITION_TRUE_SOURCE_HANDLE_ID, CONDITION_FALSE_SOURCE_HANDLE_ID]
+        outputHandles: seed.workflowType === 'branch'
+          ? [BRANCH_TRUE_SOURCE_HANDLE_ID, BRANCH_FALSE_SOURCE_HANDLE_ID]
           : (nodeOutputHandles.get(seed.id) || []),
       } satisfies WorkflowNodeData,
     };
@@ -281,7 +280,7 @@ function validateWorkflow(nodes: Node[], edges: Edge[]): { valid: boolean; error
     for (const nextId of adjacency.get(nodeId) || []) {
       if (hasInvalidCycle) break;
 
-      if (nextId === nodeId && nodeTypeMap.get(nodeId) !== 'condition') {
+      if (nextId === nodeId && !['branch', 'condition'].includes(nodeTypeMap.get(nodeId) || '')) {
         hasInvalidCycle = true;
         break;
       }
@@ -292,8 +291,8 @@ function validateWorkflow(nodes: Node[], edges: Edge[]): { valid: boolean; error
       } else if (nextState === 1) {
         const cycleStart = stack.lastIndexOf(nextId);
         const cycleNodeIds = cycleStart >= 0 ? stack.slice(cycleStart) : [nextId];
-        const hasConditionNode = cycleNodeIds.some((id) => nodeTypeMap.get(id) === 'condition');
-        if (!hasConditionNode) {
+        const hasBranchNode = cycleNodeIds.some((id) => ['branch', 'condition'].includes(nodeTypeMap.get(id) || ''));
+        if (!hasBranchNode) {
           hasInvalidCycle = true;
           break;
         }
@@ -310,7 +309,7 @@ function validateWorkflow(nodes: Node[], edges: Edge[]): { valid: boolean; error
   }
 
   if (hasInvalidCycle) {
-    errors.push('检测到不包含条件节点的循环依赖，仅允许通过条件节点形成循环重试');
+    errors.push('检测到不包含分支节点的循环依赖，仅允许通过分支节点形成循环重试');
   }
 
   return { valid: errors.length === 0, errors };
@@ -654,17 +653,17 @@ const ProjectPage = () => {
 
         const sourceNode = currentNodes.find((node) => node.id === params.source);
         const sourceNodeType = (sourceNode?.data as WorkflowNodeData | undefined)?.workflowType;
-        if (sourceNodeType === 'condition') {
-          const usedTrue = currentEdges.some((edge) => edge.source === params.source && edge.sourceHandle === CONDITION_TRUE_SOURCE_HANDLE_ID);
+        if (sourceNodeType === 'branch' || sourceNodeType === 'condition') {
+          const usedTrue = currentEdges.some((edge) => edge.source === params.source && edge.sourceHandle === BRANCH_TRUE_SOURCE_HANDLE_ID);
 
           if (!resolvedSourceHandle || resolvedSourceHandle === TEMP_SOURCE_HANDLE_ID) {
             resolvedSourceHandle = !usedTrue
-              ? CONDITION_TRUE_SOURCE_HANDLE_ID
-              : CONDITION_FALSE_SOURCE_HANDLE_ID;
+              ? BRANCH_TRUE_SOURCE_HANDLE_ID
+              : BRANCH_FALSE_SOURCE_HANDLE_ID;
           }
 
-          if (resolvedSourceHandle === CONDITION_TRUE_SOURCE_HANDLE_ID) edgeLabel = '条件成立';
-          else if (resolvedSourceHandle === CONDITION_FALSE_SOURCE_HANDLE_ID) edgeLabel = '条件不成立';
+          if (resolvedSourceHandle === BRANCH_TRUE_SOURCE_HANDLE_ID) edgeLabel = '分支成立';
+          else if (resolvedSourceHandle === BRANCH_FALSE_SOURCE_HANDLE_ID) edgeLabel = '分支不成立';
         }
 
         if (!resolvedSourceHandle || resolvedSourceHandle === TEMP_SOURCE_HANDLE_ID) {
@@ -1024,7 +1023,10 @@ const ProjectPage = () => {
           if (currentEvent === 'status') {
             if (data.type === 'building') setRunStatus(data.message);
             else if (data.type === 'focus') setFocusedNodeId(data.nodeId);
-            else if (data.type === 'branch') setRunStatus(`分支: ${data.condition} - ${data.taken ? '进入' : '跳过'}`);
+            else if (data.type === 'branch') {
+              const branchText = data.branch || data.condition || '未命名分支';
+              setRunStatus(`分支: ${branchText} - ${data.taken ? '进入' : '跳过'}`);
+            }
             else if (data.type === 'agent_output') setRunStatus(`智能体输出: ${data.output?.slice(0, 80)}...`);
           } else if (currentEvent === 'done') {
             const finalResult = typeof data.result === 'string' ? data.result : '工作流执行完成';
