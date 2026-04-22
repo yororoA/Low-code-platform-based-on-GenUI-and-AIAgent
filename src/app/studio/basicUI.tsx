@@ -22,15 +22,19 @@ import { DataItem, DataItemSummary } from "@/types";
 import { useChatStreamingStore } from "@/store/chatStreamingStore";
 import { useShallow } from "zustand/shallow"
 
-const STAGE_INFO_RE = /^\[(ADMIN|STRUCTURE|ALIGNMENT|STYLE)\]\s*:?\s*(.+)$/i
+const STAGE_INFO_RE = /^\[(ADMIN|STRUCTURE|ALIGNMENT|STYLE|INTERACTION|PAGES)\]\s*:?\s*(.+)$/i
 
 function extractStructureAndStyleFromParts(message: AdminAgentMessage): {
   uiTree: unknown
   styles: unknown
+  interactions: unknown
+  pages: unknown
 } {
   let uiTree: unknown = null
   let styles: unknown = null
-  if (!message.parts) return { uiTree, styles }
+  let interactions: unknown = null
+  let pages: unknown = null
+  if (!message.parts) return { uiTree, styles, interactions, pages }
   for (const part of message.parts) {
     if (part.type !== "text") continue
     const text = part.text.trim()
@@ -40,12 +44,14 @@ function extractStructureAndStyleFromParts(message: AdminAgentMessage): {
       if (parsed && typeof parsed === "object") {
         if ("uiTree" in parsed && uiTree === null) uiTree = parsed.uiTree
         if ("styles" in parsed && styles === null) styles = parsed.styles
+        if ("interactions" in parsed && interactions === null) interactions = parsed.interactions
+        if ("pages" in parsed && pages === null) pages = parsed.pages
       }
     } catch {
       // not valid JSON
     }
   }
-  return { uiTree, styles }
+  return { uiTree, styles, interactions, pages }
 }
 
 function getStageLabel(stage: string): string {
@@ -54,6 +60,8 @@ function getStageLabel(stage: string): string {
     case "STRUCTURE": return "Structure designing..."
     case "ALIGNMENT": return "Checking alignment..."
     case "STYLE": return "Style designing..."
+    case "INTERACTION": return "Defining interactions..."
+    case "PAGES": return "Defining pages..."
     default: return `${stage}...`
   }
 }
@@ -68,6 +76,8 @@ type StagePreviewPayload = {
   topic: string
   uiTree: unknown
   styles: unknown
+  interactions: unknown
+  pages: unknown
 }
 
 type TimelineChildItem = {
@@ -436,10 +446,10 @@ export default function BasicUI() {
     const topic = payload?.topic?.trim()
     if (!topic) return null
 
-    const { uiTree, styles } = extractStructureAndStyleFromParts(message)
+    const { uiTree, styles, interactions, pages } = extractStructureAndStyleFromParts(message)
     if (uiTree === null) return null
 
-    return { topic, uiTree, styles }
+    return { topic, uiTree, styles, interactions, pages }
   }
 
   const timelineRounds = (() => {
