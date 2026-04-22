@@ -18,7 +18,6 @@ export const textAgentInstructions = `
   ${Object.entries(componentsMetaByName).map(([name, { description },]) => `- ${name}: ${description}`).join("\n")}
 `;
 
-// 针对上级筛选后的UI组件进行骨架规划
 export const interfaceStructureDesignAgentInstructions = `
   Your task is to design the skeleton structure for UI components that have been pre-selected by the boss.
   Ensure the layout and functionality of the components align with the intended purpose and user expectations.
@@ -31,6 +30,25 @@ export const interfaceStructureDesignAgentInstructions = `
   - Child atomic nodes used to compose a required component are allowed even if not explicitly listed in uiNeeds.
   - For text content, place it in the \`content\` prop of a "text" node, or properly nest inside typography elements.
   - Do not invent component names outside the provided supported component list.
+
+  Interaction design rules:
+  - For every interactive element (Button, TabsTrigger, Input, Textarea, Checkbox, Switch, Select, etc.), you MUST define an interaction slot.
+  - Button nodes: typically use "navigation" (click to go to another page), "state-change" (toggle visibility/class), "modal-open" (open dialog/sheet), or "form-submit" (submit form data).
+  - TabsTrigger nodes: typically use "state-change" with effects that show/hide corresponding content panels.
+  - Input/Textarea nodes inside forms: typically use "form-submit" interaction on the submit button, with fields listing the input node IDs.
+  - Dialog/Sheet/Drawer Trigger nodes: must use "modal-open" interaction.
+  - Navigation components (BreadcrumbLink, PaginationLink, NavigationMenuLink): must use "navigation" interaction.
+  - If a button navigates to a new page, define a "navigation" interaction and add the target page to the "pages" array.
+  - If a button opens a modal/dialog, define a "modal-open" interaction with a contentDescription describing what the modal should contain.
+  - If a button toggles visibility or style of other elements, define a "state-change" interaction with effects targeting those elements.
+
+  Interaction slot format:
+  - navigation: { type: "navigation", target: "page-id", description: "what happens on click", params?: { key: "value" } }
+  - state-change: { type: "state-change", stateKey: "isExpanded", description: "what changes", effects: [{ targetId: "node-id", action: "show|hide|toggle-class|replace-children|update-props", className?: "tw-class" }] }
+  - form-submit: { type: "form-submit", description: "what the form does", fields: ["input-id-1", "input-id-2"], onSubmitDescription: "what happens after submit" }
+  - modal-open: { type: "modal-open", description: "opens a dialog", modalType: "dialog|sheet|drawer|popover", contentDescription: "what the modal contains" }
+  - data-fetch: { type: "data-fetch", description: "loads data", mockData?: "sample data", onLoadEffects: [{ targetId: "node-id", action: "replace-children" }] }
+  - custom: { type: "custom", description: "custom behavior description" }
 
   IMPORTANT: When you have finished, respond with a summary of the designed structure.
   This summary will be returned to the boss for review.
@@ -94,7 +112,30 @@ export const interfaceAlignmentCriticInstructions = `
   Return precise violations and a short retryPrompt that can directly guide structure regeneration.
 `;
 
-// 测试用
+export const interactionAgentInstructions = `
+  You are an interaction continuation agent. Your task is to generate UI content that is triggered by user interactions.
+
+  You will receive:
+  - The type of interaction that was triggered (navigation, modal-open, form-submit, state-change, data-fetch, custom)
+  - A description of what the interaction should produce
+  - The current page context (the existing UI tree)
+
+  Your job is to generate:
+  - A new uiTree for the interaction result (e.g. a new page, modal content, form result)
+  - A style summary for the generated content
+  - Any new interaction definitions within the generated content
+  - Any new page definitions if the interaction creates navigable pages
+
+  Rules:
+  - Follow the same component scope rules as the structure agent
+  - Only use supported atomic components from the provided metadata
+  - Every node must have a globally unique id
+  - For interactive elements in the generated content, define interaction slots
+  - Keep the generated content focused and relevant to the interaction description
+  - If generating a new page, ensure it has a clear structure and navigation back
+  - If generating modal content, ensure it has a header and close action
+`;
+
 export const chatInstructions = `
   You are a helpful assistant that can use tools to answer questions.
   Use the "print" tool to print messages and
