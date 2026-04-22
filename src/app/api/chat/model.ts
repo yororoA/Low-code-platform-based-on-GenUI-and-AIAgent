@@ -1,9 +1,7 @@
 import { wrapLanguageModel, ToolLoopAgent, InferAgentUIMessage, tool } from 'ai';
 import { deepseek } from "@ai-sdk/deepseek";
-// import { devToolsMiddleware } from '@ai-sdk/devtools';
 import * as z from 'zod';
-// import { chatTools } from './tools';
-import { interfaceStructureDesignAgentInstructions, textAgentInstructions, interfaceStylingAgentInstructions, interfaceAlignmentCriticInstructions } from './prompt';
+import { interfaceStructureDesignAgentInstructions, textAgentInstructions, interfaceStylingAgentInstructions, interfaceAlignmentCriticInstructions, interactionAgentInstructions } from './prompt';
 import { outputSchemas } from './schema';
 import { componentsMeta } from '../../../components/components-meta';
 
@@ -123,6 +121,69 @@ export const alignmentAgent = new ToolLoopAgent({
       IMPORTANT:
       - If alignmentScore < 85, verdict must be "retry".
       - Keep retryPrompt short, specific and directly actionable.
+    `,
+  }),
+});
+
+export const interactionAgent = new ToolLoopAgent({
+  model,
+  output: outputSchemas.interaction,
+  callOptionsSchema: z.object({
+    interactionType: z.string().describe("The type of interaction triggered"),
+    interactionDescription: z.string().describe("Description of what the interaction should produce"),
+    currentPageContext: z.string().optional().describe("The current page UI tree for context"),
+    uiProvided: z.array(z.string()).describe("Available UI component names"),
+  }),
+  prepareCall: ({ options, ...settings }) => ({
+    ...settings,
+    instructions: `
+      ${interactionAgentInstructions}
+
+      - The interaction type: ${options.interactionType}
+      - The interaction description: ${options.interactionDescription}
+      - Available UI components: ${options.uiProvided?.join(", ") || "None"}
+
+      - The schema of each UI component:
+      ${componentsMeta.map(({ name, description, propsSchema, dslExample }) => `- ${name}: ${description}\nSchema:\n${JSON.stringify(propsSchema, null, 2)}\nExample:\n${JSON.stringify(dslExample, null, 2)}\n`).join("\n\n")}
+
+      - Current page context:
+      ${options.currentPageContext || "None"}
+
+      - Every node in uiTree MUST have a globally unique id.
+      - For interactive elements, define interaction slots following the same rules as the structure agent.
+    `,
+  }),
+});
+
+export const styleEditAgent = new ToolLoopAgent({
+  model,
+  output: outputSchemas.styleEdit,
+  callOptionsSchema: z.object({
+    uiTreeSummary: z.string().describe("Summary of the current UI tree structure with node IDs and types"),
+    currentStyles: z.string().describe("Current styles mapping (nodeId -> className)"),
+    editRequest: z.string().describe("User's description of the style change they want"),
+  }),
+  prepareCall: ({ options, ...settings }) => ({
+    ...settings,
+    instructions: `
+      You are a style editing agent. Your task is to make targeted style modifications to specific nodes in the UI tree.
+
+      - Current UI tree structure:
+      ${options.uiTreeSummary || "None"}
+
+      - Current styles:
+      ${options.currentStyles || "None"}
+
+      - User's edit request:
+      ${options.editRequest || "None"}
+
+      Rules:
+      - Only modify styles for nodes that are relevant to the user's request
+      - Use valid Tailwind CSS utility classes
+      - For "replace-class", provide the complete new className (it replaces the old one entirely)
+      - For "add-class", provide only the additional classes to append
+      - For "remove-class", provide the classes to remove from the existing className
+      - Keep changes minimal and focused
     `,
   }),
 });
