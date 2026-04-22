@@ -9,7 +9,8 @@ const WORKFLOW_TYPE_CONFIG: Record<WorkflowNodeType, { label: string; color: str
   input: { label: '输入(预期的页面)', color: '#3b82f6', inputTitle: '想要实现的页面需求' },
   requirement: { label: '对页面的详细要求', color: '#8b5cf6', inputTitle: '对于页面设计的更详细要求' },
   agent: { label: '智能体', color: '#f97316', inputTitle: '该智能体的任务' },
-  condition: { label: '条件', color: '#eab308', inputTitle: '进入该支路的条件' },
+  branch: { label: '分支', color: '#eab308', inputTitle: '分支判断条件' },
+  condition: { label: '分支', color: '#eab308', inputTitle: '分支判断条件' },
   output: { label: '输出', color: '#22c55e', inputTitle: '' },
 };
 
@@ -21,6 +22,7 @@ export const WORKFLOW_NODE_TYPE_MAP: Record<WorkflowNodeType, string> = {
   input: 'workflowInput',
   requirement: 'workflowRequirement',
   agent: 'workflowAgent',
+  branch: 'workflowBranch',
   condition: 'workflowCondition',
   output: 'workflowOutput',
 };
@@ -29,7 +31,8 @@ export const REACT_FLOW_TO_WORKFLOW_TYPE: Record<string, WorkflowNodeType> = {
   workflowInput: 'input',
   workflowRequirement: 'requirement',
   workflowAgent: 'agent',
-  workflowCondition: 'condition',
+  workflowBranch: 'branch',
+  workflowCondition: 'branch',
   workflowOutput: 'output',
 };
 
@@ -46,7 +49,7 @@ export const WORKFLOW_TYPE_OPTIONS: { value: WorkflowNodeType; label: string }[]
   { value: 'input', label: '输入(预期的页面)' },
   { value: 'requirement', label: '对页面的详细要求' },
   { value: 'agent', label: '智能体' },
-  { value: 'condition', label: '条件' },
+  { value: 'branch', label: '分支' },
   { value: 'output', label: '输出' },
 ];
 
@@ -54,14 +57,17 @@ export const DEFAULT_NODE_COLORS: Record<WorkflowNodeType, string> = {
   input: '#3b82f6',
   requirement: '#8b5cf6',
   agent: '#f97316',
+  branch: '#eab308',
   condition: '#eab308',
   output: '#22c55e',
 };
 
 export const TEMP_TARGET_HANDLE_ID = '__target__';
 export const TEMP_SOURCE_HANDLE_ID = '__source__';
-export const CONDITION_TRUE_SOURCE_HANDLE_ID = 'cond-true';
-export const CONDITION_FALSE_SOURCE_HANDLE_ID = 'cond-false';
+export const BRANCH_TRUE_SOURCE_HANDLE_ID = 'cond-true';
+export const BRANCH_FALSE_SOURCE_HANDLE_ID = 'cond-false';
+export const CONDITION_TRUE_SOURCE_HANDLE_ID = BRANCH_TRUE_SOURCE_HANDLE_ID;
+export const CONDITION_FALSE_SOURCE_HANDLE_ID = BRANCH_FALSE_SOURCE_HANDLE_ID;
 
 const normalizeHandleIds = (value: unknown): string[] => {
   if (!Array.isArray(value)) return [];
@@ -147,11 +153,12 @@ const getHandlePlacementById = (
 function WorkflowNodeComponent({ id, data, selected }: NodeProps<Node<WorkflowNodeData>>) {
   const { updateNodeData } = useContext(WorkflowNodeActionsContext);
   const workflowType = data.workflowType || 'requirement';
-  const config = WORKFLOW_TYPE_CONFIG[workflowType];
+  const normalizedWorkflowType: WorkflowNodeType = workflowType === 'condition' ? 'branch' : workflowType;
+  const config = WORKFLOW_TYPE_CONFIG[normalizedWorkflowType];
   const isInput = workflowType === 'input';
   const isOutput = workflowType === 'output';
   const isAgent = workflowType === 'agent';
-  const isCondition = workflowType === 'condition';
+  const isBranch = normalizedWorkflowType === 'branch';
   const isFocused = (data as Record<string, unknown>).isFocused as boolean;
   const inputHandles = normalizeHandleIds(data.inputHandles);
   const outputHandles = normalizeHandleIds(data.outputHandles);
@@ -248,10 +255,10 @@ function WorkflowNodeComponent({ id, data, selected }: NodeProps<Node<WorkflowNo
 
       {!isOutput && (
         <>
-          {isCondition && (
+          {isBranch && (
             <>
               <Handle
-                id={CONDITION_TRUE_SOURCE_HANDLE_ID}
+                id={BRANCH_TRUE_SOURCE_HANDLE_ID}
                 type="source"
                 position={Position.Right}
                 className="!w-3 !h-3 !bg-emerald-500 !border-2 !border-white"
@@ -261,7 +268,7 @@ function WorkflowNodeComponent({ id, data, selected }: NodeProps<Node<WorkflowNo
                 成立
               </div>
               <Handle
-                id={CONDITION_FALSE_SOURCE_HANDLE_ID}
+                id={BRANCH_FALSE_SOURCE_HANDLE_ID}
                 type="source"
                 position={Position.Right}
                 className="!w-3 !h-3 !bg-rose-500 !border-2 !border-white"
@@ -288,7 +295,7 @@ function WorkflowNodeComponent({ id, data, selected }: NodeProps<Node<WorkflowNo
               );
             })()
           ))}
-          {!isCondition && (
+          {!isBranch && (
             <Handle
               id={TEMP_SOURCE_HANDLE_ID}
               type="source"
@@ -307,16 +314,18 @@ export const workflowNodeTypes = {
   workflowInput: WorkflowNodeComponent,
   workflowRequirement: WorkflowNodeComponent,
   workflowAgent: WorkflowNodeComponent,
+  workflowBranch: WorkflowNodeComponent,
   workflowCondition: WorkflowNodeComponent,
   workflowOutput: WorkflowNodeComponent,
 };
 
 export function getDefaultNodeData(workflowType: WorkflowNodeType): WorkflowNodeData {
+  const normalizedWorkflowType: WorkflowNodeType = workflowType === 'condition' ? 'branch' : workflowType;
   return {
-    label: WORKFLOW_TYPE_CONFIG[workflowType].label,
-    workflowType,
+    label: WORKFLOW_TYPE_CONFIG[normalizedWorkflowType].label,
+    workflowType: normalizedWorkflowType,
     inputText: '',
-    agentType: workflowType === 'agent' ? 'review' : undefined,
+    agentType: normalizedWorkflowType === 'agent' ? 'review' : undefined,
     inputHandles: [],
     outputHandles: [],
   };
@@ -330,13 +339,16 @@ export function migrateLegacyNode(node: Node): Node {
     workflowType = 'input';
   } else if (oldType === 'output') {
     workflowType = 'output';
+  } else if (oldType === 'condition' || oldType === 'workflowCondition') {
+    workflowType = 'branch';
   }
 
   const existingData = node.data || {};
   const hasWorkflowType = 'workflowType' in existingData && existingData.workflowType;
 
   if (hasWorkflowType) {
-    const wt = existingData.workflowType as WorkflowNodeType;
+    const rawWt = existingData.workflowType as WorkflowNodeType;
+    const wt: WorkflowNodeType = rawWt === 'condition' ? 'branch' : rawWt;
     return {
       ...node,
       type: getReactFlowNodeType(wt),
