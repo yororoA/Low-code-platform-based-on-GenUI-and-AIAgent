@@ -642,7 +642,11 @@ onmessage = async (event: MessageEvent<StreamMessageEvent>) => {
           id,
           data: buildMergedAssistantMessages(id, task?.messageBuffer ?? new Map<string, AdminAgentMessage>()),
         } as StreamMessageResponse);
-        TaskRegistry.delete(id);
+        if (task?.isFocused) {
+          TaskRegistry.delete(id);
+        } else if (task) {
+          task.status = "done";
+        }
       }
     } catch (error: unknown) {
       if (error instanceof Error && error.name !== "AbortError") {
@@ -680,15 +684,10 @@ onmessage = async (event: MessageEvent<StreamMessageEvent>) => {
     }
   } else if (type === "online") {
     const task = TaskRegistry.get(id);
-    if (task) {
-      if (!task.isFocused) { // task 处于 offline 才进行 online 操作
-        task.isFocused = true;
-        self.postMessage({
-          type: "complete",
-          id,
-          data: buildMergedAssistantMessages(id, task.messageBuffer),
-        } as StreamMessageResponse);
-        if (task.status === "done") TaskRegistry.delete(id);
+    if (task && !task.isFocused) {
+      task.isFocused = true;
+      if (task.status === "done") {
+        TaskRegistry.delete(id);
       }
     }
   } else if (type === 'cancelAll') {
