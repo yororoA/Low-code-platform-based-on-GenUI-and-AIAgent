@@ -3,14 +3,14 @@ import Image from "next/image"
 
 import { cn } from "@/lib/utils"
 import * as Ui from "@/components/ui"
-
-// ── AST 节点类型 ──
+import type { InteractionSlot, ResolvedInteraction } from "@/types/interaction"
 
 type UiTreeNode = {
   type: string
   id: string
   props?: Record<string, unknown>
   children?: UiTreeNode[]
+  interaction?: InteractionSlot
 }
 
 type StructureOutput = {
@@ -92,20 +92,23 @@ type RenderFn = (
   node: UiTreeNode,
   className: string | undefined,
   children: ReactNode[],
+  interaction?: ResolvedInteraction,
 ) => ReactNode
 
-/**
- * 快捷工厂：将一个 React 组件包装为「仅传 className + children」的 RenderFn。
- * 覆盖绝大多数纯容器/纯展示组件。
- */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function simple(Comp: ComponentType<any>): RenderFn {
-  // eslint-disable-next-line react/display-name
-  return (node, className, children) => (
-    <Comp key={node.id} className={className}>
+function simple(Comp: ComponentType<Record<string, unknown>>): RenderFn {
+  const SimpleWrapper = (node: UiTreeNode, className: string | undefined, children: ReactNode[], interaction?: ResolvedInteraction) => (
+    <Comp
+      key={node.id}
+      className={cn(className, interaction?.visual?.cursor === "pointer" && "cursor-pointer")}
+      onClick={interaction?.handler as React.MouseEventHandler | undefined}
+      data-interaction={interaction ? interaction.slot.type : undefined}
+      data-node-id={node.id}
+    >
       {children}
     </Comp>
   )
+  SimpleWrapper.displayName = `Simple(${Comp.displayName || Comp.name || "Anonymous"})`
+  return SimpleWrapper
 }
 
 const BUTTON_VARIANTS = ["default", "destructive", "outline", "secondary", "ghost", "link"] as const
@@ -162,15 +165,18 @@ const registry: Record<string, RenderFn> = {
   CardFooter: simple(Ui.CardFooter),
   CardAction: simple(Ui.CardAction),
 
-  // ─── Button ───
-  Button: (node, className, children) => (
+  Button: (node, className, children, interaction) => (
     <Ui.Button
       key={node.id}
-      className={className}
+      className={cn(className, interaction?.visual?.cursor === "pointer" && "cursor-pointer")}
       variant={oneOf(node, "variant", BUTTON_VARIANTS, "default")}
       size={oneOf(node, "size", BUTTON_SIZES, "default")}
+      onClick={interaction?.handler as React.MouseEventHandler | undefined}
+      data-interaction={interaction ? interaction.slot.type : undefined}
+      data-node-id={node.id}
     >
       {children}
+      {interaction && <InteractionIndicator slot={interaction.slot} />}
     </Ui.Button>
   ),
 
@@ -197,23 +203,26 @@ const registry: Record<string, RenderFn> = {
     />
   ),
 
-  // ─── Input / Textarea / Checkbox ───
-  Input: (node, className) => (
+  Input: (node, className, _children, interaction) => (
     <Ui.Input
       key={node.id}
-      className={className}
+      className={cn(className, interaction?.visual?.cursor === "pointer" && "cursor-pointer")}
       type={str(node, "type") ?? "text"}
       placeholder={str(node, "placeholder")}
       disabled={bool(node, "disabled")}
+      data-interaction={interaction ? interaction.slot.type : undefined}
+      data-node-id={node.id}
     />
   ),
 
-  Textarea: (node, className) => (
+  Textarea: (node, className, _children, interaction) => (
     <Ui.Textarea
       key={node.id}
-      className={className}
+      className={cn(className, interaction?.visual?.cursor === "pointer" && "cursor-pointer")}
       placeholder={str(node, "placeholder")}
       disabled={bool(node, "disabled")}
+      data-interaction={interaction ? interaction.slot.type : undefined}
+      data-node-id={node.id}
     />
   ),
 
@@ -995,9 +1004,18 @@ const registry: Record<string, RenderFn> = {
       {children}
     </Ui.TabsList>
   ),
-  TabsTrigger: (node, className, children) => (
-    <Ui.TabsTrigger key={node.id} className={className} value={str(node, "value") ?? ""} disabled={bool(node, "disabled")}>
+  TabsTrigger: (node, className, children, interaction) => (
+    <Ui.TabsTrigger
+      key={node.id}
+      className={cn(className, interaction?.visual?.cursor === "pointer" && "cursor-pointer")}
+      value={str(node, "value") ?? ""}
+      disabled={bool(node, "disabled")}
+      onClick={interaction?.handler as React.MouseEventHandler | undefined}
+      data-interaction={interaction ? interaction.slot.type : undefined}
+      data-node-id={node.id}
+    >
       {children}
+      {interaction && <InteractionIndicator slot={interaction.slot} />}
     </Ui.TabsTrigger>
   ),
   TabsContent: (node, className, children) => (
@@ -1083,19 +1101,37 @@ const registry: Record<string, RenderFn> = {
 
 // ── 渲染引擎 ──
 
+function InteractionIndicator({ slot }: { slot: InteractionSlot }) {
+  return (
+    <span
+      className="ml-1 inline-flex items-center rounded-sm bg-amber-100 px-1 text-[10px] font-medium text-amber-700"
+      title={slot.description}
+    >
+      ⚡{slot.type}
+    </span>
+  )
+}
+
 function renderNode(
   node: UiTreeNode,
   styleClassById: Record<string, string>,
+  interactionsById?: Record<string, ResolvedInteraction>,
 ): ReactNode {
   const fromTree = str(node, "className")
   const fromStyle = styleClassById[node.id]
   const className = fromTree && fromStyle ? cn(fromTree, fromStyle) : (fromStyle ?? fromTree ?? undefined)
 
-  const children = getNodeChildren(node).map((child) => renderNode(child, styleClassById))
+  const children = getNodeChildren(node).map((child) => renderNode(child, styleClassById, interactionsById))
+
+  const interaction = interactionsById?.[node.id] ?? (node.interaction ? {
+    handler: undefined,
+    visual: { cursor: "pointer" as const, hoverEffect: true },
+    slot: node.interaction,
+  } : undefined)
 
   const renderFn = registry[node.type]
   if (renderFn) {
-    return renderFn(node, className, children)
+    return renderFn(node, className, children, interaction)
   }
 
   return (
@@ -1112,7 +1148,7 @@ function renderNode(
 // ── 对外导出 ──
 
 export { isUiTreeNode, collectIds, getNodeChildren, renderNode }
-export type { UiTreeNode, StructureOutput, StyleOutput }
+export type { UiTreeNode, StructureOutput, StyleOutput, RenderFn }
 
 export function ThreeOutputPreviewCard({
   structureOutput,
@@ -1148,6 +1184,8 @@ export function ThreeOutputPreviewCard({
     styleOutput.styles.map((s) => [s.id, s.className]),
   )
 
+  const interactionsById: Record<string, ResolvedInteraction> = {}
+
   return (
     <Ui.Card className="border-slate-300 bg-slate-50 md:col-span-2">
       <Ui.CardHeader>
@@ -1175,7 +1213,7 @@ export function ThreeOutputPreviewCard({
           <div className="rounded-md border bg-white p-3 space-y-3">
             <p className="text-sm font-medium text-slate-900">按 uiTree + styles 渲染预览</p>
             {parsedTree ? (
-              <div className="space-y-3">{renderNode(parsedTree, styleClassById)}</div>
+              <div className="space-y-3">{renderNode(parsedTree, styleClassById, interactionsById)}</div>
             ) : (
               <p className="text-sm text-red-600">uiTree 解析失败，无法渲染。</p>
             )}
