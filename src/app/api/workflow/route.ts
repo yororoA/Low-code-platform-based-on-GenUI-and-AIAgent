@@ -48,7 +48,23 @@ const AGENT_INSTRUCTIONS: Record<AgentType, string> = {
 
 const MAX_WORKFLOW_STEPS = 120;
 const MAX_NODE_EXECUTIONS = 24;
-const MAX_CONDITION_FALSE_RETRIES = 12;
+const MAX_BRANCH_FALSE_RETRIES = 12;
+const MAX_CONTEXT_LENGTH = 12000;
+
+function normalizeNodeType(type: WorkflowNodeType): Exclude<WorkflowNodeType, 'condition'> {
+  return type === 'condition' ? 'branch' : type;
+}
+
+function truncateText(text: string, maxLength: number = MAX_CONTEXT_LENGTH): string {
+  if (text.length <= maxLength) return text;
+  return `${text.slice(0, maxLength)}\n\n[上下文已截断，共${text.length}字符]`;
+}
+
+function mergeContexts(contexts: string[], fallback: string): string {
+  const parts = contexts.filter((item) => typeof item === 'string' && item.trim().length > 0);
+  if (parts.length === 0) return truncateText(fallback || '');
+  return truncateText(parts.join('\n\n---\n\n'));
+}
 
 function getAgentInstruction(agentType: AgentType): string {
   return AGENT_INSTRUCTIONS[agentType] || AGENT_INSTRUCTIONS.review;
@@ -118,7 +134,7 @@ function isFalseBranchHandle(handle: string | null | undefined): boolean {
   return handle === 'cond-false';
 }
 
-function pickConditionTargets(
+function pickBranchTargets(
   nodeId: string,
   outgoingEdges: WorkflowEdge[],
   taken: boolean,
@@ -152,9 +168,9 @@ function pickConditionTargets(
   }
 
   const loopCandidates = outgoingEdges.filter((edge) => {
-    const goesBackToCondition = canReachTarget(edge.target, nodeId, adjacency);
+    const goesBackToBranch = canReachTarget(edge.target, nodeId, adjacency);
     const targetExecuted = (executionCount.get(edge.target) || 0) > 0;
-    return goesBackToCondition || targetExecuted;
+    return goesBackToBranch || targetExecuted;
   });
   const forwardCandidates = outgoingEdges.filter((edge) => !loopCandidates.includes(edge));
 
@@ -178,12 +194,13 @@ async function executeAgentNode(
 
   const agent = new ToolLoopAgent({
     model,
-    instructions: `${instruction}\n\n当前任务: ${node.inputText}`,
+    instructions: `${instruction}\n\n请严格围绕当前节点任务输出，必要时先给出结构化方案再给出细节。`,
   });
 
   try {
+    const prompt = truncateText(`节点名称: ${node.label || node.id}\n节点类型: ${agentType}\n\n当前节点任务:\n${node.inputText || '无'}\n\n上游上下文:\n${context || '无'}`);
     const response = await agent.generate({
-      prompt: context || node.inputText,
+      prompt,
     });
 
     const output = response.text || '智能体执行完成，无文本输出';
@@ -196,32 +213,43 @@ async function executeAgentNode(
   }
 }
 
-async function evaluateCondition(
-  conditionText: string,
+function parseBooleanResult(text: string): boolean {
+  const normalized = text.trim().toLowerCase();
+  if (normalized === 'true') return true;
+  if (normalized === 'false') return false;
+  if (/^true\b/.test(normalized)) return true;
+  if (/^false\b/.test(normalized)) return false;
+  if (/\btrue\b/.test(normalized) && !/\bfalse\b/.test(normalized)) return true;
+  if (/\bfalse\b/.test(normalized) && !/\btrue\b/.test(normalized)) return false;
+  return normalized.includes('满足') || normalized.includes('成立') || normalized.includes('是');
+}
+
+async function evaluateBranch(
+  branchText: string,
   context: string,
   send: (event: string, data: unknown) => void,
 ): Promise<boolean> {
-  send('status', { type: 'building', message: `正在评估条件: ${conditionText}...` });
+  send('status', { type: 'building', message: `正在评估分支: ${branchText}...` });
 
   const conditionAgent = new ToolLoopAgent({
     model,
-    instructions: `你是一个条件评估智能体。你需要根据给定的上下文，判断是否满足指定的条件。
+    instructions: `你是一个分支评估智能体。你需要根据给定的上下文，判断是否满足指定的分支条件。
 请只回答 "true" 或 "false"，不要输出其他内容。
-- 如果条件满足，回答 "true"
-- 如果条件不满足，回答 "false"`,
+- 如果分支条件满足，回答 "true"
+- 如果分支条件不满足，回答 "false"`,
   });
 
   try {
     const response = await conditionAgent.generate({
-      prompt: `条件: ${conditionText}\n\n上下文:\n${context}`,
+      prompt: truncateText(`分支条件: ${branchText}\n\n上下文:\n${context}`),
     });
 
-    const result = response.text?.trim().toLowerCase() || 'false';
-    const taken = result.includes('true');
-    send('status', { type: 'branch', condition: conditionText, taken });
+    const result = response.text?.trim() || 'false';
+    const taken = parseBooleanResult(result);
+    send('status', { type: 'branch', branch: branchText, condition: branchText, taken });
     return taken;
   } catch {
-    send('status', { type: 'branch', condition: conditionText, taken: false });
+    send('status', { type: 'branch', branch: branchText, condition: branchText, taken: false });
     return false;
   }
 }
@@ -263,7 +291,7 @@ export async function POST(req: Request) {
         let accumulatedContext = inputNode.inputText || '';
 
         const executionCount = new Map<string, number>();
-        const conditionFalseRetries = new Map<string, number>();
+        const branchFalseRetries = new Map<string, number>();
         const runQueue: string[] = [inputNode.id];
         const inQueue = new Set<string>([inputNode.id]);
 
@@ -277,7 +305,7 @@ export async function POST(req: Request) {
         let steps = 0;
         while (runQueue.length > 0) {
           if (steps++ > MAX_WORKFLOW_STEPS) {
-            throw new Error(`执行步骤超过上限(${MAX_WORKFLOW_STEPS})，可能存在未收敛的循环，请检查条件节点`);
+            throw new Error(`执行步骤超过上限(${MAX_WORKFLOW_STEPS})，可能存在未收敛的循环，请检查分支节点`);
           }
 
           const nodeId = runQueue.shift()!;
@@ -299,7 +327,9 @@ export async function POST(req: Request) {
             if (parentOutput) incomingContexts.push(parentOutput);
           }
 
-          if (node.type === 'input') {
+          const nodeType = normalizeNodeType(node.type);
+
+          if (nodeType === 'input') {
             send('status', { type: 'focus', nodeId: node.id });
             const inputContext = node.inputText || '';
             nodeOutputs.set(node.id, inputContext);
@@ -310,61 +340,56 @@ export async function POST(req: Request) {
             continue;
           }
 
-          if (node.type === 'requirement') {
+          if (nodeType === 'requirement') {
             send('status', { type: 'focus', nodeId: node.id });
             send('status', { type: 'building', message: `注入详细要求: ${node.inputText?.slice(0, 50)}...` });
-            const requirementContext = incomingContexts.length > 0
-              ? `${incomingContexts.join('\n\n')}\n\n[附加要求]: ${node.inputText}`
-              : node.inputText;
+            const upstream = mergeContexts(incomingContexts, accumulatedContext);
+            const requirementContext = truncateText(
+              `${upstream}\n\n[附加要求]\n${node.inputText || '无'}`,
+            );
             accumulatedContext = requirementContext;
             nodeOutputs.set(nodeId, requirementContext);
             for (const outEdge of getOutgoingEdges(node.id, edges)) {
               enqueue(outEdge.target);
             }
-          } else if (node.type === 'agent') {
-            const agentContext = incomingContexts.length > 0
-              ? incomingContexts.join('\n\n')
-              : accumulatedContext;
+          } else if (nodeType === 'agent') {
+            const agentContext = mergeContexts(incomingContexts, accumulatedContext);
             const output = await executeAgentNode(node, agentContext, send);
             accumulatedContext = output;
             nodeOutputs.set(nodeId, output);
             for (const outEdge of getOutgoingEdges(node.id, edges)) {
               enqueue(outEdge.target);
             }
-          } else if (node.type === 'condition') {
+          } else if (nodeType === 'branch') {
             send('status', { type: 'focus', nodeId: node.id });
-            const conditionContext = incomingContexts.length > 0
-              ? incomingContexts.join('\n\n')
-              : accumulatedContext;
-            const taken = await evaluateCondition(node.inputText, conditionContext, send);
+            const branchContext = mergeContexts(incomingContexts, accumulatedContext);
+            const taken = await evaluateBranch(node.inputText, branchContext, send);
 
-            nodeOutputs.set(nodeId, taken ? '条件满足' : '条件不满足');
+            nodeOutputs.set(nodeId, taken ? '分支满足' : '分支不满足');
 
             const outgoingEdges = getOutgoingEdges(nodeId, edges);
             if (!taken) {
-              const retryCount = (conditionFalseRetries.get(nodeId) || 0) + 1;
-              conditionFalseRetries.set(nodeId, retryCount);
-              if (retryCount > MAX_CONDITION_FALSE_RETRIES) {
-                throw new Error(`条件节点 [${node.label || node.id}] 连续未满足超过上限(${MAX_CONDITION_FALSE_RETRIES})，已停止执行`);
+              const retryCount = (branchFalseRetries.get(nodeId) || 0) + 1;
+              branchFalseRetries.set(nodeId, retryCount);
+              if (retryCount > MAX_BRANCH_FALSE_RETRIES) {
+                throw new Error(`分支节点 [${node.label || node.id}] 连续未满足超过上限(${MAX_BRANCH_FALSE_RETRIES})，已停止执行`);
               }
             }
 
-            accumulatedContext = conditionContext;
-            const targets = pickConditionTargets(nodeId, outgoingEdges, taken, adjacency, executionCount);
+            accumulatedContext = branchContext;
+            const targets = pickBranchTargets(nodeId, outgoingEdges, taken, adjacency, executionCount);
             for (const targetId of targets) {
               enqueue(targetId);
             }
-          } else if (node.type === 'output') {
+          } else if (nodeType === 'output') {
             send('status', { type: 'focus', nodeId: node.id });
             send('status', { type: 'building', message: '收集输出结果...' });
-            const outputContext = incomingContexts.length > 0
-              ? incomingContexts.join('\n\n')
-              : accumulatedContext;
+            const outputContext = mergeContexts(incomingContexts, accumulatedContext);
             nodeOutputs.set(nodeId, outputContext);
           }
         }
 
-        const outputNodes = nodes.filter((n) => n.type === 'output');
+        const outputNodes = nodes.filter((n) => normalizeNodeType(n.type) === 'output');
         const finalResults = outputNodes
           .map((n) => nodeOutputs.get(n.id))
           .filter(Boolean);
