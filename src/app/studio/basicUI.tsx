@@ -118,8 +118,8 @@ export default function BasicUI() {
       workersAllowed: state.workersAllowed,
     }))
   );
-  const promptData = useChatStreamingStore((state) =>
-    activePromptId ? state.promptDataMap.get(activePromptId) : undefined,
+  const promptData = useChatStreamingStore(
+    useShallow(state => activePromptId ? state.promptDataMap.get(activePromptId) : undefined)
   );
   const getDBMessagesWorkerRef = useRef<Worker | null>(null);
   // 初始化获取历史记录线程
@@ -165,15 +165,18 @@ export default function BasicUI() {
       const mergedMessages = promptData?.messages ?? baseMessagesRef.current;
       setNormalizedMessages(mergedMessages);
       if (promptData?.topic) setTopic(promptData.topic);
-
-      if (currentTask && (currentTask.status === "canceled" || currentTask.status === "completed")) {
-        if (isNew.current) setCanJump(true);
-        terminateTask(currentMessageTaskId);
-      }
     } else {
       setNormalizedMessages(dedupeMessages(messages));
     }
-  }, [messages, currentTask, terminateTask, currentMessageTaskId, promptData, workersAllowed]);
+  }, [messages, promptData, workersAllowed]);
+
+  // 处理任务完成/取消
+  useEffect(() => {
+    if (workersAllowed && currentTask && (currentTask.status === "canceled" || currentTask.status === "completed")) {
+      if (isNew.current) setCanJump(true);
+      terminateTask(currentMessageTaskId);
+    }
+  }, [currentTask, terminateTask, currentMessageTaskId, workersAllowed]);
 
   // 初始化获取历史数据
   // 初始化时若存在 promptId 则尝试从 store 中获取可能存在的 task, 恢复状态

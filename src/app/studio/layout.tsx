@@ -13,11 +13,6 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import {
-  ResizableHandle,
-  ResizablePanel,
-  ResizablePanelGroup,
-} from "@/components/ui/resizable"
-import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
@@ -398,49 +393,36 @@ function StudioLayoutContent({ children }: { children: ReactNode }) {
             )}
             
             <div className="flex flex-1 min-h-0">
-              <main className="flex-1 min-w-0 overflow-hidden">
-                {isPreviewMode ? (
-                  <ResizablePanelGroup className="h-full min-h-0">
-                    <ResizablePanel defaultSize={50} minSize={20} maxSize={80}>
-                      <div className="h-full min-h-0 overflow-hidden overscroll-contain">
-                        <ChatDetailsContext.Provider value={details}>
-                          {children}
-                        </ChatDetailsContext.Provider>
-                      </div>
-                    </ResizablePanel>
-                    <ResizableHandle withHandle />
-                    <ResizablePanel defaultSize={50} minSize={20} maxSize={80}>
-                      <ScrollArea className="h-full min-h-0 bg-muted/20 p-4 overscroll-contain">
-                        <Card>
-                          <CardHeader className="flex flex-row items-start justify-between gap-3 sticky top-0 bg-card z-10">
-                            <div>
-                              <CardTitle className="text-base">{parsedPreview?.topic ?? "渲染预览"}</CardTitle>
-                            </div>
-                            <Button variant="outline" size="sm" onClick={() => setPreviewPayload(null)}>
-                              关闭预览
-                            </Button>
-                          </CardHeader>
-                          <CardContent className="space-y-3">
-                            {parsedPreview?.parsedTree ? (
-                              <div className="rounded-md border bg-background p-3">
-                                {renderNode(parsedPreview.parsedTree, parsedPreview.styleClassById)}
-                              </div>
-                            ) : (
-                              <div className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
-                                {parsedPreview?.parseError || "暂无可渲染内容。"}
-                              </div>
-                            )}
-                          </CardContent>
-                        </Card>
-                      </ScrollArea>
-                    </ResizablePanel>
-                  </ResizablePanelGroup>
-                ) : (
-                  <ChatDetailsContext.Provider value={details}>
+              <main className={cn("flex-1 min-w-0 overflow-hidden", isPreviewMode && "max-w-[60%]")}>
+                <ChatDetailsContext.Provider value={details}>
+                  <div className="h-full min-h-0 overflow-hidden overscroll-contain">
                     {children}
-                  </ChatDetailsContext.Provider>
-                )}
+                  </div>
+                </ChatDetailsContext.Provider>
               </main>
+              {isPreviewMode && (
+                <aside className="w-[50%] min-w-[20%] max-w-[80%] border-l bg-background flex flex-col h-full min-h-0 shrink-0 overflow-hidden">
+                  <div className="border-b p-4 shrink-0 flex items-center justify-between">
+                    <div>
+                      <h2 className="text-sm font-semibold">{parsedPreview?.topic ?? "渲染预览"}</h2>
+                    </div>
+                    <Button variant="outline" size="sm" onClick={() => setPreviewPayload(null)}>
+                      关闭预览
+                    </Button>
+                  </div>
+                  <ScrollArea className="flex-1 min-h-0 p-4 overscroll-contain bg-muted/20">
+                    {parsedPreview?.parsedTree ? (
+                      <div className="rounded-md border bg-background p-3">
+                        {renderNode(parsedPreview.parsedTree, parsedPreview.styleClassById)}
+                      </div>
+                    ) : (
+                      <div className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
+                        {parsedPreview?.parseError || "暂无可渲染内容。"}
+                      </div>
+                    )}
+                  </ScrollArea>
+                </aside>
+              )}
               
               {!isPreviewMode && shouldShowInspector && (
                 <aside ref={inspectorRef} className="w-80 border-l bg-background flex h-full min-h-0 flex-col shrink-0 overflow-hidden">
