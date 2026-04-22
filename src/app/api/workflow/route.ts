@@ -21,6 +21,7 @@ type WorkflowEdge = {
   id: string;
   source: string;
   target: string;
+  label?: string;
   sourceHandle?: string | null;
   targetHandle?: string | null;
 };
@@ -53,19 +54,29 @@ function getAgentInstruction(agentType: AgentType): string {
   return AGENT_INSTRUCTIONS[agentType] || AGENT_INSTRUCTIONS.review;
 }
 
-function buildAdjacencyList(nodes: WorkflowNode[], edges: WorkflowEdge[]): Map<string, string[]> {
-  const adj = new Map<string, string[]>();
-  }
-  return adj;
-}
-            const adjacency = buildAdjacencyList(nodes, edges);
-
 function getIncomingEdges(nodeId: string, edges: WorkflowEdge[]): WorkflowEdge[] {
   return edges.filter(e => e.target === nodeId);
 }
 
 function getOutgoingEdges(nodeId: string, edges: WorkflowEdge[]): WorkflowEdge[] {
   return edges.filter(e => e.source === nodeId);
+}
+
+function buildAdjacencyList(nodes: WorkflowNode[], edges: WorkflowEdge[]): Map<string, string[]> {
+  const adj = new Map<string, string[]>();
+
+  for (const node of nodes) {
+    adj.set(node.id, []);
+  }
+
+  for (const edge of edges) {
+    const neighbors = adj.get(edge.source);
+    if (neighbors) {
+      neighbors.push(edge.target);
+    }
+  }
+
+  return adj;
 }
 
 function canReachTarget(fromId: string, targetId: string, adjacency: Map<string, string[]>): boolean {
@@ -87,6 +98,26 @@ function canReachTarget(fromId: string, targetId: string, adjacency: Map<string,
   return false;
 }
 
+function isTrueBranchLabel(label: string | undefined): boolean {
+  if (!label) return false;
+  const normalized = label.trim().toLowerCase();
+  return normalized.includes('成立') || normalized.includes('满足') || normalized === 'true' || normalized.includes('真');
+}
+
+function isFalseBranchLabel(label: string | undefined): boolean {
+  if (!label) return false;
+  const normalized = label.trim().toLowerCase();
+  return normalized.includes('不成立') || normalized.includes('不满足') || normalized === 'false' || normalized.includes('假');
+}
+
+function isTrueBranchHandle(handle: string | null | undefined): boolean {
+  return handle === 'cond-true';
+}
+
+function isFalseBranchHandle(handle: string | null | undefined): boolean {
+  return handle === 'cond-false';
+}
+
 function pickConditionTargets(
   nodeId: string,
   outgoingEdges: WorkflowEdge[],
@@ -97,6 +128,29 @@ function pickConditionTargets(
   if (outgoingEdges.length === 0) return [];
   if (outgoingEdges.length === 1) return [outgoingEdges[0].target];
 
+  const trueLabelEdges = outgoingEdges.filter((edge) => isTrueBranchLabel(edge.label));
+  const falseLabelEdges = outgoingEdges.filter((edge) => isFalseBranchLabel(edge.label));
+  const trueHandleEdges = outgoingEdges.filter((edge) => isTrueBranchHandle(edge.sourceHandle));
+  const falseHandleEdges = outgoingEdges.filter((edge) => isFalseBranchHandle(edge.sourceHandle));
+
+  if (trueHandleEdges.length > 0 || falseHandleEdges.length > 0) {
+    const preferredByHandle = taken ? trueHandleEdges : falseHandleEdges;
+    const fallbackByHandle = taken ? falseHandleEdges : trueHandleEdges;
+    const selectedByHandle = preferredByHandle.length > 0 ? preferredByHandle : fallbackByHandle;
+    if (selectedByHandle.length > 0) {
+      return selectedByHandle.map((edge) => edge.target);
+    }
+  }
+
+  if (trueLabelEdges.length > 0 || falseLabelEdges.length > 0) {
+    const preferredByLabel = taken ? trueLabelEdges : falseLabelEdges;
+    const fallbackByLabel = taken ? falseLabelEdges : trueLabelEdges;
+    const selectedByLabel = preferredByLabel.length > 0 ? preferredByLabel : fallbackByLabel;
+    if (selectedByLabel.length > 0) {
+      return selectedByLabel.map((edge) => edge.target);
+    }
+  }
+
   const loopCandidates = outgoingEdges.filter((edge) => {
     const goesBackToCondition = canReachTarget(edge.target, nodeId, adjacency);
     const targetExecuted = (executionCount.get(edge.target) || 0) > 0;
@@ -104,8 +158,8 @@ function pickConditionTargets(
   });
   const forwardCandidates = outgoingEdges.filter((edge) => !loopCandidates.includes(edge));
 
-  const preferred = taken ? forwardCandidates : loopCandidates;
-  const fallback = taken ? loopCandidates : forwardCandidates;
+  const preferred = taken ? loopCandidates : forwardCandidates;
+  const fallback = taken ? forwardCandidates : loopCandidates;
   const selected = preferred.length > 0 ? preferred : fallback;
 
   return selected.map((edge) => edge.target);
@@ -189,13 +243,12 @@ export async function POST(req: Request) {
 
       const nodes: WorkflowNode[] = payload.nodes;
       const edges: WorkflowEdge[] = payload.edges;
-
-      const nodeMap = new Map(nodes.map(n => [n.id, n]));
+      const nodeMap = new Map(nodes.map((n) => [n.id, n]));
 
       try {
         send('status', { type: 'building', message: '正在构建 Agent 架构...' });
 
-        const inputNode = nodes.find(n => n.type === 'input');
+        const inputNode = nodes.find((n) => n.type === 'input');
         if (!inputNode) {
           send('error', { message: '未找到输入节点' });
           controller.close();
@@ -203,35 +256,58 @@ export async function POST(req: Request) {
           return;
         }
 
-        const order = topologicalSort(nodes, edges);
-        if (order.length !== nodes.length) {
-          send('error', { message: '工作流中存在循环依赖' });
-          controller.close();
-          closed = true;
-          return;
-        }
-
         send('status', { type: 'building', message: 'Agent 架构构建完成，开始执行...' });
 
+        const adjacency = buildAdjacencyList(nodes, edges);
         const nodeOutputs = new Map<string, string>();
         let accumulatedContext = inputNode.inputText || '';
 
-        send('status', { type: 'focus', nodeId: inputNode.id });
-        nodeOutputs.set(inputNode.id, accumulatedContext);
+        const executionCount = new Map<string, number>();
+        const conditionFalseRetries = new Map<string, number>();
+        const runQueue: string[] = [inputNode.id];
+        const inQueue = new Set<string>([inputNode.id]);
 
-        const visitedConditions = new Set<string>();
+        const enqueue = (nodeId: string) => {
+          if (!nodeMap.has(nodeId)) return;
+          if (inQueue.has(nodeId)) return;
+          runQueue.push(nodeId);
+          inQueue.add(nodeId);
+        };
 
-        for (const nodeId of order) {
-          if (nodeId === inputNode.id) continue;
+        let steps = 0;
+        while (runQueue.length > 0) {
+          if (steps++ > MAX_WORKFLOW_STEPS) {
+            throw new Error(`执行步骤超过上限(${MAX_WORKFLOW_STEPS})，可能存在未收敛的循环，请检查条件节点`);
+          }
+
+          const nodeId = runQueue.shift()!;
+          inQueue.delete(nodeId);
 
           const node = nodeMap.get(nodeId);
           if (!node) continue;
+
+          const runCount = (executionCount.get(nodeId) || 0) + 1;
+          executionCount.set(nodeId, runCount);
+          if (runCount > MAX_NODE_EXECUTIONS) {
+            throw new Error(`节点 [${node.label || node.id}] 执行次数超过上限(${MAX_NODE_EXECUTIONS})，疑似无限循环`);
+          }
 
           const incomingEdges = getIncomingEdges(nodeId, edges);
           const incomingContexts: string[] = [];
           for (const edge of incomingEdges) {
             const parentOutput = nodeOutputs.get(edge.source);
             if (parentOutput) incomingContexts.push(parentOutput);
+          }
+
+          if (node.type === 'input') {
+            send('status', { type: 'focus', nodeId: node.id });
+            const inputContext = node.inputText || '';
+            nodeOutputs.set(node.id, inputContext);
+            accumulatedContext = inputContext;
+            for (const outEdge of getOutgoingEdges(node.id, edges)) {
+              enqueue(outEdge.target);
+            }
+            continue;
           }
 
           if (node.type === 'requirement') {
@@ -242,6 +318,9 @@ export async function POST(req: Request) {
               : node.inputText;
             accumulatedContext = requirementContext;
             nodeOutputs.set(nodeId, requirementContext);
+            for (const outEdge of getOutgoingEdges(node.id, edges)) {
+              enqueue(outEdge.target);
+            }
           } else if (node.type === 'agent') {
             const agentContext = incomingContexts.length > 0
               ? incomingContexts.join('\n\n')
@@ -249,10 +328,10 @@ export async function POST(req: Request) {
             const output = await executeAgentNode(node, agentContext, send);
             accumulatedContext = output;
             nodeOutputs.set(nodeId, output);
+            for (const outEdge of getOutgoingEdges(node.id, edges)) {
+              enqueue(outEdge.target);
+            }
           } else if (node.type === 'condition') {
-            if (visitedConditions.has(nodeId)) continue;
-            visitedConditions.add(nodeId);
-
             send('status', { type: 'focus', nodeId: node.id });
             const conditionContext = incomingContexts.length > 0
               ? incomingContexts.join('\n\n')
@@ -262,13 +341,18 @@ export async function POST(req: Request) {
             nodeOutputs.set(nodeId, taken ? '条件满足' : '条件不满足');
 
             const outgoingEdges = getOutgoingEdges(nodeId, edges);
-            if (taken && outgoingEdges.length > 0) {
-              accumulatedContext = conditionContext;
-            } else if (!taken && outgoingEdges.length > 1) {
-              const alternativeEdge = outgoingEdges.slice(1).find(() => true);
-              if (alternativeEdge) {
-                accumulatedContext = conditionContext;
+            if (!taken) {
+              const retryCount = (conditionFalseRetries.get(nodeId) || 0) + 1;
+              conditionFalseRetries.set(nodeId, retryCount);
+              if (retryCount > MAX_CONDITION_FALSE_RETRIES) {
+                throw new Error(`条件节点 [${node.label || node.id}] 连续未满足超过上限(${MAX_CONDITION_FALSE_RETRIES})，已停止执行`);
               }
+            }
+
+            accumulatedContext = conditionContext;
+            const targets = pickConditionTargets(nodeId, outgoingEdges, taken, adjacency, executionCount);
+            for (const targetId of targets) {
+              enqueue(targetId);
             }
           } else if (node.type === 'output') {
             send('status', { type: 'focus', nodeId: node.id });
@@ -280,9 +364,9 @@ export async function POST(req: Request) {
           }
         }
 
-        const outputNodes = nodes.filter(n => n.type === 'output');
+        const outputNodes = nodes.filter((n) => n.type === 'output');
         const finalResults = outputNodes
-          .map(n => nodeOutputs.get(n.id))
+          .map((n) => nodeOutputs.get(n.id))
           .filter(Boolean);
 
         send('done', { result: finalResults.join('\n\n---\n\n') || '工作流执行完成' });

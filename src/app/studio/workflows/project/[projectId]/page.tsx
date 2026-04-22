@@ -52,6 +52,10 @@ import {
   getWorkflowTypeFromReactFlowNode,
   getDefaultNodeData,
   migrateLegacyNode,
+  CONDITION_TRUE_SOURCE_HANDLE_ID,
+  CONDITION_FALSE_SOURCE_HANDLE_ID,
+  TEMP_SOURCE_HANDLE_ID,
+  TEMP_TARGET_HANDLE_ID,
 } from '@/components/workflow/WorkflowNodes';
 
 type AddNodeDraft = {
@@ -72,6 +76,118 @@ const createDefaultDraft = (): AddNodeDraft => ({
   workflowType: 'requirement',
   color: '#8b5cf6',
 });
+
+type TemplateNodeSeed = {
+  id: string;
+  workflowType: WorkflowNodeType;
+  label: string;
+  inputText: string;
+  agentType?: AgentType;
+  x: number;
+  y: number;
+};
+
+type TemplateEdgeSeed = {
+  source: string;
+  target: string;
+  label?: string;
+  sourceSide?: 'left' | 'right' | 'top' | 'bottom';
+  targetSide?: 'left' | 'right' | 'top' | 'bottom';
+};
+
+const REVIEW_LOOP_TEMPLATE_NODES: TemplateNodeSeed[] = [
+  { id: 'tpl-input', workflowType: 'input', label: '输入', inputText: '设计一个简单的欢迎页面', x: 0, y: 0 },
+  { id: 'tpl-requirement', workflowType: 'requirement', label: '要求', inputText: '页面应简洁、现代，包含标题、按钮和基础说明', x: 260, y: 0 },
+  { id: 'tpl-design', workflowType: 'agent', label: '设计智能体', inputText: '产出页面结构与视觉设计说明', agentType: 'design', x: 520, y: 120 },
+  { id: 'tpl-review', workflowType: 'agent', label: '审查智能体', inputText: '对设计与构建结果打分并给出改进建议', agentType: 'review', x: 840, y: 120 },
+  { id: 'tpl-design-condition', workflowType: 'condition', label: '设计评分小于90（条件）', inputText: '设计评分是否小于90？true表示需要继续优化设计', x: 760, y: -90 },
+  { id: 'tpl-build', workflowType: 'agent', label: '构建智能体', inputText: '根据审查建议生成页面实现方案', agentType: 'build', x: 1130, y: 120 },
+  { id: 'tpl-build-condition', workflowType: 'condition', label: '构建评分小于90（条件）', inputText: '构建评分是否小于90？true表示需要继续优化构建', x: 1030, y: 300 },
+  { id: 'tpl-output', workflowType: 'output', label: '输出', inputText: '', x: 930, y: 470 },
+];
+
+const REVIEW_LOOP_TEMPLATE_EDGES: TemplateEdgeSeed[] = [
+  { source: 'tpl-input', target: 'tpl-requirement', sourceSide: 'right', targetSide: 'left' },
+  { source: 'tpl-requirement', target: 'tpl-design', sourceSide: 'bottom', targetSide: 'left' },
+  { source: 'tpl-design', target: 'tpl-review', sourceSide: 'right', targetSide: 'left' },
+  { source: 'tpl-review', target: 'tpl-design-condition', sourceSide: 'top', targetSide: 'bottom' },
+  { source: 'tpl-design-condition', target: 'tpl-design', label: '条件成立', sourceSide: 'left', targetSide: 'top' },
+  { source: 'tpl-design-condition', target: 'tpl-build', label: '条件不成立', sourceSide: 'right', targetSide: 'top' },
+  { source: 'tpl-review', target: 'tpl-build', sourceSide: 'right', targetSide: 'left' },
+  { source: 'tpl-build', target: 'tpl-review', sourceSide: 'left', targetSide: 'right' },
+  { source: 'tpl-review', target: 'tpl-build-condition', sourceSide: 'bottom', targetSide: 'top' },
+  { source: 'tpl-build-condition', target: 'tpl-build', label: '条件成立', sourceSide: 'right', targetSide: 'bottom' },
+  { source: 'tpl-build-condition', target: 'tpl-output', label: '条件不成立', sourceSide: 'bottom', targetSide: 'top' },
+];
+
+function buildReviewLoopTemplateGraph(anchor: XYPosition): GraphSnapshot {
+  const stamp = Date.now();
+  const nodeInputHandles = new Map<string, string[]>();
+  const nodeOutputHandles = new Map<string, string[]>();
+  for (const node of REVIEW_LOOP_TEMPLATE_NODES) {
+    nodeInputHandles.set(node.id, []);
+    nodeOutputHandles.set(node.id, []);
+  }
+
+  const makeTemplateHandleId = (
+    prefix: 'in' | 'out',
+    side: 'left' | 'right' | 'top' | 'bottom' | undefined,
+    nodeId: string,
+    index: number,
+  ) => {
+    const resolvedSide = side || (prefix === 'out' ? 'right' : 'left');
+    return `${prefix}-${resolvedSide}-${nodeId}-${index}`;
+  };
+
+  const edges: Edge[] = REVIEW_LOOP_TEMPLATE_EDGES.map((edgeSeed, index) => {
+    const sourceNode = REVIEW_LOOP_TEMPLATE_NODES.find((n) => n.id === edgeSeed.source);
+    const sourceHandleList = nodeOutputHandles.get(edgeSeed.source) || [];
+    const targetHandleList = nodeInputHandles.get(edgeSeed.target) || [];
+    const sourceHandle = sourceNode?.workflowType === 'condition'
+      ? (String(edgeSeed.label || '').includes('不成立') ? CONDITION_FALSE_SOURCE_HANDLE_ID : CONDITION_TRUE_SOURCE_HANDLE_ID)
+      : makeTemplateHandleId('out', edgeSeed.sourceSide, edgeSeed.source, sourceHandleList.length + 1);
+    const targetHandle = makeTemplateHandleId('in', edgeSeed.targetSide, edgeSeed.target, targetHandleList.length + 1);
+    if (!sourceHandleList.includes(sourceHandle)) sourceHandleList.push(sourceHandle);
+    targetHandleList.push(targetHandle);
+    nodeOutputHandles.set(edgeSeed.source, sourceHandleList);
+    nodeInputHandles.set(edgeSeed.target, targetHandleList);
+
+    return {
+      id: `tpl-edge-${stamp}-${index}`,
+      source: edgeSeed.source,
+      target: edgeSeed.target,
+      label: edgeSeed.label,
+      sourceHandle,
+      targetHandle,
+    };
+  });
+
+  const nodes: Node[] = REVIEW_LOOP_TEMPLATE_NODES.map((seed) => {
+    const defaultData = getDefaultNodeData(seed.workflowType);
+
+    return {
+      id: seed.id,
+      type: getReactFlowNodeType(seed.workflowType),
+      position: { x: anchor.x + seed.x, y: anchor.y + seed.y },
+      style: {
+        backgroundColor: DEFAULT_NODE_COLORS[seed.workflowType],
+        color: getInvertedTextColor(DEFAULT_NODE_COLORS[seed.workflowType]),
+      },
+      data: {
+        ...defaultData,
+        label: seed.label,
+        inputText: seed.inputText,
+        agentType: seed.agentType,
+        inputHandles: nodeInputHandles.get(seed.id) || [],
+        outputHandles: seed.workflowType === 'condition'
+          ? [CONDITION_TRUE_SOURCE_HANDLE_ID, CONDITION_FALSE_SOURCE_HANDLE_ID]
+          : (nodeOutputHandles.get(seed.id) || []),
+      } satisfies WorkflowNodeData,
+    };
+  });
+
+  return { nodes, edges };
+}
 
 const getInvertedTextColor = (hexColor: string) => {
   const hex = hexColor.replace('#', '');
@@ -217,6 +333,7 @@ function buildWorkflowPayload(nodes: Node[], edges: Edge[]): WorkflowRunPayload 
       id: e.id,
       source: e.source,
       target: e.target,
+      label: typeof e.label === 'string' ? e.label : undefined,
       sourceHandle: e.sourceHandle,
       targetHandle: e.targetHandle,
     })),
@@ -265,6 +382,7 @@ const ProjectPage = () => {
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
 
   const [queuedDrafts, setQueuedDrafts] = useState<AddNodeDraft[]>([]);
+  const [editingQueuedDraftIndex, setEditingQueuedDraftIndex] = useState<number | null>(null);
   const [draft, setDraft] = useState<AddNodeDraft>(createDefaultDraft);
 
   const [isRunning, setIsRunning] = useState(false);
@@ -454,6 +572,7 @@ const ProjectPage = () => {
 
   const resetAddDialogState = useCallback(() => {
     setQueuedDrafts([]);
+    setEditingQueuedDraftIndex(null);
     setDraft(createDefaultDraft());
   }, []);
 
@@ -526,12 +645,60 @@ const ProjectPage = () => {
 
   const onConnect = useCallback(
     (params: Connection) => {
-      applyGraphUpdate(({ nodes: currentNodes, edges: currentEdges }) => ({
-        nodes: currentNodes,
-        edges: addEdge(params, currentEdges),
-      }), { operationType: 'edge_added', description: 'Edge Added' });
+      if (!params.source || !params.target) return;
+
+      applyGraphUpdate(({ nodes: currentNodes, edges: currentEdges }) => {
+        let resolvedSourceHandle = params.sourceHandle || null;
+        let resolvedTargetHandle = params.targetHandle || null;
+        let edgeLabel: string | undefined;
+
+        const sourceNode = currentNodes.find((node) => node.id === params.source);
+        const sourceNodeType = (sourceNode?.data as WorkflowNodeData | undefined)?.workflowType;
+        if (sourceNodeType === 'condition') {
+          const usedTrue = currentEdges.some((edge) => edge.source === params.source && edge.sourceHandle === CONDITION_TRUE_SOURCE_HANDLE_ID);
+
+          if (!resolvedSourceHandle || resolvedSourceHandle === TEMP_SOURCE_HANDLE_ID) {
+            resolvedSourceHandle = !usedTrue
+              ? CONDITION_TRUE_SOURCE_HANDLE_ID
+              : CONDITION_FALSE_SOURCE_HANDLE_ID;
+          }
+
+          if (resolvedSourceHandle === CONDITION_TRUE_SOURCE_HANDLE_ID) edgeLabel = '条件成立';
+          else if (resolvedSourceHandle === CONDITION_FALSE_SOURCE_HANDLE_ID) edgeLabel = '条件不成立';
+        }
+
+        if (!resolvedSourceHandle || resolvedSourceHandle === TEMP_SOURCE_HANDLE_ID) {
+          resolvedSourceHandle = TEMP_SOURCE_HANDLE_ID;
+        }
+        if (!resolvedTargetHandle || resolvedTargetHandle === TEMP_TARGET_HANDLE_ID) {
+          resolvedTargetHandle = TEMP_TARGET_HANDLE_ID;
+        }
+
+        return {
+          nodes: currentNodes,
+          edges: addEdge({
+            ...params,
+            label: edgeLabel,
+            sourceHandle: resolvedSourceHandle,
+            targetHandle: resolvedTargetHandle,
+          }, currentEdges),
+        };
+      }, { operationType: 'edge_added', description: 'Edge Added' });
     }, [applyGraphUpdate],
   );
+
+  const importReviewLoopTemplate = useCallback(() => {
+    const templateGraph = buildReviewLoopTemplateGraph(lastContextPosition);
+    applyGraphUpdate(() => ({
+      nodes: templateGraph.nodes,
+      edges: templateGraph.edges,
+    }), {
+      operationType: 'nodes_added',
+      description: 'Template Imported (Design-Review-Build Loop)',
+      affectedIds: templateGraph.nodes.map((n) => n.id),
+    });
+    setRunStatus('模板已导入：设计-审查-构建循环');
+  }, [applyGraphUpdate, lastContextPosition]);
 
   const onPaneContextMenu = useCallback((event: MouseEvent | React.MouseEvent<Element, MouseEvent>) => {
     const flowPos = screenToFlowPosition(event.clientX, event.clientY);
@@ -594,19 +761,29 @@ const ProjectPage = () => {
   const appendCurrentDraftToQueue = useCallback(() => {
     const normalizedLabel = draft.label.trim();
     if (!normalizedLabel) return false;
-    setQueuedDrafts((prev) => [...prev, { ...draft, label: normalizedLabel }]);
-    setDraft((prev) => ({ ...prev, label: '' }));
+    setQueuedDrafts((prev) => {
+      if (editingQueuedDraftIndex === null) {
+        return [...prev, { ...draft, label: normalizedLabel }];
+      }
+      return prev.map((item, idx) => (idx === editingQueuedDraftIndex ? { ...draft, label: normalizedLabel } : item));
+    });
+    setEditingQueuedDraftIndex(null);
+    setDraft(createDefaultDraft());
     return true;
-  }, [draft]);
+  }, [draft, editingQueuedDraftIndex]);
 
   const AddNodes = () => { setAddDialogOpen(true); };
   const ContinueAddNodes = () => { appendCurrentDraftToQueue(); };
 
   const ConfirmAddNodes = () => {
     const normalizedLabel = draft.label.trim();
-    const allDrafts = normalizedLabel
-      ? [...queuedDrafts, { ...draft, label: normalizedLabel }]
-      : [...queuedDrafts];
+    const allDrafts = (() => {
+      if (!normalizedLabel) return [...queuedDrafts];
+      if (editingQueuedDraftIndex !== null) {
+        return queuedDrafts.map((item, idx) => (idx === editingQueuedDraftIndex ? { ...draft, label: normalizedLabel } : item));
+      }
+      return [...queuedDrafts, { ...draft, label: normalizedLabel }];
+    })();
 
     if (!allDrafts.length) { closeAddDialog(); return; }
 
@@ -946,6 +1123,14 @@ const ProjectPage = () => {
   const displayEdges = useMemo(() => {
     return edges.map(edge => ({
       ...edge,
+      labelStyle: edge.label
+        ? { fontSize: 11, fill: '#1e293b', fontWeight: 600 }
+        : edge.labelStyle,
+      labelBgStyle: edge.label
+        ? { fill: '#ffffff', fillOpacity: 0.9 }
+        : edge.labelBgStyle,
+      labelBgPadding: edge.label ? ([4, 2] as [number, number]) : edge.labelBgPadding,
+      labelBgBorderRadius: edge.label ? 4 : edge.labelBgBorderRadius,
       markerEnd: { type: MarkerType.ArrowClosed, color: '#64748b' },
       style: {
         ...edge.style,
@@ -994,6 +1179,16 @@ const ProjectPage = () => {
               Auto Save
             </label>
           </div>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm">导入模板</Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={importReviewLoopTemplate}>
+                设计-审查-构建循环模板
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
           <Button variant="ghost" size="sm" onClick={OpenRenameDialog}>
             Rename
           </Button>
@@ -1207,15 +1402,41 @@ const ProjectPage = () => {
             </div>
 
             {queuedDrafts.length > 0 && (
-              <div className="rounded-md border p-3 text-sm text-muted-foreground">
-                已暂存 {queuedDrafts.length} 个节点，确认后将一并创建。
+              <div className="rounded-md border p-3 space-y-2">
+                <div className="text-sm text-muted-foreground">已暂存 {queuedDrafts.length} 个节点（点击可编辑）</div>
+                <div className="max-h-40 overflow-auto space-y-1">
+                  {queuedDrafts.map((item, index) => {
+                    const typeLabel = WORKFLOW_TYPE_OPTIONS.find((opt) => opt.value === item.workflowType)?.label || item.workflowType;
+                    const isEditing = editingQueuedDraftIndex === index;
+                    return (
+                      <Button
+                        key={`${item.workflowType}-${index}`}
+                        variant={isEditing ? 'secondary' : 'ghost'}
+                        size="sm"
+                        className="w-full justify-between"
+                        onClick={() => {
+                          setEditingQueuedDraftIndex(index);
+                          setDraft(item);
+                        }}
+                      >
+                        <span className="truncate text-left">{index + 1}. {item.label}</span>
+                        <span className="text-xs text-muted-foreground">{typeLabel}</span>
+                      </Button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+            {editingQueuedDraftIndex !== null && (
+              <div className="text-xs text-muted-foreground">
+                正在编辑第 {editingQueuedDraftIndex + 1} 项，点击“继续添加”将更新该项。
               </div>
             )}
           </div>
 
           <DialogFooter>
             <Button variant="outline" onClick={closeAddDialog}>取消</Button>
-            <Button variant="secondary" onClick={ContinueAddNodes}>继续添加</Button>
+            <Button variant="secondary" onClick={ContinueAddNodes}>{editingQueuedDraftIndex !== null ? '更新并继续' : '继续添加'}</Button>
             <Button onClick={ConfirmAddNodes}>确认</Button>
           </DialogFooter>
         </DialogContent>

@@ -157,7 +157,7 @@ const WorkflowsHome = () => {
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
-                            <DropdownMenuItem onClick={(e) => handleOpenProject(project.id)}>
+                            <DropdownMenuItem onClick={() => handleOpenProject(project.id)}>
                               <EditIcon className="mr-2 h-4 w-4" />
                               Edit
                             </DropdownMenuItem>

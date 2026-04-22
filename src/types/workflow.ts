@@ -68,6 +68,8 @@ export interface WorkflowNodeData {
   workflowType: WorkflowNodeType;
   inputText: string;
   agentType?: AgentType;
+  inputHandles?: string[];
+  outputHandles?: string[];
   [key: string]: unknown;
 }
 
@@ -83,6 +85,7 @@ export interface WorkflowRunPayload {
     id: string;
     source: string;
     target: string;
+    label?: string;
     sourceHandle?: string | null;
     targetHandle?: string | null;
   }[];
