@@ -1,6 +1,6 @@
 import { tool } from "ai";
 import { z } from "zod";
-import { alignmentAgent, structureAgent, styleAgent } from "./model"
+import { alignmentAgent, structureAgent, styleAgent, interactionAgent, styleEditAgent } from "./model"
 
 
 // ======================= tool for call structure agent ======================
@@ -132,5 +132,39 @@ export const chatTools = {
     },
   }),
 };
+
+export async function callInteractionAgent(params: {
+  interactionType: string
+  interactionDescription: string
+  currentPageContext?: string
+  uiProvided: string[]
+}) {
+  const response = await interactionAgent.generate({
+    prompt: `Generate UI content for the "${params.interactionType}" interaction: ${params.interactionDescription}`,
+    options: {
+      interactionType: params.interactionType,
+      interactionDescription: params.interactionDescription,
+      currentPageContext: params.currentPageContext,
+      uiProvided: params.uiProvided,
+    },
+  })
+  return response.output
+}
+
+export async function callStyleEditAgent(params: {
+  uiTreeSummary: string
+  currentStyles: string
+  editRequest: string
+}) {
+  const response = await styleEditAgent.generate({
+    prompt: `Apply the following style edit: ${params.editRequest}`,
+    options: {
+      uiTreeSummary: params.uiTreeSummary,
+      currentStyles: params.currentStyles,
+      editRequest: params.editRequest,
+    },
+  })
+  return response.output
+}
 
 
