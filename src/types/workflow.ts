@@ -1,6 +1,6 @@
 import { Node, Edge } from '@xyflow/react';
 
-export type WorkflowNodeType = 'input' | 'requirement' | 'agent' | 'condition' | 'output';
+export type WorkflowNodeType = 'input' | 'requirement' | 'agent' | 'branch' | 'condition' | 'output';
 
 export type AgentType = 'design' | 'build' | 'review';
 
@@ -94,7 +94,7 @@ export interface WorkflowRunPayload {
 export type WorkflowStreamEvent =
   | { type: 'building'; message: string }
   | { type: 'focus'; nodeId: string }
-  | { type: 'branch'; condition: string; taken: boolean }
+  | { type: 'branch'; branch: string; condition?: string; taken: boolean }
   | { type: 'agent_output'; nodeId: string; output: string }
   | { type: 'done'; result: string }
   | { type: 'error'; message: string };
