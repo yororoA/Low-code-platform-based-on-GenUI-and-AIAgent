@@ -4,7 +4,7 @@ import type { UiTreeNode } from "@/lib/renderByAST"
 export interface ManagedPage {
   definition: PageDefinition
   uiTree: UiTreeNode | null
-  styles: Array<{ id: string; className: string; classNames?: Record<string, string> }>
+  styles: Array<{ id: string; className?: string; classNames?: Record<string, string> }>
   interactions: InteractionDefinition[]
 }
 

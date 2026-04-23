@@ -1,5 +1,5 @@
 'use client'
-import { Suspense, useEffect, type ReactNode, useMemo, useRef, useState, type MouseEvent } from "react"
+import { Suspense, useCallback, useEffect, type ReactNode, useMemo, useRef, useState, type MouseEvent } from "react"
 import Link from "next/link"
 import { usePathname, useSearchParams } from "next/navigation"
 import { HomeIcon, WorkflowIcon, HistoryIcon, ChevronRightIcon } from "lucide-react"
@@ -38,15 +38,41 @@ import { cn } from "@/lib/utils"
 import { DataItemSummary } from "@/types"
 import { ChatDetailsContext } from "@/contexts";
 import { isUiTreeNode, renderNode, type UiTreeNode } from "@/lib/renderByAST";
+import { InteractionResolver } from "@/lib/interactionResolver";
+import { PageManager } from "@/lib/pageManager";
+import type { InteractionSlot, InteractionDefinition, PageDefinition, InteractionResponsePayload } from "@/types/interaction";
 import { useChatStreamingStore } from "@/store/chatStreamingStore";
 import { useWorkflowStore } from "@/store/workflowStore";
 import { useShallow } from "zustand/shallow"
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog"
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+} from "@/components/ui/sheet"
+import {
+  Drawer,
+  DrawerContent,
+  DrawerHeader,
+  DrawerTitle,
+  DrawerDescription,
+} from "@/components/ui/drawer"
 
 
 type StudioPreviewPayload = {
   topic: string
   uiTree: unknown
   styles: unknown
+  interactions: unknown
+  pages: unknown
 }
 
 type TimelineChildItem = {
@@ -74,6 +100,23 @@ function StudioLayoutContent({ children }: { children: ReactNode }) {
   const [hoverUserText, setHoverUserText] = useState<string>("")
   const [hoverTop, setHoverTop] = useState<number>(0)
   const [hoverVisible, setHoverVisible] = useState<boolean>(false)
+  const interactionResolverRef = useRef<InteractionResolver>(new InteractionResolver())
+  const pageManagerRef = useRef<PageManager>(new PageManager("main"))
+  const [interactionsById, setInteractionsById] = useState<Record<string, import("@/types/interaction").ResolvedInteraction>>({})
+  const [interactionLoading, setInteractionLoading] = useState(false)
+  const [modalContent, setModalContent] = useState<{
+    type: "dialog" | "sheet" | "drawer" | "popover"
+    title: string
+    parsedTree: UiTreeNode | null
+    styleClassById: Record<string, string>
+    interactions: InteractionDefinition[]
+  } | null>(null)
+  const [activePageId, setActivePageId] = useState<string>("main")
+  const [pageTrees, setPageTrees] = useState<Record<string, {
+    parsedTree: UiTreeNode | null
+    styleClassById: Record<string, string>
+    interactions: InteractionDefinition[]
+  }>>({})
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const selectedPromptId = searchParams.get("id");
@@ -83,6 +126,207 @@ function StudioLayoutContent({ children }: { children: ReactNode }) {
   const isHistorySelected = pathname === "/studio/prompts/history";
   const isWorkflowProject = pathname?.includes("/studio/workflows/project/");
   const shouldShowInspector = (isPromptSectionSelected && !isHistorySelected) || isWorkflowProject;
+
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const handleInteraction = useCallback(async (slot: InteractionSlot, _nodeId: string) => {
+    switch (slot.type) {
+      case "navigation": {
+        if (pageManagerRef.current.hasPage(slot.target)) {
+          const page = pageManagerRef.current.getPage(slot.target)
+          if (page?.uiTree) {
+            setActivePageId(slot.target)
+            setPageTrees(prev => ({
+              ...prev,
+              [slot.target]: {
+                parsedTree: page.uiTree,
+                styleClassById: Object.fromEntries(page.styles.map(s => [s.id, s.className ?? ""])),
+                interactions: page.interactions,
+              }
+            }))
+            pageManagerRef.current.switchToPage(slot.target)
+          }
+          return
+        }
+        setInteractionLoading(true)
+        try {
+          const resp = await fetch("/api/chat/interaction", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              type: slot.type,
+              description: slot.description,
+              target: slot.target,
+              params: slot.params,
+              currentPageContext: typeof previewPayload?.uiTree === "string" ? previewPayload.uiTree : JSON.stringify(previewPayload?.uiTree ?? ""),
+            } satisfies import("@/types/interaction").InteractionRequestPayload),
+          })
+          const data: InteractionResponsePayload = await resp.json()
+          let parsedTree: UiTreeNode | null = null
+          try {
+            const raw = typeof data.uiTree === "string" ? JSON.parse(data.uiTree) : data.uiTree
+            parsedTree = isUiTreeNode(raw) ? raw : null
+          } catch { /* ignore */ }
+          const styleClassById = Object.fromEntries(
+            (data.styles ?? []).map(s => [s.id, s.className ?? ""])
+          )
+          const interactions = data.interactions ?? []
+          const pages = data.pages ?? []
+          const pageDef: PageDefinition = {
+            id: slot.target,
+            name: slot.target,
+            description: slot.description,
+            isGenerated: true,
+          }
+          pageManagerRef.current.setActivePage({
+            definition: pageDef,
+            uiTree: parsedTree,
+            styles: data.styles ?? [],
+            interactions,
+          })
+          for (const p of pages) {
+            pageManagerRef.current.setActivePage({
+              definition: p,
+              uiTree: null,
+              styles: [],
+              interactions: [],
+            })
+          }
+          setPageTrees(prev => ({
+            ...prev,
+            [slot.target]: { parsedTree, styleClassById, interactions },
+          }))
+          setActivePageId(slot.target)
+          pageManagerRef.current.switchToPage(slot.target)
+          if (interactions.length > 0) {
+            interactionResolverRef.current.registerInteractions(interactions)
+            setInteractionsById(interactionResolverRef.current.resolveAll())
+          }
+        } finally {
+          setInteractionLoading(false)
+        }
+        break
+      }
+      case "modal-open": {
+        setInteractionLoading(true)
+        try {
+          const resp = await fetch("/api/chat/interaction", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              type: slot.type,
+              description: slot.description,
+              modalType: slot.modalType,
+              contentDescription: slot.contentDescription,
+              currentPageContext: typeof previewPayload?.uiTree === "string" ? previewPayload.uiTree : JSON.stringify(previewPayload?.uiTree ?? ""),
+            } satisfies import("@/types/interaction").InteractionRequestPayload),
+          })
+          const data: InteractionResponsePayload = await resp.json()
+          let parsedTree: UiTreeNode | null = null
+          try {
+            const raw = typeof data.uiTree === "string" ? JSON.parse(data.uiTree) : data.uiTree
+            parsedTree = isUiTreeNode(raw) ? raw : null
+          } catch { /* ignore */ }
+          const styleClassById = Object.fromEntries(
+            (data.styles ?? []).map(s => [s.id, s.className ?? ""])
+          )
+          const interactions = data.interactions ?? []
+          setModalContent({
+            type: slot.modalType,
+            title: slot.contentDescription,
+            parsedTree,
+            styleClassById,
+            interactions,
+          })
+          if (interactions.length > 0) {
+            interactionResolverRef.current.registerInteractions(interactions)
+            setInteractionsById(interactionResolverRef.current.resolveAll())
+          }
+        } finally {
+          setInteractionLoading(false)
+        }
+        break
+      }
+      case "form-submit": {
+        setInteractionLoading(true)
+        try {
+          const resp = await fetch("/api/chat/interaction", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              type: slot.type,
+              description: slot.description,
+              onSubmitDescription: slot.onSubmitDescription,
+              currentPageContext: typeof previewPayload?.uiTree === "string" ? previewPayload.uiTree : JSON.stringify(previewPayload?.uiTree ?? ""),
+            } satisfies import("@/types/interaction").InteractionRequestPayload),
+          })
+          const data: InteractionResponsePayload = await resp.json()
+          let parsedTree: UiTreeNode | null = null
+          try {
+            const raw = typeof data.uiTree === "string" ? JSON.parse(data.uiTree) : data.uiTree
+            parsedTree = isUiTreeNode(raw) ? raw : null
+          } catch { /* ignore */ }
+          const styleClassById = Object.fromEntries(
+            (data.styles ?? []).map(s => [s.id, s.className ?? ""])
+          )
+          const interactions = data.interactions ?? []
+          setModalContent({
+            type: "dialog",
+            title: slot.onSubmitDescription,
+            parsedTree,
+            styleClassById,
+            interactions,
+          })
+          if (interactions.length > 0) {
+            interactionResolverRef.current.registerInteractions(interactions)
+            setInteractionsById(interactionResolverRef.current.resolveAll())
+          }
+        } finally {
+          setInteractionLoading(false)
+        }
+        break
+      }
+      case "data-fetch": {
+        setInteractionLoading(true)
+        try {
+          const resp = await fetch("/api/chat/interaction", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              type: slot.type,
+              description: slot.description,
+              currentPageContext: typeof previewPayload?.uiTree === "string" ? previewPayload.uiTree : JSON.stringify(previewPayload?.uiTree ?? ""),
+            } satisfies import("@/types/interaction").InteractionRequestPayload),
+          })
+          const data: InteractionResponsePayload = await resp.json()
+          if (data.interactions && data.interactions.length > 0) {
+            interactionResolverRef.current.registerInteractions(data.interactions)
+            setInteractionsById(interactionResolverRef.current.resolveAll())
+          }
+        } finally {
+          setInteractionLoading(false)
+        }
+        break
+      }
+      case "custom": {
+        break
+      }
+      default:
+        break
+    }
+  }, [previewPayload])
+
+  useEffect(() => {
+    interactionResolverRef.current.setInteractionCallback((slot, nodeId) => {
+      handleInteraction(slot, nodeId)
+    })
+  }, [handleInteraction])
+
+  useEffect(() => {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    interactionResolverRef.current.setStateChangeCallback((_changedNodeIds) => {
+      setInteractionsById({ ...interactionResolverRef.current.resolveAll() })
+    })
+  }, [])
 
   const { setWorkersAllowed, terminateTask, terminateWorker } = useChatStreamingStore(
     useShallow(state => ({
@@ -220,6 +464,8 @@ function StudioLayoutContent({ children }: { children: ReactNode }) {
 
     const rawUiTree = previewPayload.uiTree
     const rawStyles = previewPayload.styles
+    const rawInteractions = previewPayload.interactions
+    const rawPages = previewPayload.pages
 
     let parsedTree: UiTreeNode | null = null
     let parseError = ""
@@ -249,13 +495,66 @@ function StudioLayoutContent({ children }: { children: ReactNode }) {
       )
       : {}
 
+    const parsedInteractions: InteractionDefinition[] = Array.isArray(rawInteractions)
+      ? rawInteractions.filter(
+          (item): item is InteractionDefinition =>
+            !!item && typeof item === "object" && "nodeId" in item && "slot" in item,
+        )
+      : []
+
+    const parsedPages: PageDefinition[] = Array.isArray(rawPages)
+      ? rawPages.filter(
+          (item): item is PageDefinition =>
+            !!item && typeof item === "object" && "id" in item && "name" in item,
+        )
+      : []
+
     return {
       topic: previewPayload.topic,
       parsedTree,
       styleClassById,
       parseError,
+      interactions: parsedInteractions,
+      pages: parsedPages,
     }
   }, [previewPayload])
+
+  useEffect(() => {
+    if (!parsedPreview) return
+    interactionResolverRef.current.clear()
+    if (parsedPreview.interactions.length > 0) {
+      interactionResolverRef.current.registerInteractions(parsedPreview.interactions)
+      setInteractionsById(interactionResolverRef.current.resolveAll())
+    } else {
+      setInteractionsById({})
+    }
+    pageManagerRef.current.clear()
+    pageManagerRef.current.setActivePage({
+      definition: { id: "main", name: "Main", description: "Main page", isGenerated: true },
+      uiTree: parsedPreview.parsedTree,
+      styles: Array.isArray(previewPayload?.styles)
+        ? previewPayload.styles.filter((item): item is { id: string; className?: string; classNames?: Record<string, string> } =>
+            !!item && typeof item === "object" && "id" in item)
+        : [],
+      interactions: parsedPreview.interactions,
+    })
+    for (const p of parsedPreview.pages) {
+      pageManagerRef.current.setActivePage({
+        definition: p,
+        uiTree: null,
+        styles: [],
+        interactions: [],
+      })
+    }
+    setActivePageId("main")
+    setPageTrees({
+      main: {
+        parsedTree: parsedPreview.parsedTree,
+        styleClassById: parsedPreview.styleClassById,
+        interactions: parsedPreview.interactions,
+      }
+    })
+  }, [parsedPreview, previewPayload])
 
   const isPreviewMode = previewPayload !== null
 
@@ -403,24 +702,117 @@ function StudioLayoutContent({ children }: { children: ReactNode }) {
               {isPreviewMode && (
                 <aside className="w-[50%] min-w-[20%] max-w-[80%] border-l bg-background flex flex-col h-full min-h-0 shrink-0 overflow-hidden">
                   <div className="border-b p-4 shrink-0 flex items-center justify-between">
-                    <div>
-                      <h2 className="text-sm font-semibold">{parsedPreview?.topic ?? "渲染预览"}</h2>
+                    <div className="flex items-center gap-2">
+                      {activePageId !== "main" && pageManagerRef.current.canGoBack() && (
+                        <Button variant="ghost" size="sm" onClick={() => {
+                          pageManagerRef.current.goBack()
+                          const prevId = pageManagerRef.current.getActivePageId()
+                          setActivePageId(prevId)
+                        }}>
+                          ← 返回
+                        </Button>
+                      )}
+                      <h2 className="text-sm font-semibold">{parsedPreview?.topic ?? "渲染预览"}{activePageId !== "main" ? ` / ${activePageId}` : ""}</h2>
                     </div>
-                    <Button variant="outline" size="sm" onClick={() => setPreviewPayload(null)}>
-                      关闭预览
-                    </Button>
+                    <div className="flex items-center gap-2">
+                      {interactionLoading && (
+                        <span className="text-xs text-muted-foreground animate-pulse">交互加载中...</span>
+                      )}
+                      <Button variant="outline" size="sm" onClick={() => {
+                        setPreviewPayload(null)
+                        setModalContent(null)
+                        setActivePageId("main")
+                        setPageTrees({})
+                        interactionResolverRef.current.clear()
+                        setInteractionsById({})
+                      }}>
+                        关闭预览
+                      </Button>
+                    </div>
                   </div>
                   <ScrollArea className="flex-1 min-h-0 p-4 overscroll-contain bg-muted/20">
-                    {parsedPreview?.parsedTree ? (
-                      <div className="rounded-md border bg-background p-3">
-                        {renderNode(parsedPreview.parsedTree, parsedPreview.styleClassById)}
+                    {(() => {
+                      const currentPage = pageTrees[activePageId]
+                      const tree = currentPage?.parsedTree ?? parsedPreview?.parsedTree
+                      const styles = currentPage?.styleClassById ?? parsedPreview?.styleClassById
+                      if (tree) {
+                        return (
+                          <div className="rounded-md border bg-background p-3">
+                            {renderNode(tree, styles ?? {}, interactionsById)}
+                          </div>
+                        )
+                      }
+                      return (
+                        <div className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
+                          {parsedPreview?.parseError || "暂无可渲染内容。"}
+                        </div>
+                      )
+                    })()}
+                  </ScrollArea>
+                  {modalContent && (() => {
+                    const modalTree = modalContent.parsedTree
+                    const modalStyles = modalContent.styleClassById
+                    const modalInteractions = interactionsById
+                    const contentEl = modalTree ? (
+                      <div className="p-4">
+                        {renderNode(modalTree, modalStyles, modalInteractions)}
                       </div>
                     ) : (
-                      <div className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
-                        {parsedPreview?.parseError || "暂无可渲染内容。"}
-                      </div>
-                    )}
-                  </ScrollArea>
+                      <div className="p-4 text-sm text-muted-foreground">暂无内容</div>
+                    )
+                    switch (modalContent.type) {
+                      case "dialog":
+                        return (
+                          <Dialog open onOpenChange={(open) => { if (!open) setModalContent(null) }}>
+                            <DialogContent className="max-w-2xl max-h-[80vh] overflow-auto">
+                              <DialogHeader>
+                                <DialogTitle>{modalContent.title}</DialogTitle>
+                                <DialogDescription>{modalContent.title}</DialogDescription>
+                              </DialogHeader>
+                              {contentEl}
+                            </DialogContent>
+                          </Dialog>
+                        )
+                      case "sheet":
+                        return (
+                          <Sheet open onOpenChange={(open) => { if (!open) setModalContent(null) }}>
+                            <SheetContent className="max-w-2xl overflow-auto">
+                              <SheetHeader>
+                                <SheetTitle>{modalContent.title}</SheetTitle>
+                                <SheetDescription>{modalContent.title}</SheetDescription>
+                              </SheetHeader>
+                              {contentEl}
+                            </SheetContent>
+                          </Sheet>
+                        )
+                      case "drawer":
+                        return (
+                          <Drawer open onOpenChange={(open) => { if (!open) setModalContent(null) }}>
+                            <DrawerContent className="max-h-[80vh]">
+                              <DrawerHeader>
+                                <DrawerTitle>{modalContent.title}</DrawerTitle>
+                                <DrawerDescription>{modalContent.title}</DrawerDescription>
+                              </DrawerHeader>
+                              {contentEl}
+                            </DrawerContent>
+                          </Drawer>
+                        )
+                      case "popover":
+                        return (
+                          <Dialog open onOpenChange={(open) => { if (!open) setModalContent(null) }}>
+                            <DialogContent className="max-w-md">
+                              <DialogHeader>
+                                <DialogTitle>{modalContent.title}</DialogTitle>
+                                <DialogDescription>{modalContent.title}</DialogDescription>
+                              </DialogHeader>
+                              {contentEl}
+                            </DialogContent>
+                          </Dialog>
+                        )
+                      default:
+                        return null
+                    }
+                  })()}
                 </aside>
               )}
               
