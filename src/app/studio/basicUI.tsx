@@ -1,7 +1,6 @@
 "use client"
 
 import { ChangeEvent, FormEvent, useEffect, useRef, useState } from "react"
-import { useChat } from "@ai-sdk/react"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -14,7 +13,7 @@ import {
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { AlertCircle } from "lucide-react"
-import { AdminAgentMessage } from "../api/chat/model"
+import type { AgentMessage } from "@/types"
 import { DBManager } from "@/lib/dbtest"
 import { getShowResponsePayload, strToHexStr, dispatchEvent, dedupeMessages, generateHexId } from "@/lib/utils"
 import { useSearchParams, useRouter } from "next/navigation"
@@ -24,7 +23,7 @@ import { useShallow } from "zustand/shallow"
 
 const STAGE_INFO_RE = /^\[(ADMIN|STRUCTURE|ALIGNMENT|STYLE|INTERACTION|PAGES)\]\s*:?\s*(.+)$/i
 
-function extractStructureAndStyleFromParts(message: AdminAgentMessage): {
+function extractStructureAndStyleFromParts(message: AgentMessage): {
   uiTree: unknown
   styles: unknown
   interactions: unknown
@@ -36,6 +35,24 @@ function extractStructureAndStyleFromParts(message: AdminAgentMessage): {
   let pages: unknown = null
   if (!message.parts) return { uiTree, styles, interactions, pages }
   for (const part of message.parts) {
+    if (part.type === "show-response") {
+      const data = part.data;
+      if (data.uiTree && uiTree === null) uiTree = data.uiTree;
+      if (data.styles && styles === null) styles = data.styles;
+      if (data.interactions && interactions === null) interactions = data.interactions;
+      if (data.pages && pages === null) pages = data.pages;
+      continue;
+    }
+    if (part.type === "structure-output") {
+      if (part.uiTree && uiTree === null) uiTree = part.uiTree;
+      if (part.interactions && interactions === null) interactions = part.interactions;
+      if (part.pages && pages === null) pages = part.pages;
+      continue;
+    }
+    if (part.type === "style-output") {
+      if (part.styles && styles === null) styles = part.styles;
+      continue;
+    }
     if (part.type !== "text") continue
     const text = part.text.trim()
     if (!text.startsWith("{")) continue
@@ -71,6 +88,7 @@ type DisplayInfo =
   | { type: "stage"; stage: string; text: string; details: string[] }
   | { type: "tool"; text: string }
   | { type: "text"; text: string }
+  | { type: "node-tracking"; node: string }
 
 type StagePreviewPayload = {
   topic: string
@@ -84,7 +102,7 @@ type TimelineChildItem = {
   id: string
   label: string
   targetId: string
-  type: "stage" | "text" | "preview" | "tool"
+  type: "stage" | "text" | "preview" | "tool" | "node-tracking"
 }
 
 type TimelineRoundItem = {
@@ -109,87 +127,74 @@ export default function BasicUI() {
   const CACHE_DEBOUNCE_TIMEOUT = 1000;
   const [topic, setTopic] = useState<string>("New Conversation");
   const [activePromptId, setActivePromptId] = useState<string>("");
-  const baseMessagesRef = useRef<AdminAgentMessage[]>([]);
-  const { messages, setMessages, sendMessage, status, stop, error } = useChat<AdminAgentMessage>();
-  const [normalizedMessages, setNormalizedMessages] = useState<AdminAgentMessage[]>([]);
+  const baseMessagesRef = useRef<AgentMessage[]>([]);
+  const [normalizedMessages, setNormalizedMessages] = useState<AgentMessage[]>([]);
   const [currentMessageTaskId, setCurrentMessageTaskId] = useState<string>('');
   const roundTimeMapRef = useRef<Map<string, string>>(new Map());
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
   const currentTask = useChatStreamingStore(
     useShallow(state => state.tasksProcessingMap.get(currentMessageTaskId))
   );
-  const { send, cancel, terminateTask, onlineStatusToggle, initPromptData, workersAllowed } = useChatStreamingStore(
+  const { send, cancel, terminateTask, onlineStatusToggle, initPromptData } = useChatStreamingStore(
     useShallow(state => ({
       send: state.send,
       cancel: state.cancel,
       terminateTask: state.terminateTask,
       onlineStatusToggle: state.onlineStatusToggle,
       initPromptData: state.initPromptData,
-      workersAllowed: state.workersAllowed,
     }))
   );
   const promptData = useChatStreamingStore(
     useShallow(state => activePromptId ? state.promptDataMap.get(activePromptId) : undefined)
   );
   const getDBMessagesWorkerRef = useRef<Worker | null>(null);
+
   // 初始化获取历史记录线程
   useEffect(() => {
-    if (workersAllowed) {
-      // worker for 获取本页历史数据
-      getDBMessagesWorkerRef.current = new Worker(new URL("@/workers/chatDBWorker.ts", import.meta.url));
-      getDBMessagesWorkerRef.current.onmessage = (event: MessageEvent<DataItem>) => {
-        const history = event.data as DataItem;
-        if (history) {
-          baseMessagesRef.current = history.messages;
-          initPromptData(history.id, history);
-          setActivePromptId(history.id);
-          const taskId = useChatStreamingStore.getState().promptToTaskMap.get(history.id);
-          if (workersAllowed && taskId) {
-            setCurrentMessageTaskId(taskId);
-            onlineStatusToggle(taskId, "online");
-          } else {
-            setCurrentMessageTaskId("");
-          }
-          setMessages(baseMessagesRef.current);
-          thisDetailRef.current = {
-            id: history.id,
-            topic: history.topic,
-            timestamp: history.timestamp,
-          }
-          setTopic(history.topic);
+    getDBMessagesWorkerRef.current = new Worker(new URL("@/workers/chatDBWorker.ts", import.meta.url));
+    getDBMessagesWorkerRef.current.onmessage = (event: MessageEvent<DataItem>) => {
+      const history = event.data as DataItem;
+      if (history) {
+        baseMessagesRef.current = history.messages;
+        initPromptData(history.id, history);
+        setActivePromptId(history.id);
+        const taskId = useChatStreamingStore.getState().promptToTaskMap.get(history.id);
+        if (taskId) {
+          setCurrentMessageTaskId(taskId);
+          onlineStatusToggle(taskId, "online");
+        } else {
+          setCurrentMessageTaskId("");
         }
+        thisDetailRef.current = {
+          id: history.id,
+          topic: history.topic,
+          timestamp: history.timestamp,
+        }
+        setTopic(history.topic);
       }
     }
-    // 清理worker
     return () => {
-      if (workersAllowed) {
-        getDBMessagesWorkerRef.current?.terminate();
-        getDBMessagesWorkerRef.current = null;
-      }
+      getDBMessagesWorkerRef.current?.terminate();
+      getDBMessagesWorkerRef.current = null;
     }
-  }, [setMessages, initPromptData, onlineStatusToggle, workersAllowed]);
+  }, [initPromptData, onlineStatusToggle]);
 
-  // 监听消息变化：worker 模式改为从 promptDataMap 读取当前会话拼接后的完整消息
+  // 监听消息变化：从 promptDataMap 读取当前会话拼接后的完整消息
   useEffect(() => {
-    if (workersAllowed) {
-      const mergedMessages = promptData?.messages ?? baseMessagesRef.current;
-      setNormalizedMessages(mergedMessages);
-      if (promptData?.topic) setTopic(promptData.topic);
-    } else {
-      setNormalizedMessages(dedupeMessages(messages));
-    }
-  }, [messages, promptData, workersAllowed]);
+    const mergedMessages = promptData?.messages ?? baseMessagesRef.current;
+    setNormalizedMessages(mergedMessages);
+    if (promptData?.topic) setTopic(promptData.topic);
+  }, [promptData]);
 
   // 处理任务完成/取消
   useEffect(() => {
-    if (workersAllowed && currentTask && (currentTask.status === "canceled" || currentTask.status === "completed")) {
+    if (currentTask && (currentTask.status === "canceled" || currentTask.status === "completed")) {
       if (isNew.current) setCanJump(true);
       terminateTask(currentMessageTaskId);
     }
-  }, [currentTask, terminateTask, currentMessageTaskId, workersAllowed]);
+  }, [currentTask, terminateTask, currentMessageTaskId]);
 
   // 初始化获取历史数据
-  // 初始化时若存在 promptId 则尝试从 store 中获取可能存在的 task, 恢复状态
   const searchParams = useSearchParams();
   useEffect(() => {
     const promptId = searchParams.get("id");
@@ -210,13 +215,12 @@ export default function BasicUI() {
             initPromptData(history.id, history);
             setActivePromptId(history.id);
             const taskId = useChatStreamingStore.getState().promptToTaskMap.get(promptId);
-            if (workersAllowed && taskId) {
+            if (taskId) {
               setCurrentMessageTaskId(taskId);
               onlineStatusToggle(taskId, "online");
             } else {
               setCurrentMessageTaskId("");
             }
-            setMessages(baseMessagesRef.current);
             thisDetailRef.current = {
               id: history.id,
               topic: history.topic,
@@ -227,64 +231,42 @@ export default function BasicUI() {
         })();
       }
     }
-  }, [setMessages, searchParams, onlineStatusToggle, initPromptData, workersAllowed]);
+  }, [searchParams, onlineStatusToggle, initPromptData]);
 
-  // todo('更新worker');
-  // 非 worker 模式下仍保留页面内持久化逻辑
+  // 非 worker 模式下的页面内持久化逻辑 (fallback)
   useEffect(() => {
-    if (useChatStreamingStore.getState().workersAllowed) return;
     if (normalizedMessages.length === 0) return
-    // 设置 800ms 防抖，流式输出时（极度高频修改）不会立刻执行，流出停顿时才会集中执行一次
     const updateTimer = setTimeout(async () => {
       const d = thisDetailRef.current;
-
-      // 尝试从最新的 assistant 消息中提取 topic
       let extractedTopic = "";
-      const assistantMessages = normalizedMessages.filter(
-        (m) => m.role === "assistant"
-      );
+      const assistantMessages = normalizedMessages.filter(m => m.role === "assistant");
       for (let i = assistantMessages.length - 1; i >= 0; i--) {
         const payload = getShowResponsePayload(assistantMessages[i]);
         if (payload?.topic) {
           extractedTopic = payload.topic;
-          break;// 取到最新的直接退出循环
+          break;
         }
       }
-
-      // 更新 topic
       d.topic = extractedTopic;
-
-      // 安全 setState: 只有在值真实改变时才会触发视图重新渲染
-      setTopic((prevTopic) => {
-        if (prevTopic !== d.topic) {
-          return d.topic;
-        }
-        return prevTopic;
-      });
-
+      setTopic((prevTopic) => prevTopic !== d.topic ? d.topic : prevTopic);
       if (d.id) {
         try {
           await DBManager.execute({
             operationType: "update",
-            data: {
-              ...d,
-              messages: normalizedMessages,
-            },
+            data: { ...d, messages: normalizedMessages },
           });
-          if (typeof isNew.current === "boolean" ) {
-            if(!isNew.current) dispatchEvent<DataItemSummary>("updateConversation", d);
-            if(!useChatStreamingStore.getState().workersAllowed && isNew.current)setCanJump(true);
+          if (typeof isNew.current === "boolean") {
+            if (!isNew.current) dispatchEvent<DataItemSummary>("updateConversation", d);
+            if (isNew.current) setCanJump(true);
           }
         } catch (error) {
           console.error("DB Update Error: ", error)
         }
       }
     }, CACHE_DEBOUNCE_TIMEOUT);
-
-    // 清理函数：如果下一次 token 渲染极快地进来，就清除刚才预定的操作
-    return () => { 
+    return () => {
       clearTimeout(updateTimer);
-      if(!useChatStreamingStore.getState().workersAllowed && isNew.current)setCanJump(false);
+      if (isNew.current) setCanJump(false);
     }
   }, [normalizedMessages, isNew]);
 
@@ -294,8 +276,7 @@ export default function BasicUI() {
       if (canJump) router.push(`/studio/prompts?id=${thisDetailRef.current.id}`);
     }, CACHE_DEBOUNCE_TIMEOUT + 150);
     return () => clearTimeout(jumpTimeout);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canJump]);
+  }, [canJump, router]);
 
   // 会话切换(页面卸载)
   useEffect(() => {
@@ -315,60 +296,51 @@ export default function BasicUI() {
     setInput("");
     isNew.current = !thisDetailRef.current.id;
     if (isNew.current) {
-      // Id 初始化
       const newId = strToHexStr(`${text}${Date.now().toString()}${Math.ceil(Math.random() * 1e6).toString()}`);
       thisDetailRef.current.id = newId;
       thisDetailRef.current.timestamp = new Date();
       setActivePromptId(newId);
       dispatchEvent<DataItemSummary>("newConversation", thisDetailRef.current);
     }
-    if (!workersAllowed) await sendMessage({ text });
-    else {
-      const currentPromptId = thisDetailRef.current.id;
-      setActivePromptId(currentPromptId);
-      const userMessage: AdminAgentMessage = {
-        role: "user",
-        id: generateHexId(),
-        parts: [{ type: "text", text }],
-      };
-      const baseMessages = promptData?.messages ?? baseMessagesRef.current;
-      const nextMessages = [...baseMessages, userMessage];
-      baseMessagesRef.current = nextMessages;
-      setMessages(nextMessages);
+    const currentPromptId = thisDetailRef.current.id;
+    setActivePromptId(currentPromptId);
+    const userMessage: AgentMessage = {
+      role: "user",
+      id: generateHexId(),
+      parts: [{ type: "text", text }],
+    };
+    const baseMessages = promptData?.messages ?? baseMessagesRef.current;
+    const nextMessages = [...baseMessages, userMessage];
+    baseMessagesRef.current = nextMessages;
 
-      const taskIdForCurrentPrompt = useChatStreamingStore.getState().promptToTaskMap.get(currentPromptId);
-      if (taskIdForCurrentPrompt) {
-        terminateTask(taskIdForCurrentPrompt); // 在发送新消息前仅删除当前会话任务
-      }
-      const taskId = `task_${Date.now()}`;
-      setCurrentMessageTaskId(taskId);
-      send(currentPromptId, taskId, nextMessages, window.location.origin);
+    const taskIdForCurrentPrompt = useChatStreamingStore.getState().promptToTaskMap.get(currentPromptId);
+    if (taskIdForCurrentPrompt) {
+      terminateTask(taskIdForCurrentPrompt);
     }
+    const taskId = `task_${Date.now()}`;
+    setCurrentMessageTaskId(taskId);
+    send(currentPromptId, taskId, nextMessages, window.location.origin);
   }
 
   const handleStop = async () => {
-    if (workersAllowed) {
-      const taskIdForCurrentPrompt = useChatStreamingStore.getState().promptToTaskMap.get(thisDetailRef.current.id);
-      if (taskIdForCurrentPrompt) cancel(taskIdForCurrentPrompt);
-    } else stop();
+    const taskIdForCurrentPrompt = useChatStreamingStore.getState().promptToTaskMap.get(thisDetailRef.current.id);
+    if (taskIdForCurrentPrompt) cancel(taskIdForCurrentPrompt);
   }
 
   const handleInputChange = (event: ChangeEvent<HTMLTextAreaElement>) => {
     setInput(event.target.value)
   }
 
-  const isStreaming = (workersAllowed)
-    ? currentTask && (currentTask.status === "streaming" || currentTask.status === 'submitted')
-    : status === "streaming" || status === "submitted";
+  const isStreaming = currentTask && (currentTask.status === "streaming" || currentTask.status === 'submitted');
   const canSend = input.trim().length > 0 && !isStreaming;
 
-  const getMessageText = (message: AdminAgentMessage) =>
+  const getMessageText = (message: AgentMessage) =>
     message.parts
       ?.map((part) => (part.type === "text" ? part.text : ""))
       .join("\n")
       .trim()
 
-  const getAssistantInfos = (message: AdminAgentMessage): DisplayInfo[] => {
+  const getAssistantInfos = (message: AgentMessage): DisplayInfo[] => {
     const infos: DisplayInfo[] = []
     if (message.role !== "assistant" || !message.parts) return infos
 
@@ -377,12 +349,28 @@ export default function BasicUI() {
     let activeStageIndex: number | null = null
 
     for (const part of message.parts) {
-      if (part.type === "tool-showResponse") {
-        const toolText = (part as unknown as { input?: { text?: string } }).input?.text
+      if (part.type === "show-response") {
+        const showData = part.data;
+        const toolText = showData?.topic;
         if (toolText) {
           infos.push({ type: "tool", text: toolText })
         }
         activeStageIndex = null
+      } else if (part.type === "stage-info") {
+        const key = `${part.stage}|${part.message}`;
+        if (!seenStage.has(key)) {
+          seenStage.add(key);
+          const nextInfo: DisplayInfo = { type: "stage", stage: part.stage, text: part.message, details: [] }
+          const nextInfoIndex = infos.length;
+          infos.push(nextInfo);
+          stageIndexByKey.set(key, nextInfoIndex);
+          activeStageIndex = nextInfoIndex;
+        } else {
+          activeStageIndex = stageIndexByKey.get(key) ?? null;
+        }
+      } else if (part.type === "node-start") {
+        infos.push({ type: "node-tracking", node: part.node });
+        activeStageIndex = null;
       } else if (part.type === "text") {
         const lines = part.text
           .split("\n")
@@ -430,7 +418,7 @@ export default function BasicUI() {
     return infos
   }
 
-  const getDisplayText = (message: AdminAgentMessage): DisplayInfo[] => {
+  const getDisplayText = (message: AgentMessage): DisplayInfo[] => {
     if (message.role === "user") {
       const text = getMessageText(message) || "(empty user message)"
       return [{ type: "text", text }]
@@ -439,8 +427,9 @@ export default function BasicUI() {
   }
 
   const getPreviewPayload = (
-    message: AdminAgentMessage,
+    message: AgentMessage,
   ): StagePreviewPayload | null => {
+    if (isStreaming) return null
     if (message.role !== "assistant") return null
     const payload = getShowResponsePayload(message) as { topic?: string } | undefined
     const topic = payload?.topic?.trim()
@@ -507,6 +496,13 @@ export default function BasicUI() {
             label: info.text,
             targetId: infoTargetId,
             type: "text",
+          })
+        } else if (info.type === "node-tracking") {
+          children.push({
+            id: `${roundId}-node-${infoIndex}`,
+            label: `Node: ${info.node}`,
+            targetId: infoTargetId,
+            type: "node-tracking",
           })
         }
       }
@@ -611,7 +607,7 @@ export default function BasicUI() {
           <div ref={messagesContainerRef} className="h-full min-h-0 rounded-md border bg-muted/20 overflow-hidden">
             <ScrollArea className="h-full min-h-0 overscroll-contain">
               <div className="space-y-3 p-3">
-                {messages.length === 0 ? (
+                {normalizedMessages.length === 0 ? (
                   <div className="text-sm text-muted-foreground">
                     还没有消息，输入内容后点击 Send 开始对话。
                   </div>
@@ -638,6 +634,19 @@ export default function BasicUI() {
                                   className="px-3 py-1 text-xs text-muted-foreground/60 italic"
                                 >
                                   {getStageLabel(info.stage)}
+                                </div>
+                              )
+                            }
+
+                            if (info.type === "node-tracking") {
+                              return (
+                                <div
+                                  key={`${message.id}-node-${idx}`}
+                                  id={`studio-msg-${message.id}-${index}-info-${idx}`}
+                                  className="px-3 py-1 text-xs text-blue-500/60 italic flex items-center gap-1"
+                                >
+                                  <span className="inline-block w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
+                                  Node: {info.node}
                                 </div>
                               )
                             }
@@ -684,16 +693,6 @@ export default function BasicUI() {
         </CardContent>
 
         <CardFooter className="shrink-0 flex-col gap-2 p-4 pt-0">
-          {error && (
-            <Alert variant="destructive" className="w-full">
-              <AlertCircle className="h-4 w-4" />
-              <AlertTitle>错误</AlertTitle>
-              <AlertDescription>
-                {error.message || "发生了一个未知错误，请重试。"}
-              </AlertDescription>
-            </Alert>
-          )}
-
           <form onSubmit={handleSubmit} className="w-full flex items-end gap-2">
             <textarea
               id="prompt-input"

@@ -1,7 +1,7 @@
-import { AdminAgentMessage } from "@/app/api/chat/model";
+import type { AgentMessage } from "@/types";
 
-export function getShowResponsePayload(message: AdminAgentMessage) {
+export function getShowResponsePayload(message: AgentMessage) {
   return message.parts
-    .find((part) => part.type === "tool-showResponse")
-    ?.input;
+    .find((part) => part.type === "show-response")
+    ?.data;
 }

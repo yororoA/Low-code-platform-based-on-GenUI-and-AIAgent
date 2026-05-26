@@ -1,4 +1,4 @@
-import { AdminAgentMessage } from "@/app/api/chat/model";
+import type { AgentMessage } from "./chatStreamingTypes";
 
 export interface DataItemSummary {
   id: string;
@@ -7,7 +7,7 @@ export interface DataItemSummary {
 }
 
 export interface DataItem extends DataItemSummary {
-  messages: AdminAgentMessage[];
+  messages: AgentMessage[];
 }
 
 export type OperationType =

@@ -1,7 +1,7 @@
-import { AdminAgentMessage } from "@/app/api/chat/model"
+import type { AgentMessage } from "@/types"
 
 
-function getMessageSignature(message: AdminAgentMessage): string {
+function getMessageSignature(message: AgentMessage): string {
   if (message.role === "assistant") {
     return JSON.stringify({
       role: message.role,
@@ -15,9 +15,9 @@ function getMessageSignature(message: AdminAgentMessage): string {
   })
 }
 
-export function dedupeMessages(list: AdminAgentMessage[]): AdminAgentMessage[] {
+export function dedupeMessages(list: AgentMessage[]): AgentMessage[] {
   const seen = new Set<string>()
-  const result: AdminAgentMessage[] = []
+  const result: AgentMessage[] = []
   for (const message of list) {
     const signature = getMessageSignature(message)
     if (seen.has(signature)) continue

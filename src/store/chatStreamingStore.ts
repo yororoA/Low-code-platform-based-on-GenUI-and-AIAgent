@@ -1,41 +1,42 @@
 import { create } from "zustand";
-import { AdminAgentMessage } from "@/app/api/chat/model";
-import { StreamMessageResponse } from "@/types";
+import { type AgentMessage, type ShowResponseData } from "@/types";
 import { enableMapSet, produce } from "immer";
 import { DataItem, DataItemSummary } from "@/types";
-import { DBManager, dispatchEvent, getShowResponsePayload } from "@/lib/utils";
+import { DBManager, dispatchEvent, generateHexId } from "@/lib/utils";
 
 enableMapSet();
 
 interface TaskInfo {
   isFocused: boolean;
   status: "submitted" | "streaming" | "completed" | "canceled" | "error";
-  userInput: AdminAgentMessage | null;
-  // messagesBuffer 用于存储当前流式处理过程中解析出的消息， key为 taskId 用以去重和覆盖更新
-  messagesBuffer: AdminAgentMessage[];
+  userInput: AgentMessage | null;
+  messagesBuffer: AgentMessage[];
 }
 
 const THROTTLE_TIME = 60;
 type TaskThrottle = {
   inThrottle: boolean;
-  throttleBuffer: AdminAgentMessage[]; // 当 inThrottle===true 时在其中存下待发送的消息
+  throttleBuffer: AgentMessage[];
   throttleTimer: ReturnType<typeof setTimeout> | null;
 };
 
 const promptPersistQueue = new Map<string, Promise<void>>();
 
-function getTopicFromMessages(messages: AdminAgentMessage[], fallbackTopic = "New Conversation"): string {
+function getTopicFromMessages(messages: AgentMessage[], fallbackTopic = "New Conversation"): string {
   const assistantMessages = messages.filter((m) => m.role === "assistant");
   for (let i = assistantMessages.length - 1; i >= 0; i--) {
-    const payload = getShowResponsePayload(assistantMessages[i]) as { topic?: string } | undefined;
-    if (payload?.topic) return payload.topic;
+    for (const part of assistantMessages[i].parts) {
+      if (part.type === "show-response" && part.data.topic) {
+        return part.data.topic;
+      }
+    }
   }
   return fallbackTopic;
 }
 
-function mergeMessagesById(messages: AdminAgentMessage[]): AdminAgentMessage[] {
+function mergeMessagesById(messages: AgentMessage[]): AgentMessage[] {
   const indexById = new Map<string, number>();
-  const result: AdminAgentMessage[] = [];
+  const result: AgentMessage[] = [];
   for (const message of messages) {
     const existedIndex = indexById.get(message.id);
     if (existedIndex == null) {
@@ -48,9 +49,9 @@ function mergeMessagesById(messages: AdminAgentMessage[]): AdminAgentMessage[] {
   return result;
 }
 
-function hasMessageOrPartGrowth(prevMessages: AdminAgentMessage[], nextMessages: AdminAgentMessage[]): boolean {
+function hasMessageOrPartGrowth(prevMessages: AgentMessage[], nextMessages: AgentMessage[]): boolean {
   if (nextMessages.length > prevMessages.length) return true;
-  const prevById = new Map<string, AdminAgentMessage>();
+  const prevById = new Map<string, AgentMessage>();
   for (const message of prevMessages) prevById.set(message.id, message);
   for (const message of nextMessages) {
     const prev = prevById.get(message.id);
@@ -86,10 +87,10 @@ function queuePersistPromptData(data: DataItem): void {
 }
 
 function mergeTaskAssistantMessages(
-  existedMessages: AdminAgentMessage[],
+  existedMessages: AgentMessage[],
   taskId: string,
-  taskMessages: AdminAgentMessage[],
-): AdminAgentMessage[] {
+  taskMessages: AgentMessage[],
+): AgentMessage[] {
   if (taskMessages.length === 0) return existedMessages;
   const nextTaskMessage = taskMessages[taskMessages.length - 1];
   const nextMessages = [...existedMessages];
@@ -102,7 +103,6 @@ function mergeTaskAssistantMessages(
   return nextMessages;
 }
 
-// todo: 将其他 worker 的相关管理也移入此 store
 interface ChatStreamingState {
   workersAllowed: boolean;
   setWorkersAllowed: (workersAllowed: boolean) => void;
@@ -116,10 +116,10 @@ interface ChatStreamingState {
   taskToPromptMap: Map<string, string>;
   promptDataMap: Map<string, DataItem>;
   initPromptData: (promptId: string, history: DataItem) => void;
-  send: (promptId: string, taskId: string, messages: AdminAgentMessage[], apiBaseUrl: string) => void;
+  send: (promptId: string, taskId: string, messages: AgentMessage[], apiBaseUrl: string) => void;
   cancel: (taskId: string) => void;
   onlineStatusToggle: (taskId: string, status: "online" | "offline") => void;
-  cce: (taskId: string, status: TaskInfo["status"]) => void; // 在清除某个 task 前将残余 buffer 刷入 task 并延迟删除
+  cce: (taskId: string, status: TaskInfo["status"]) => void;
   terminateTask: (taskId?: string) => void;
 }
 
@@ -128,13 +128,10 @@ export const useChatStreamingStore = create<ChatStreamingState>((set, get) => ({
   setWorkersAllowed: (workersAllowed: boolean) => set({ workersAllowed }),
   streamingWorker: null,
   cce: (taskId: string, status: TaskInfo["status"]) => {
-    // 在清除 task | throttle 前触发更新提醒前端 UI 状态保存
-    // 无论 offline/online, task 都正常更新, 具体清理操作由前端根据不同状态自行决定时机调用 terminateTask 来完成
     set((state) => {
       const tasksProcessingMap = produce(state.tasksProcessingMap, (draft) => {
         const task = draft.get(taskId);
         const throttle = state.tasksThrottleMap.get(taskId);
-        // 将可能存在的 buffer 刷入 task
         if (task && throttle) {
           if (throttle.throttleBuffer.length > 0) task.messagesBuffer = throttle.throttleBuffer;
           if (throttle.inThrottle) clearTimeout(throttle.throttleTimer as ReturnType<typeof setTimeout>);
@@ -147,15 +144,14 @@ export const useChatStreamingStore = create<ChatStreamingState>((set, get) => ({
   initWorker: () => {
     if (get().streamingWorker) return;
     const streamingWorker = new Worker(new URL("@/workers/chatStreamingWorker.ts", import.meta.url));
-    // 接收到流式处理 worker 的消息
-    streamingWorker.onmessage = (event: MessageEvent<StreamMessageResponse>) => {
-      const taskId = event.data.id;
+    streamingWorker.onmessage = (event: MessageEvent) => {
+      const { id, type, data, error } = event.data as { id: string; type: string; data?: AgentMessage[]; error?: string };
       const { tasksProcessingMap, tasksThrottleMap } = get();
-      if (!tasksProcessingMap.has(taskId)) return; // todo: 无对应任务时的错误处理
-      if (!tasksThrottleMap.has(taskId)) { // 确保节流任务被正确初始化
+      if (!tasksProcessingMap.has(id)) return;
+      if (!tasksThrottleMap.has(id)) {
         set((state) => ({
           tasksThrottleMap: produce(state.tasksThrottleMap, (draft: Map<string, TaskThrottle>) => {
-            draft.set(taskId, {
+            draft.set(id, {
               inThrottle: false,
               throttleBuffer: [],
               throttleTimer: null,
@@ -163,13 +159,13 @@ export const useChatStreamingStore = create<ChatStreamingState>((set, get) => ({
           }),
         }));
       }
-      if (event.data.type === "message") {
-        const messages = event.data.data as AdminAgentMessage[];
-        const promptId = get().taskToPromptMap.get(taskId);
+      if (type === "message") {
+        const messages = data as AgentMessage[];
+        const promptId = get().taskToPromptMap.get(id);
         if (promptId) {
           const existedData = get().promptDataMap.get(promptId);
           const prevMessages = existedData?.messages ?? [];
-          const nextMessages = mergeTaskAssistantMessages(prevMessages, taskId, messages);
+          const nextMessages = mergeTaskAssistantMessages(prevMessages, id, messages);
           const nextData: DataItem = {
             id: promptId,
             topic: getTopicFromMessages(nextMessages, existedData?.topic ?? "New Conversation"),
@@ -185,29 +181,26 @@ export const useChatStreamingStore = create<ChatStreamingState>((set, get) => ({
             queuePersistPromptData(nextData);
           }
         }
-        const currentThrottle = get().tasksThrottleMap.get(taskId);
+        const currentThrottle = get().tasksThrottleMap.get(id);
         if (!currentThrottle) return;
         if (currentThrottle.inThrottle) {
-          // 节流期间将最新消息存入 buffer
           set((state) => ({
             tasksThrottleMap: produce(state.tasksThrottleMap, (draft: Map<string, TaskThrottle>) => {
-              draft.get(taskId)!.throttleBuffer = messages;
+              draft.get(id)!.throttleBuffer = messages;
             })
-          }))
-        } else { // 非节流期间
-          // 节流 timer
+          }));
+        } else {
           const throttleTimer = setTimeout(() => {
-            if (get().tasksThrottleMap.has(taskId) && get().tasksProcessingMap.has(taskId)) {
-              // 节流结束时将 buffer 刷入 task 并解除节流
+            if (get().tasksThrottleMap.has(id) && get().tasksProcessingMap.has(id)) {
               const tasksProcessingMap = produce(get().tasksProcessingMap, (draft: Map<string, TaskInfo>) => {
-                const task = draft.get(taskId)!;
-                const throttle = get().tasksThrottleMap.get(taskId)!;
+                const task = draft.get(id)!;
+                const throttle = get().tasksThrottleMap.get(id)!;
                 if (throttle.throttleBuffer.length > 0) task.messagesBuffer = throttle.throttleBuffer;
               });
               const tasksThrottleMap = produce(get().tasksThrottleMap, (draft: Map<string, TaskThrottle>) => {
-                const throttle = draft.get(taskId)!;
+                const throttle = draft.get(id)!;
                 throttle.throttleBuffer = [];
-                throttle.inThrottle = false; // 解除节流
+                throttle.inThrottle = false;
                 throttle.throttleTimer = null;
               });
               set({ tasksProcessingMap, tasksThrottleMap });
@@ -215,41 +208,36 @@ export const useChatStreamingStore = create<ChatStreamingState>((set, get) => ({
           }, THROTTLE_TIME);
 
           set((state) => {
-            // 将残余的 buffer 刷入 task
             const tasksProcessingMap = produce(state.tasksProcessingMap, (draft) => {
-              const task = draft.get(taskId)!
+              const task = draft.get(id)!;
               task.messagesBuffer = messages;
               task.status = "streaming";
             });
-            // 开始节流
             const tasksThrottleMap = produce(state.tasksThrottleMap, (draft) => {
-              draft.set(taskId, {
+              draft.set(id, {
                 inThrottle: true,
                 throttleBuffer: [],
                 throttleTimer: throttleTimer,
               });
             });
             return { tasksProcessingMap, tasksThrottleMap };
-          })
+          });
         }
-      } else if (event.data.type === "complete" || event.data.type === "canceled") {
-        // 流式处理 worker 完成/取消
-        const promptId = get().taskToPromptMap.get(taskId);
+      } else if (type === "complete" || type === "canceled") {
+        const promptId = get().taskToPromptMap.get(id);
         if (promptId) {
           const data = get().promptDataMap.get(promptId);
-          if (data) queuePersistPromptData(data); // 完结态兜底，确保 part 内容变化也会落库
+          if (data) queuePersistPromptData(data);
         }
-        get().cce(taskId, event.data.type === "complete" ? "completed" : "canceled");
+        get().cce(id, type === "complete" ? "completed" : "canceled");
       } else {
-        // 流式处理 worker 出错
-        // todo: 错误处理
-        const promptId = get().taskToPromptMap.get(taskId);
+        const promptId = get().taskToPromptMap.get(id);
         if (promptId) {
           const data = get().promptDataMap.get(promptId);
-          if (data) queuePersistPromptData(data); // 异常态也尝试落库，避免最近内容丢失
+          if (data) queuePersistPromptData(data);
         }
-        get().cce(taskId, "error");
-        throw new Error(event.data.error);
+        get().cce(id, "error");
+        throw new Error(error);
       }
     };
     set({ streamingWorker });
@@ -258,7 +246,7 @@ export const useChatStreamingStore = create<ChatStreamingState>((set, get) => ({
     const streamingWorker = get().streamingWorker;
     if (!streamingWorker) {
       get().initWorker();
-      return get().streamingWorker as Worker; // 确保返回非null的worker实例
+      return get().streamingWorker as Worker;
     } else return streamingWorker;
   },
   terminateWorker() {
@@ -282,7 +270,7 @@ export const useChatStreamingStore = create<ChatStreamingState>((set, get) => ({
       }),
     }));
   },
-  send: (promptId: string, taskId: string, messages: AdminAgentMessage[], apiBaseUrl: string) => {
+  send: (promptId: string, taskId: string, messages: AgentMessage[], apiBaseUrl: string) => {
     const promptDataBeforeSend = get().promptDataMap.get(promptId);
     const prevMessages = promptDataBeforeSend?.messages ?? [];
     const oldTaskIdForPrompt = get().promptToTaskMap.get(promptId);
@@ -317,7 +305,6 @@ export const useChatStreamingStore = create<ChatStreamingState>((set, get) => ({
       }));
     }
 
-    // promptId-taskId 映射
     set((state) => {
       const oldPromptIdForTask = state.taskToPromptMap.get(taskId);
       const promptToTaskMap = produce(state.promptToTaskMap, (draft) => {
@@ -330,7 +317,7 @@ export const useChatStreamingStore = create<ChatStreamingState>((set, get) => ({
       });
       return { promptToTaskMap, taskToPromptMap };
     });
-    // 创建任务信息
+
     const userInput = [...messages].reverse().find((message) => message.role === "user") ?? null;
     const task: TaskInfo = {
       isFocused: true,
@@ -368,12 +355,11 @@ export const useChatStreamingStore = create<ChatStreamingState>((set, get) => ({
     }
 
     const streamingWorker = get().confirmWorkerInitialized();
-    // 发送消息给流式处理 worker
     streamingWorker.postMessage({
       type: "send",
       id: taskId,
       messages,
-      apiBaseUrl
+      apiBaseUrl,
     });
   },
   cancel: (taskId: string) => {
@@ -407,7 +393,6 @@ export const useChatStreamingStore = create<ChatStreamingState>((set, get) => ({
     const streamingWorker = get().streamingWorker;
     if (streamingWorker) {
       if (!taskId) {
-        // 删除所有任务
         streamingWorker.postMessage({
           type: "cancelAll",
           id: "",
@@ -418,19 +403,13 @@ export const useChatStreamingStore = create<ChatStreamingState>((set, get) => ({
             for (const throttle of draft.values()) {
               if (throttle.inThrottle) clearTimeout(throttle.throttleTimer as ReturnType<typeof setTimeout>);
             }
-            draft.clear()
-          }),
-          promptToTaskMap: produce(state.promptToTaskMap, (draft) => {
             draft.clear();
           }),
-          taskToPromptMap: produce(state.taskToPromptMap, (draft) => {
-            draft.clear();
-          }),
+          promptToTaskMap: produce(state.promptToTaskMap, (draft) => draft.clear()),
+          taskToPromptMap: produce(state.taskToPromptMap, (draft) => draft.clear()),
         }));
       } else {
-        // 删除特定的任务
         const task = get().tasksProcessingMap.get(taskId);
-        // 完结态不向 streaming worker 发送 cancel 操作 ( woker 在完结时已自动清除其内部 task map 中对应 task )
         if (task && !(task.status === "completed" || task.status === "canceled" || task.status === "error")) {
           streamingWorker.postMessage({
             type: "cancel",
