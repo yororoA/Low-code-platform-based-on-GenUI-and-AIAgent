@@ -2,7 +2,7 @@
 import { Suspense, useCallback, useEffect, type ReactNode, useMemo, useRef, useState, type MouseEvent } from "react"
 import Link from "next/link"
 import { usePathname, useSearchParams } from "next/navigation"
-import { HomeIcon, WorkflowIcon, HistoryIcon, ChevronRightIcon } from "lucide-react"
+import { HomeIcon, WorkflowIcon, HistoryIcon, ChevronRightIcon, SettingsIcon } from "lucide-react"
 import {
   Accordion,
   AccordionContent,
@@ -91,6 +91,29 @@ type TimelineRoundItem = {
   children: TimelineChildItem[]
 }
 
+// Helper: Get LLM config headers from localStorage
+function getLlmConfigHeaders(): Record<string, string> {
+  const headers: Record<string, string> = {};
+  try {
+    const stored = localStorage.getItem("genui-llm-config");
+    if (stored) {
+      const config = JSON.parse(stored) as {
+        provider?: string;
+        apiKey?: string;
+        baseUrl?: string;
+        modelName?: string;
+      };
+      if (config.provider) headers["X-LLM-Provider"] = config.provider;
+      if (config.apiKey) headers["X-LLM-Api-Key"] = config.apiKey;
+      if (config.baseUrl) headers["X-LLM-Base-Url"] = config.baseUrl;
+      if (config.modelName) headers["X-LLM-Model"] = config.modelName;
+    }
+  } catch {
+    // ignore
+  }
+  return headers;
+}
+
 function StudioLayoutContent({ children }: { children: ReactNode }) {
   const [details, setDetails] = useState<DataItemSummary[]>([]);
   const [previewPayload, setPreviewPayload] = useState<StudioPreviewPayload | null>(null);
@@ -104,6 +127,7 @@ function StudioLayoutContent({ children }: { children: ReactNode }) {
   const pageManagerRef = useRef<PageManager>(new PageManager("main"))
   const [interactionsById, setInteractionsById] = useState<Record<string, import("@/types/interaction").ResolvedInteraction>>({})
   const [interactionLoading, setInteractionLoading] = useState(false)
+  const [interactionLoadingMessage, setInteractionLoadingMessage] = useState<string>("")
   const [modalContent, setModalContent] = useState<{
     type: "dialog" | "sheet" | "drawer" | "popover"
     title: string
@@ -127,6 +151,21 @@ function StudioLayoutContent({ children }: { children: ReactNode }) {
   const isWorkflowProject = pathname?.includes("/studio/workflows/project/");
   const shouldShowInspector = (isPromptSectionSelected && !isHistorySelected) || isWorkflowProject;
 
+  const mergeInteractionToStructure = useCallback((slot: InteractionSlot, data: InteractionResponsePayload) => {
+    setPreviewPayload(prev => {
+      if (!prev) return prev
+      const newInteractions = [...(Array.isArray(prev.interactions) ? prev.interactions : []), ...(data.interactions ?? [])]
+      const newPages = [...(Array.isArray(prev.pages) ? prev.pages : []), ...(data.pages ?? [])]
+      const newStyles = [...(Array.isArray(prev.styles) ? prev.styles : []), ...(data.styles ?? [])]
+      return {
+        ...prev,
+        interactions: newInteractions,
+        pages: newPages,
+        styles: newStyles,
+      }
+    })
+  }, [])
+
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const handleInteraction = useCallback(async (slot: InteractionSlot, _nodeId: string) => {
     switch (slot.type) {
@@ -148,10 +187,11 @@ function StudioLayoutContent({ children }: { children: ReactNode }) {
           return
         }
         setInteractionLoading(true)
+        setInteractionLoadingMessage(`正在构建页面: ${slot.description}...`)
         try {
           const resp = await fetch("/api/chat/interaction", {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: { "Content-Type": "application/json", ...getLlmConfigHeaders() },
             body: JSON.stringify({
               type: slot.type,
               description: slot.description,
@@ -201,17 +241,20 @@ function StudioLayoutContent({ children }: { children: ReactNode }) {
             interactionResolverRef.current.registerInteractions(interactions)
             setInteractionsById(interactionResolverRef.current.resolveAll())
           }
+          mergeInteractionToStructure(slot, data)
         } finally {
           setInteractionLoading(false)
+          setInteractionLoadingMessage("")
         }
         break
       }
       case "modal-open": {
         setInteractionLoading(true)
+        setInteractionLoadingMessage(`正在构建弹窗内容: ${slot.contentDescription}...`)
         try {
           const resp = await fetch("/api/chat/interaction", {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: { "Content-Type": "application/json", ...getLlmConfigHeaders() },
             body: JSON.stringify({
               type: slot.type,
               description: slot.description,
@@ -241,17 +284,20 @@ function StudioLayoutContent({ children }: { children: ReactNode }) {
             interactionResolverRef.current.registerInteractions(interactions)
             setInteractionsById(interactionResolverRef.current.resolveAll())
           }
+          mergeInteractionToStructure(slot, data)
         } finally {
           setInteractionLoading(false)
+          setInteractionLoadingMessage("")
         }
         break
       }
       case "form-submit": {
         setInteractionLoading(true)
+        setInteractionLoadingMessage(`正在处理表单提交: ${slot.onSubmitDescription}...`)
         try {
           const resp = await fetch("/api/chat/interaction", {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: { "Content-Type": "application/json", ...getLlmConfigHeaders() },
             body: JSON.stringify({
               type: slot.type,
               description: slot.description,
@@ -280,17 +326,20 @@ function StudioLayoutContent({ children }: { children: ReactNode }) {
             interactionResolverRef.current.registerInteractions(interactions)
             setInteractionsById(interactionResolverRef.current.resolveAll())
           }
+          mergeInteractionToStructure(slot, data)
         } finally {
           setInteractionLoading(false)
+          setInteractionLoadingMessage("")
         }
         break
       }
       case "data-fetch": {
         setInteractionLoading(true)
+        setInteractionLoadingMessage(`正在加载数据: ${slot.description}...`)
         try {
           const resp = await fetch("/api/chat/interaction", {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: { "Content-Type": "application/json", ...getLlmConfigHeaders() },
             body: JSON.stringify({
               type: slot.type,
               description: slot.description,
@@ -302,8 +351,10 @@ function StudioLayoutContent({ children }: { children: ReactNode }) {
             interactionResolverRef.current.registerInteractions(data.interactions)
             setInteractionsById(interactionResolverRef.current.resolveAll())
           }
+          mergeInteractionToStructure(slot, data)
         } finally {
           setInteractionLoading(false)
+          setInteractionLoadingMessage("")
         }
         break
       }
@@ -313,7 +364,7 @@ function StudioLayoutContent({ children }: { children: ReactNode }) {
       default:
         break
     }
-  }, [previewPayload])
+  }, [previewPayload, mergeInteractionToStructure])
 
   useEffect(() => {
     interactionResolverRef.current.setInteractionCallback((slot, nodeId) => {
@@ -597,14 +648,27 @@ function StudioLayoutContent({ children }: { children: ReactNode }) {
                     </SidebarMenuItem>
                     
                     <SidebarMenuItem>
-                      <SidebarMenuButton 
-                        asChild 
+                      <SidebarMenuButton
+                        asChild
                         isActive={pathname?.startsWith("/studio/workflows")}
                         tooltip="工作流管理"
                       >
                         <Link href="/studio/workflows">
                           <WorkflowIcon className="h-4 w-4" />
                           <span>Workflows</span>
+                        </Link>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+
+                    <SidebarMenuItem>
+                      <SidebarMenuButton
+                        asChild
+                        isActive={pathname?.startsWith("/studio/settings")}
+                        tooltip="设置"
+                      >
+                        <Link href="/studio/settings">
+                          <SettingsIcon className="h-4 w-4" />
+                          <span>Settings</span>
                         </Link>
                       </SidebarMenuButton>
                     </SidebarMenuItem>
@@ -716,7 +780,10 @@ function StudioLayoutContent({ children }: { children: ReactNode }) {
                     </div>
                     <div className="flex items-center gap-2">
                       {interactionLoading && (
-                        <span className="text-xs text-muted-foreground animate-pulse">交互加载中...</span>
+                        <span className="flex items-center gap-1.5 text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-md px-2 py-1 animate-pulse">
+                          <svg className="h-3 w-3 animate-spin" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                          {interactionLoadingMessage || "交互续建中..."}
+                        </span>
                       )}
                       <Button variant="outline" size="sm" onClick={() => {
                         setPreviewPayload(null)

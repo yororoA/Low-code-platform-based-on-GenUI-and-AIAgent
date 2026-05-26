@@ -69,6 +69,29 @@ type GraphSnapshot = {
   edges: Edge[];
 };
 
+// Helper: Get LLM config headers from localStorage
+function getLlmConfigHeaders(): Record<string, string> {
+  const headers: Record<string, string> = {};
+  try {
+    const stored = localStorage.getItem("genui-llm-config");
+    if (stored) {
+      const config = JSON.parse(stored) as {
+        provider?: string;
+        apiKey?: string;
+        baseUrl?: string;
+        modelName?: string;
+      };
+      if (config.provider) headers["X-LLM-Provider"] = config.provider;
+      if (config.apiKey) headers["X-LLM-Api-Key"] = config.apiKey;
+      if (config.baseUrl) headers["X-LLM-Base-Url"] = config.baseUrl;
+      if (config.modelName) headers["X-LLM-Model"] = config.modelName;
+    }
+  } catch {
+    // ignore
+  }
+  return headers;
+}
+
 const EDGE_INSERT_DISTANCE_THRESHOLD = 36;
 
 const createDefaultDraft = (): AddNodeDraft => ({
@@ -995,7 +1018,7 @@ const ProjectPage = () => {
     try {
       const response = await fetch('/api/workflow', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...getLlmConfigHeaders() },
         body: JSON.stringify(payload),
         signal: abortControllerRef.current.signal,
       });
