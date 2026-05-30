@@ -65,6 +65,7 @@ export default function SettingsPage() {
   const [saveStatus, setSaveStatus] = useState<"idle" | "saved" | "error">("idle")
   const [testStatus, setTestStatus] = useState<"idle" | "testing" | "success" | "error">("idle")
   const [testError, setTestError] = useState("")
+  const [saveError, setSaveError] = useState("")
 
   const handleProviderChange = useCallback((provider: string) => {
     const defaults = PROVIDER_DEFAULTS[provider]
@@ -80,15 +81,22 @@ export default function SettingsPage() {
   const handleFieldChange = useCallback((field: keyof LlmConfig, value: string) => {
     setConfig(prev => ({ ...prev, [field]: value }))
     setSaveStatus("idle")
-  }, [])
+    // Clear test error when user modifies fields
+    if (testStatus === "error") {
+      setTestStatus("idle")
+      setTestError("")
+    }
+  }, [testStatus])
 
   const handleSave = useCallback(() => {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(config))
       setSaveStatus("saved")
-      setTimeout(() => setSaveStatus("idle"), 2000)
-    } catch {
+      setSaveError("")
+      setTimeout(() => setSaveStatus("idle"), 3000)
+    } catch (e) {
       setSaveStatus("error")
+      setSaveError(e instanceof Error ? e.message : "保存失败")
     }
   }, [config])
 
@@ -117,6 +125,7 @@ export default function SettingsPage() {
 
       if (data.success) {
         setTestStatus("success")
+        setTimeout(() => setTestStatus("idle"), 5000)
       } else {
         setTestStatus("error")
         setTestError(data.error || "连接测试失败")
@@ -125,8 +134,7 @@ export default function SettingsPage() {
       setTestStatus("error")
       setTestError(error instanceof Error ? error.message : "连接测试失败")
     }
-
-    setTimeout(() => setTestStatus("idle"), 3000)
+    // Error messages persist until the user takes another action
   }, [config])
 
   return (
@@ -253,12 +261,17 @@ export default function SettingsPage() {
 
           {/* 测试错误信息 */}
           {testStatus === "error" && testError && (
-            <p className="text-sm text-destructive">{testError}</p>
+            <div className="rounded-md border border-destructive/50 bg-destructive/10 p-3">
+              <p className="text-sm text-destructive font-medium">连接测试失败</p>
+              <p className="text-xs text-destructive/80 mt-1 break-all">{testError}</p>
+            </div>
           )}
 
           {/* 保存错误信息 */}
           {saveStatus === "error" && (
-            <p className="text-sm text-destructive">保存失败，请重试。</p>
+            <div className="rounded-md border border-destructive/50 bg-destructive/10 p-3">
+              <p className="text-sm text-destructive">{saveError || "保存失败，请重试。"}</p>
+            </div>
           )}
         </CardContent>
       </Card>

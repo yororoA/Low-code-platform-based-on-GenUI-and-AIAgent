@@ -1,6 +1,6 @@
 "use client"
 
-import { ChangeEvent, FormEvent, useEffect, useRef, useState } from "react"
+import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -10,12 +10,10 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { AlertCircle } from "lucide-react"
 import type { AgentMessage } from "@/types"
 import { DBManager } from "@/lib/dbtest"
-import { getShowResponsePayload, strToHexStr, dispatchEvent, dedupeMessages, generateHexId } from "@/lib/utils"
+import { getShowResponsePayload, strToHexStr, dispatchEvent, generateHexId } from "@/lib/utils"
 import { useSearchParams, useRouter } from "next/navigation"
 import { DataItem, DataItemSummary } from "@/types";
 import { useChatStreamingStore } from "@/store/chatStreamingStore";
@@ -116,22 +114,22 @@ type TimelineRoundItem = {
 
 export default function BasicUI() {
   const router = useRouter();
-  const [canJump, setCanJump] = useState<boolean>(false);
   const [input, setInput] = useState<string>("");
   const isNew = useRef<boolean|null>(null);
+  const pendingJumpPromptIdRef = useRef<string | null>(null);
   const thisDetailRef = useRef<{ id: string; topic: string; timestamp: Date }>({
     id: "",
     topic: "New Conversation",
     timestamp: new Date(),
   });
   const CACHE_DEBOUNCE_TIMEOUT = 1000;
-  const [topic, setTopic] = useState<string>("New Conversation");
   const [activePromptId, setActivePromptId] = useState<string>("");
-  const baseMessagesRef = useRef<AgentMessage[]>([]);
-  const [normalizedMessages, setNormalizedMessages] = useState<AgentMessage[]>([]);
-  const [currentMessageTaskId, setCurrentMessageTaskId] = useState<string>('');
-  const roundTimeMapRef = useRef<Map<string, string>>(new Map());
+  const [roundTimeMap, setRoundTimeMap] = useState<Record<string, string>>({});
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
+
+  const currentMessageTaskId = useChatStreamingStore(
+    (state) => (activePromptId ? state.promptToTaskMap.get(activePromptId) ?? "" : "")
+  );
   const currentTask = useChatStreamingStore(
     useShallow(state => state.tasksProcessingMap.get(currentMessageTaskId))
   );
@@ -147,6 +145,8 @@ export default function BasicUI() {
   const promptData = useChatStreamingStore(
     useShallow(state => activePromptId ? state.promptDataMap.get(activePromptId) : undefined)
   );
+  const normalizedMessages = useMemo(() => promptData?.messages ?? [], [promptData?.messages]);
+  const topic = promptData?.topic ?? "New Conversation";
   const getDBMessagesWorkerRef = useRef<Worker | null>(null);
 
   // 初始化获取历史记录线程
@@ -155,22 +155,17 @@ export default function BasicUI() {
     getDBMessagesWorkerRef.current.onmessage = (event: MessageEvent<DataItem>) => {
       const history = event.data as DataItem;
       if (history) {
-        baseMessagesRef.current = history.messages;
         initPromptData(history.id, history);
         setActivePromptId(history.id);
         const taskId = useChatStreamingStore.getState().promptToTaskMap.get(history.id);
         if (taskId) {
-          setCurrentMessageTaskId(taskId);
           onlineStatusToggle(taskId, "online");
-        } else {
-          setCurrentMessageTaskId("");
         }
         thisDetailRef.current = {
           id: history.id,
           topic: history.topic,
           timestamp: history.timestamp,
         }
-        setTopic(history.topic);
       }
     }
     return () => {
@@ -179,29 +174,75 @@ export default function BasicUI() {
     }
   }, [initPromptData, onlineStatusToggle]);
 
-  // 监听消息变化：从 promptDataMap 读取当前会话拼接后的完整消息
+  // Subscribe to store updates and cache round timestamps outside of render.
   useEffect(() => {
-    const mergedMessages = promptData?.messages ?? baseMessagesRef.current;
-    setNormalizedMessages(mergedMessages);
-    if (promptData?.topic) setTopic(promptData.topic);
-  }, [promptData]);
+    if (!activePromptId) return;
+
+    const seedRoundTimes = (messages: AgentMessage[] | undefined) => {
+      if (!messages || messages.length === 0) return;
+      setRoundTimeMap((prev) => {
+        let changed = false;
+        const next: Record<string, string> = { ...prev };
+        for (let index = 0; index < messages.length; index++) {
+          const message = messages[index];
+          if (message.role !== "assistant") continue;
+          const roundId = `round-${message.id}-${index}`;
+          if (!next[roundId]) {
+            next[roundId] = new Date().toISOString();
+            changed = true;
+          }
+        }
+        return changed ? next : prev;
+      });
+    };
+
+    const unsubscribe = useChatStreamingStore.subscribe((state, prevState) => {
+      const nextMessages = state.promptDataMap.get(activePromptId)?.messages;
+      const prevMessages = prevState.promptDataMap.get(activePromptId)?.messages;
+      if (!nextMessages || nextMessages.length === 0) return;
+      if (nextMessages === prevMessages) return;
+
+      seedRoundTimes(nextMessages);
+    });
+
+    // Seed once for existing history after subscription is set.
+    queueMicrotask(() => {
+      const messages = useChatStreamingStore
+        .getState()
+        .promptDataMap
+        .get(activePromptId)?.messages;
+      seedRoundTimes(messages);
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, [activePromptId]);
 
   // 处理任务完成/取消
   useEffect(() => {
-    if (currentTask && (currentTask.status === "canceled" || currentTask.status === "completed")) {
-      if (isNew.current) setCanJump(true);
-      terminateTask(currentMessageTaskId);
-    }
-  }, [currentTask, terminateTask, currentMessageTaskId]);
+    if (!currentTask) return;
+    if (currentTask.status !== "canceled" && currentTask.status !== "completed") return;
+
+    terminateTask(currentMessageTaskId);
+
+    const pendingPromptId = pendingJumpPromptIdRef.current;
+    if (!pendingPromptId || pendingPromptId !== activePromptId) return;
+
+    const jumpTimeout = setTimeout(() => {
+      router.push(`/studio/prompts?id=${pendingPromptId}`);
+    }, CACHE_DEBOUNCE_TIMEOUT + 150);
+
+    pendingJumpPromptIdRef.current = null;
+    return () => clearTimeout(jumpTimeout);
+  }, [currentTask, terminateTask, currentMessageTaskId, router, activePromptId]);
 
   // 初始化获取历史数据
   const searchParams = useSearchParams();
   useEffect(() => {
     const promptId = searchParams.get("id");
     if (promptId) {
-      setCurrentMessageTaskId("");
       thisDetailRef.current.id = promptId;
-      setActivePromptId(promptId);
       if (getDBMessagesWorkerRef.current) {
         getDBMessagesWorkerRef.current.postMessage({ operationType: "get", id: promptId });
       } else {
@@ -211,22 +252,17 @@ export default function BasicUI() {
             id: promptId,
           })) as DataItem;
           if (history) {
-            baseMessagesRef.current = history.messages;
             initPromptData(history.id, history);
             setActivePromptId(history.id);
             const taskId = useChatStreamingStore.getState().promptToTaskMap.get(promptId);
             if (taskId) {
-              setCurrentMessageTaskId(taskId);
               onlineStatusToggle(taskId, "online");
-            } else {
-              setCurrentMessageTaskId("");
             }
             thisDetailRef.current = {
               id: history.id,
               topic: history.topic,
               timestamp: history.timestamp,
             }
-            setTopic(history.topic);
           }
         })();
       }
@@ -248,7 +284,6 @@ export default function BasicUI() {
         }
       }
       d.topic = extractedTopic;
-      setTopic((prevTopic) => prevTopic !== d.topic ? d.topic : prevTopic);
       if (d.id) {
         try {
           await DBManager.execute({
@@ -257,7 +292,13 @@ export default function BasicUI() {
           });
           if (typeof isNew.current === "boolean") {
             if (!isNew.current) dispatchEvent<DataItemSummary>("updateConversation", d);
-            if (isNew.current) setCanJump(true);
+            if (isNew.current) {
+              const pendingId = pendingJumpPromptIdRef.current;
+              if (pendingId && pendingId === d.id) {
+                pendingJumpPromptIdRef.current = null;
+                router.push(`/studio/prompts?id=${d.id}`);
+              }
+            }
           }
         } catch (error) {
           console.error("DB Update Error: ", error)
@@ -266,17 +307,8 @@ export default function BasicUI() {
     }, CACHE_DEBOUNCE_TIMEOUT);
     return () => {
       clearTimeout(updateTimer);
-      if (isNew.current) setCanJump(false);
     }
-  }, [normalizedMessages, isNew]);
-
-  // 新会话跳转
-  useEffect(() => {
-    const jumpTimeout = setTimeout(() => {
-      if (canJump) router.push(`/studio/prompts?id=${thisDetailRef.current.id}`);
-    }, CACHE_DEBOUNCE_TIMEOUT + 150);
-    return () => clearTimeout(jumpTimeout);
-  }, [canJump, router]);
+  }, [normalizedMessages, isNew, router]);
 
   // 会话切换(页面卸载)
   useEffect(() => {
@@ -300,6 +332,7 @@ export default function BasicUI() {
       thisDetailRef.current.id = newId;
       thisDetailRef.current.timestamp = new Date();
       setActivePromptId(newId);
+      pendingJumpPromptIdRef.current = newId;
       dispatchEvent<DataItemSummary>("newConversation", thisDetailRef.current);
     }
     const currentPromptId = thisDetailRef.current.id;
@@ -309,16 +342,14 @@ export default function BasicUI() {
       id: generateHexId(),
       parts: [{ type: "text", text }],
     };
-    const baseMessages = promptData?.messages ?? baseMessagesRef.current;
+    const baseMessages = promptData?.messages ?? [];
     const nextMessages = [...baseMessages, userMessage];
-    baseMessagesRef.current = nextMessages;
 
     const taskIdForCurrentPrompt = useChatStreamingStore.getState().promptToTaskMap.get(currentPromptId);
     if (taskIdForCurrentPrompt) {
       terminateTask(taskIdForCurrentPrompt);
     }
     const taskId = `task_${Date.now()}`;
-    setCurrentMessageTaskId(taskId);
     send(currentPromptId, taskId, nextMessages, window.location.origin);
   }
 
@@ -441,6 +472,8 @@ export default function BasicUI() {
     return { topic, uiTree, styles, interactions, pages }
   }
 
+  // Derive timeline rounds during render. Timestamp cache is stored in state
+  // and is only updated in effects.
   const timelineRounds = (() => {
     type PendingUser = { text: string }
     const rounds: TimelineRoundItem[] = []
@@ -463,11 +496,8 @@ export default function BasicUI() {
       const assistantPayload = getShowResponsePayload(message) as { topic?: string } | undefined
       const assistantTopic = assistantPayload?.topic?.trim()
       const roundId = `round-${message.id}-${index}`
-      const cachedTime = roundTimeMapRef.current.get(roundId)
+      const cachedTime = roundTimeMap[roundId]
       const nowIso = cachedTime ?? new Date().toISOString()
-      if (!cachedTime) {
-        roundTimeMapRef.current.set(roundId, nowIso)
-      }
 
       const user = pendingUsers.shift()
       const userText = user?.text || "(no paired user message)"
