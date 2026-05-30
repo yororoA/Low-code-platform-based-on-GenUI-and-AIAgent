@@ -1,8 +1,9 @@
 import { create } from "zustand";
-import { type AgentMessage, type ShowResponseData } from "@/types";
+import { type AgentMessage } from "@/types";
 import { enableMapSet, produce } from "immer";
 import { DataItem, DataItemSummary } from "@/types";
 import { DBManager, dispatchEvent, generateHexId } from "@/lib/utils";
+import { getLlmConfigHeaders } from "@/lib/llmConfig";
 
 enableMapSet();
 
@@ -22,33 +23,10 @@ type TaskThrottle = {
 
 const promptPersistQueue = new Map<string, Promise<void>>();
 
-// Read LLM config from localStorage and convert to request headers
-function getLlmConfigHeaders(): Record<string, string> {
-  const headers: Record<string, string> = {};
-  try {
-    const stored = localStorage.getItem("genui-llm-config");
-    if (stored) {
-      const config = JSON.parse(stored) as {
-        provider?: string;
-        apiKey?: string;
-        baseUrl?: string;
-        modelName?: string;
-      };
-      if (config.provider) headers["X-LLM-Provider"] = config.provider;
-      if (config.apiKey) headers["X-LLM-Api-Key"] = config.apiKey;
-      if (config.baseUrl) headers["X-LLM-Base-Url"] = config.baseUrl;
-      if (config.modelName) headers["X-LLM-Model"] = config.modelName;
-    }
-  } catch {
-    // ignore
-  }
-  return headers;
-}
-
 function getTopicFromMessages(messages: AgentMessage[], fallbackTopic = "New Conversation"): string {
   const assistantMessages = messages.filter((m) => m.role === "assistant");
   for (let i = assistantMessages.length - 1; i >= 0; i--) {
-    for (const part of assistantMessages[i].parts) {
+    for (const part of (assistantMessages[i].parts ?? [])) {
       if (part.type === "show-response" && part.data.topic) {
         return part.data.topic;
       }
@@ -99,6 +77,7 @@ function queuePersistPromptData(data: DataItem): void {
     })
     .catch((error) => {
       console.error("prompt history persist failed:", error);
+      dispatchEvent<{ message: string }>("persistError", { message: "对话数据保存失败" });
     });
 
   promptPersistQueue.set(data.id, current);
@@ -260,7 +239,6 @@ export const useChatStreamingStore = create<ChatStreamingState>((set, get) => ({
           if (data) queuePersistPromptData(data);
         }
         get().cce(id, "error");
-        throw new Error(error);
       }
     };
     set({ streamingWorker });

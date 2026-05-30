@@ -35,6 +35,7 @@ import {
 } from "@/components/ui/sidebar"
 import { DBManager } from "@/lib/dbtest"
 import { cn } from "@/lib/utils"
+import { getLlmConfigHeaders } from "@/lib/llmConfig"
 import { DataItemSummary } from "@/types"
 import { ChatDetailsContext } from "@/contexts";
 import { isUiTreeNode, renderNode, type UiTreeNode } from "@/lib/renderByAST";
@@ -65,6 +66,14 @@ import {
   DrawerTitle,
   DrawerDescription,
 } from "@/components/ui/drawer"
+import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable"
+import {
+  Popover,
+  PopoverContent,
+  PopoverHeader,
+  PopoverTitle,
+  PopoverDescription,
+} from "@/components/ui/popover"
 
 
 type StudioPreviewPayload = {
@@ -89,29 +98,6 @@ type TimelineRoundItem = {
   userText: string
   assistantTitle: string
   children: TimelineChildItem[]
-}
-
-// Helper: Get LLM config headers from localStorage
-function getLlmConfigHeaders(): Record<string, string> {
-  const headers: Record<string, string> = {};
-  try {
-    const stored = localStorage.getItem("genui-llm-config");
-    if (stored) {
-      const config = JSON.parse(stored) as {
-        provider?: string;
-        apiKey?: string;
-        baseUrl?: string;
-        modelName?: string;
-      };
-      if (config.provider) headers["X-LLM-Provider"] = config.provider;
-      if (config.apiKey) headers["X-LLM-Api-Key"] = config.apiKey;
-      if (config.baseUrl) headers["X-LLM-Base-Url"] = config.baseUrl;
-      if (config.modelName) headers["X-LLM-Model"] = config.modelName;
-    }
-  } catch {
-    // ignore
-  }
-  return headers;
 }
 
 function StudioLayoutContent({ children }: { children: ReactNode }) {
@@ -387,8 +373,7 @@ function StudioLayoutContent({ children }: { children: ReactNode }) {
     }))
   );
 
-  const { currentProject } = useWorkflowStore();
-  const { goToHistoryIndex, currentHistoryIndex } = useWorkflowStore();
+  const { currentProject, goToHistoryIndex, currentHistoryIndex } = useWorkflowStore();
   useEffect(() => {
     setWorkersAllowed(!!window.Worker);
     return () => {
@@ -608,6 +593,7 @@ function StudioLayoutContent({ children }: { children: ReactNode }) {
   }, [parsedPreview, previewPayload])
 
   const isPreviewMode = previewPayload !== null
+  const [isFullscreen, setIsFullscreen] = useState(false)
 
 
   return (
@@ -642,7 +628,7 @@ function StudioLayoutContent({ children }: { children: ReactNode }) {
                       >
                         <Link href="/studio">
                           <HomeIcon className="h-4 w-4" />
-                          <span>Home</span>
+                          <span>首页</span>
                         </Link>
                       </SidebarMenuButton>
                     </SidebarMenuItem>
@@ -655,7 +641,7 @@ function StudioLayoutContent({ children }: { children: ReactNode }) {
                       >
                         <Link href="/studio/workflows">
                           <WorkflowIcon className="h-4 w-4" />
-                          <span>Workflows</span>
+                          <span>工作流</span>
                         </Link>
                       </SidebarMenuButton>
                     </SidebarMenuItem>
@@ -668,7 +654,7 @@ function StudioLayoutContent({ children }: { children: ReactNode }) {
                       >
                         <Link href="/studio/settings">
                           <SettingsIcon className="h-4 w-4" />
-                          <span>Settings</span>
+                          <span>设置</span>
                         </Link>
                       </SidebarMenuButton>
                     </SidebarMenuItem>
@@ -724,7 +710,7 @@ function StudioLayoutContent({ children }: { children: ReactNode }) {
             
             <SidebarFooter>
               <div className="text-xs text-muted-foreground px-2">
-                Workspace Navigation
+                工作区导航
               </div>
             </SidebarFooter>
           </Sidebar>
@@ -755,48 +741,58 @@ function StudioLayoutContent({ children }: { children: ReactNode }) {
               </header>
             )}
             
-            <div className="flex flex-1 min-h-0">
-              <main className={cn("flex-1 min-w-0 overflow-hidden", isPreviewMode && "max-w-[60%]")}>
-                <ChatDetailsContext.Provider value={details}>
-                  <div className="h-full min-h-0 overflow-hidden overscroll-contain">
-                    {children}
-                  </div>
-                </ChatDetailsContext.Provider>
-              </main>
-              {isPreviewMode && (
-                <aside className="w-[50%] min-w-[20%] max-w-[80%] border-l bg-background flex flex-col h-full min-h-0 shrink-0 overflow-hidden">
-                  <div className="border-b p-4 shrink-0 flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      {activePageId !== "main" && pageManagerRef.current.canGoBack() && (
-                        <Button variant="ghost" size="sm" onClick={() => {
-                          pageManagerRef.current.goBack()
-                          const prevId = pageManagerRef.current.getActivePageId()
-                          setActivePageId(prevId)
+            {isPreviewMode ? (
+              <ResizablePanelGroup orientation="horizontal" className="flex-1 min-h-0">
+                <ResizablePanel defaultSize={isFullscreen ? 20 : 50} minSize={20} maxSize={80}>
+                  <main className="h-full min-w-0 overflow-hidden">
+                    <ChatDetailsContext.Provider value={details}>
+                      <div className="h-full min-h-0 overflow-hidden overscroll-contain">
+                        {children}
+                      </div>
+                    </ChatDetailsContext.Provider>
+                  </main>
+                </ResizablePanel>
+                <ResizableHandle withHandle />
+                <ResizablePanel defaultSize={isFullscreen ? 80 : 50} minSize={20} maxSize={80}>
+                  <aside className="border-l bg-background flex flex-col h-full min-h-0 overflow-hidden">
+                    <div className="border-b p-4 shrink-0 flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        {activePageId !== "main" && pageManagerRef.current.canGoBack() && (
+                          <Button variant="ghost" size="sm" onClick={() => {
+                            pageManagerRef.current.goBack()
+                            const prevId = pageManagerRef.current.getActivePageId()
+                            setActivePageId(prevId)
+                          }}>
+                            ← 返回
+                          </Button>
+                        )}
+                        <h2 className="text-sm font-semibold">{parsedPreview?.topic ?? "渲染预览"}{activePageId !== "main" ? ` / ${activePageId}` : ""}</h2>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {interactionLoading && (
+                          <span className="flex items-center gap-1.5 text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-md px-2 py-1 animate-pulse">
+                            <svg className="h-3 w-3 animate-spin" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                            {interactionLoadingMessage || "交互续建中..."}
+                          </span>
+                        )}
+                        <Button variant="outline" size="sm" onClick={() => {
+                          setIsFullscreen(prev => !prev)
                         }}>
-                          ← 返回
+                          {isFullscreen ? "退出全屏" : "全屏预览"}
                         </Button>
-                      )}
-                      <h2 className="text-sm font-semibold">{parsedPreview?.topic ?? "渲染预览"}{activePageId !== "main" ? ` / ${activePageId}` : ""}</h2>
+                        <Button variant="outline" size="sm" onClick={() => {
+                          setPreviewPayload(null)
+                          setModalContent(null)
+                          setActivePageId("main")
+                          setPageTrees({})
+                          setIsFullscreen(false)
+                          interactionResolverRef.current.clear()
+                          setInteractionsById({})
+                        }}>
+                          关闭预览
+                        </Button>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      {interactionLoading && (
-                        <span className="flex items-center gap-1.5 text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-md px-2 py-1 animate-pulse">
-                          <svg className="h-3 w-3 animate-spin" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
-                          {interactionLoadingMessage || "交互续建中..."}
-                        </span>
-                      )}
-                      <Button variant="outline" size="sm" onClick={() => {
-                        setPreviewPayload(null)
-                        setModalContent(null)
-                        setActivePageId("main")
-                        setPageTrees({})
-                        interactionResolverRef.current.clear()
-                        setInteractionsById({})
-                      }}>
-                        关闭预览
-                      </Button>
-                    </div>
-                  </div>
                   <ScrollArea className="flex-1 min-h-0 p-4 overscroll-contain bg-muted/20">
                     {(() => {
                       const currentPage = pageTrees[activePageId]
@@ -866,25 +862,34 @@ function StudioLayoutContent({ children }: { children: ReactNode }) {
                         )
                       case "popover":
                         return (
-                          <Dialog open onOpenChange={(open) => { if (!open) setModalContent(null) }}>
-                            <DialogContent className="max-w-md">
-                              <DialogHeader>
-                                <DialogTitle>{modalContent.title}</DialogTitle>
-                                <DialogDescription>{modalContent.title}</DialogDescription>
-                              </DialogHeader>
+                          <Popover open onOpenChange={(open) => { if (!open) setModalContent(null) }}>
+                            <PopoverContent className="max-w-md">
+                              <PopoverHeader>
+                                <PopoverTitle>{modalContent.title}</PopoverTitle>
+                                <PopoverDescription>{modalContent.title}</PopoverDescription>
+                              </PopoverHeader>
                               {contentEl}
-                            </DialogContent>
-                          </Dialog>
+                            </PopoverContent>
+                          </Popover>
                         )
                       default:
                         return null
                     }
                   })()}
                 </aside>
-              )}
-              
-              {!isPreviewMode && shouldShowInspector && (
-                <aside ref={inspectorRef} className="w-80 border-l bg-background flex h-full min-h-0 flex-col shrink-0 overflow-hidden">
+                </ResizablePanel>
+              </ResizablePanelGroup>
+            ) : (
+              <div className="flex flex-1 min-h-0">
+                <main className="flex-1 min-w-0 overflow-hidden">
+                  <ChatDetailsContext.Provider value={details}>
+                    <div className="h-full min-h-0 overflow-hidden overscroll-contain">
+                      {children}
+                    </div>
+                  </ChatDetailsContext.Provider>
+                </main>
+                {shouldShowInspector && (
+                  <aside ref={inspectorRef} className="w-80 border-l bg-background flex h-full min-h-0 flex-col shrink-0 overflow-hidden">
                   <div className="border-b p-4 shrink-0">
                     <h2 className="text-sm font-semibold">Inspector</h2>
                     <p className="text-xs text-muted-foreground mt-1">
@@ -1018,8 +1023,9 @@ function StudioLayoutContent({ children }: { children: ReactNode }) {
                     </CardHeader>
                   </Card>
                 </aside>
-              )}
-            </div>
+                )}
+              </div>
+            )}
           </div>
         </SidebarInset>
       </div>

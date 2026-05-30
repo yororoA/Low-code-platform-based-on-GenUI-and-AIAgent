@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useCallback } from "react"
-import { EyeIcon, EyeOffIcon, CheckIcon, LoaderIcon } from "lucide-react"
+import { EyeIcon, EyeOffIcon, CheckIcon, LoaderIcon, DownloadIcon, UploadIcon } from "lucide-react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -13,6 +13,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { STORAGE_KEY } from "@/lib/llmConfig"
+import { DBManager } from "@/lib/dbtest"
 
 // ======================== Provider Defaults ========================
 const PROVIDER_DEFAULTS: Record<string, { baseUrl: string; modelName: string }> = {
@@ -34,8 +36,6 @@ const PROVIDER_LABELS: Record<string, string> = {
   zai: "ZAI (智谱)",
   minimax: "MiniMax",
 }
-
-const STORAGE_KEY = "genui-llm-config"
 
 interface LlmConfig {
   provider: string
@@ -66,6 +66,8 @@ export default function SettingsPage() {
   const [testStatus, setTestStatus] = useState<"idle" | "testing" | "success" | "error">("idle")
   const [testError, setTestError] = useState("")
   const [saveError, setSaveError] = useState("")
+  const [dataStatus, setDataStatus] = useState<"idle" | "exporting" | "importing" | "exported" | "imported" | "error">("idle")
+  const [dataError, setDataError] = useState("")
 
   const handleProviderChange = useCallback((provider: string) => {
     const defaults = PROVIDER_DEFAULTS[provider]
@@ -137,9 +139,149 @@ export default function SettingsPage() {
     // Error messages persist until the user takes another action
   }, [config])
 
+  const handleExport = useCallback(async () => {
+    setDataStatus("exporting")
+    setDataError("")
+    try {
+      await DBManager.execute({ operationType: "open" })
+      const conversations = await DBManager.execute({
+        operationType: "getAllByIndex",
+        store_name: "conversations",
+        indexName: "timestampIndex",
+      })
+
+      const indexedDBRef = globalThis.indexedDB
+      if (!indexedDBRef) throw new Error("IndexedDB is not available")
+
+      const workflows: unknown[] = await new Promise((resolve, reject) => {
+        const request = indexedDBRef.open("workflow-db", 1)
+        request.onsuccess = () => {
+          const db = request.result
+          if (!db.objectStoreNames.contains("workflow-store")) {
+            db.close()
+            resolve([])
+            return
+          }
+          const tx = db.transaction("workflow-store", "readonly")
+          const store = tx.objectStore("workflow-store")
+          const getAllReq = store.getAll()
+          getAllReq.onsuccess = () => {
+            db.close()
+            resolve(getAllReq.result || [])
+          }
+          getAllReq.onerror = () => {
+            db.close()
+            reject(getAllReq.error)
+          }
+        }
+        request.onerror = () => reject(request.error)
+      })
+
+      const exportData = {
+        version: 1,
+        exportDate: new Date().toISOString(),
+        conversations: (conversations as unknown[]) || [],
+        workflows: workflows || [],
+      }
+
+      const jsonStr = JSON.stringify(exportData, null, 2)
+      const blob = new Blob([jsonStr], { type: "application/json" })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      const dateStr = new Date().toISOString().slice(0, 10)
+      a.href = url
+      a.download = `genui-studio-backup-${dateStr}.json`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+
+      setDataStatus("exported")
+      setTimeout(() => setDataStatus("idle"), 3000)
+    } catch (e) {
+      setDataStatus("error")
+      setDataError(e instanceof Error ? e.message : "导出失败")
+    }
+  }, [])
+
+  const handleImport = useCallback(() => {
+    const input = document.createElement("input")
+    input.type = "file"
+    input.accept = ".json"
+    input.onchange = async (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0]
+      if (!file) return
+
+      setDataStatus("importing")
+      setDataError("")
+
+      try {
+        const text = await file.text()
+        const data = JSON.parse(text)
+
+        if (!data.version || (!data.conversations && !data.workflows)) {
+          throw new Error("数据格式无效")
+        }
+
+        if (data.conversations && Array.isArray(data.conversations)) {
+          await DBManager.execute({ operationType: "open" })
+          for (const item of data.conversations) {
+            await DBManager.execute({
+              operationType: "update",
+              store_name: "conversations",
+              data: item,
+            })
+          }
+        }
+
+        if (data.workflows && Array.isArray(data.workflows)) {
+          const indexedDBRef = globalThis.indexedDB
+          if (!indexedDBRef) throw new Error("IndexedDB is not available")
+
+          await new Promise<void>((resolve, reject) => {
+            const request = indexedDBRef.open("workflow-db", 1)
+            request.onsuccess = () => {
+              const db = request.result
+              if (!db.objectStoreNames.contains("workflow-store")) {
+                db.close()
+                resolve()
+                return
+              }
+              const tx = db.transaction("workflow-store", "readwrite")
+              const store = tx.objectStore("workflow-store")
+              for (const item of data.workflows) {
+                store.put(item)
+              }
+              tx.oncomplete = () => {
+                db.close()
+                resolve()
+              }
+              tx.onerror = () => {
+                db.close()
+                reject(tx.error)
+              }
+            }
+            request.onerror = () => reject(request.error)
+          })
+        }
+
+        setDataStatus("imported")
+        setTimeout(() => {
+          setDataStatus("idle")
+          window.location.reload()
+        }, 1500)
+      } catch (e) {
+        setDataStatus("error")
+        setDataError(e instanceof Error ? e.message : "导入失败")
+      }
+    }
+    input.click()
+  }, [])
+
   return (
     <div className="flex h-full items-start justify-center overflow-auto p-8">
-      <Card className="w-full max-w-lg">
+      <div className="w-full max-w-lg space-y-6">
+      <Card>
         <CardHeader>
           <CardTitle className="text-xl">模型设置</CardTitle>
           <CardDescription>
@@ -275,6 +417,66 @@ export default function SettingsPage() {
           )}
         </CardContent>
       </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-xl">数据管理</CardTitle>
+          <CardDescription>
+            导出或导入你的对话历史和工作流项目数据。
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center gap-3">
+            <Button
+              variant="outline"
+              onClick={handleExport}
+              disabled={dataStatus === "exporting" || dataStatus === "importing"}
+              className="flex-1"
+            >
+              {dataStatus === "exporting" ? (
+                <>
+                  <LoaderIcon className="mr-2 h-4 w-4 animate-spin" />
+                  导出中...
+                </>
+              ) : (
+                <>
+                  <DownloadIcon className="mr-2 h-4 w-4" />
+                  导出数据
+                </>
+              )}
+            </Button>
+            <Button
+              variant="outline"
+              onClick={handleImport}
+              disabled={dataStatus === "exporting" || dataStatus === "importing"}
+              className="flex-1"
+            >
+              {dataStatus === "importing" ? (
+                <>
+                  <LoaderIcon className="mr-2 h-4 w-4 animate-spin" />
+                  导入中...
+                </>
+              ) : (
+                <>
+                  <UploadIcon className="mr-2 h-4 w-4" />
+                  导入数据
+                </>
+              )}
+            </Button>
+          </div>
+
+          {dataStatus === "exported" && (
+            <p className="text-sm text-green-600">数据导出成功</p>
+          )}
+          {dataStatus === "imported" && (
+            <p className="text-sm text-green-600">数据导入成功，页面即将刷新...</p>
+          )}
+          {dataStatus === "error" && dataError && (
+            <p className="text-sm text-destructive">{dataError}</p>
+          )}
+        </CardContent>
+      </Card>
+      </div>
     </div>
   )
 }
