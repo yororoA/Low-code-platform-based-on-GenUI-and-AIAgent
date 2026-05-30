@@ -22,6 +22,29 @@ type TaskThrottle = {
 
 const promptPersistQueue = new Map<string, Promise<void>>();
 
+// Read LLM config from localStorage and convert to request headers
+function getLlmConfigHeaders(): Record<string, string> {
+  const headers: Record<string, string> = {};
+  try {
+    const stored = localStorage.getItem("genui-llm-config");
+    if (stored) {
+      const config = JSON.parse(stored) as {
+        provider?: string;
+        apiKey?: string;
+        baseUrl?: string;
+        modelName?: string;
+      };
+      if (config.provider) headers["X-LLM-Provider"] = config.provider;
+      if (config.apiKey) headers["X-LLM-Api-Key"] = config.apiKey;
+      if (config.baseUrl) headers["X-LLM-Base-Url"] = config.baseUrl;
+      if (config.modelName) headers["X-LLM-Model"] = config.modelName;
+    }
+  } catch {
+    // ignore
+  }
+  return headers;
+}
+
 function getTopicFromMessages(messages: AgentMessage[], fallbackTopic = "New Conversation"): string {
   const assistantMessages = messages.filter((m) => m.role === "assistant");
   for (let i = assistantMessages.length - 1; i >= 0; i--) {
@@ -360,6 +383,7 @@ export const useChatStreamingStore = create<ChatStreamingState>((set, get) => ({
       id: taskId,
       messages,
       apiBaseUrl,
+      llmConfigHeaders: getLlmConfigHeaders(),
     });
   },
   cancel: (taskId: string) => {

@@ -309,28 +309,10 @@ function buildMergedAssistantMessages(
   } as AgentMessage];
 }
 
-// ======================== Helper: Read LLM config from localStorage ========================
-function getLlmConfigHeaders(): Record<string, string> {
-  const headers: Record<string, string> = {};
-  try {
-    const stored = localStorage.getItem("genui-llm-config");
-    if (stored) {
-      const config = JSON.parse(stored) as {
-        provider?: string;
-        apiKey?: string;
-        baseUrl?: string;
-        modelName?: string;
-      };
-      if (config.provider) headers["X-LLM-Provider"] = config.provider;
-      if (config.apiKey) headers["X-LLM-Api-Key"] = config.apiKey;
-      if (config.baseUrl) headers["X-LLM-Base-Url"] = config.baseUrl;
-      if (config.modelName) headers["X-LLM-Model"] = config.modelName;
-    }
-  } catch {
-    // ignore
-  }
-  return headers;
-}
+// ======================== Helper: Read LLM config headers ========================
+// NOTE: Web Workers cannot access localStorage, so config headers are passed
+// from the main thread via the StreamMessageEvent message.
+let cachedLlmConfigHeaders: Record<string, string> = {};
 
 // ======================== Stream Parser ========================
 async function* parseLangGraphStream(
@@ -349,7 +331,7 @@ async function* parseLangGraphStream(
   try {
     const response = await fetch(apiUrl, {
       method: "POST",
-      headers: { "Content-Type": "application/json", ...getLlmConfigHeaders() },
+      headers: { "Content-Type": "application/json", ...cachedLlmConfigHeaders },
       body: JSON.stringify({
         messages,
         requestType: requestType || "chat",
@@ -426,7 +408,11 @@ onmessage = async (event: MessageEvent<StreamMessageEvent>) => {
   const { type, id } = event.data;
 
   if (type === "send") {
-    const { messages, apiBaseUrl } = event.data;
+    const { messages, apiBaseUrl, llmConfigHeaders } = event.data;
+    // Cache LLM config headers from main thread (worker can't access localStorage)
+    if (llmConfigHeaders) {
+      cachedLlmConfigHeaders = llmConfigHeaders;
+    }
     const controller = new AbortController();
 
     TaskRegistry.set(id, {

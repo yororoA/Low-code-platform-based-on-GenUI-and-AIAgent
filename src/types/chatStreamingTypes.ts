@@ -35,6 +35,7 @@ export type StreamMessageEvent = {
   id: string;
   messages: AgentMessage[];
   apiBaseUrl: string;
+  llmConfigHeaders?: Record<string, string>;
 } | {
   type: "cancel" | "cancelAll" | "offline" | "online";
   id: string;
