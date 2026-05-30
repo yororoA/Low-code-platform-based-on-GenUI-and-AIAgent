@@ -1,4 +1,4 @@
-import { HumanMessage, type BaseMessage } from "@langchain/core/messages";
+import { HumanMessage, AIMessage, type BaseMessage } from "@langchain/core/messages";
 import { compileChatGraph, compileInteractionGraph, compileStyleEditGraph } from "./graph";
 import { encodeSSE, stateToSSEEvents, finalStateToSSEEvents } from "./sse";
 import type { SSEEvent } from "./sse";
@@ -20,8 +20,9 @@ function convertToLangChainMessages(messages: unknown[]): BaseMessage[] {
 
     if (msg.role === "user") {
       result.push(new HumanMessage(textContent));
+    } else if (msg.role === "assistant" && textContent.trim()) {
+      result.push(new AIMessage(textContent));
     }
-    // Skip assistant/system messages for input - the graph generates its own
   }
   return result;
 }
