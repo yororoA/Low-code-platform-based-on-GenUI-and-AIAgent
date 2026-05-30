@@ -19,8 +19,6 @@ export function buildChatGraph() {
     .addNode("structure", structureNode)
     .addNode("alignment", alignmentNode)
     .addNode("style", styleNode)
-    .addNode("interaction", interactionNode)
-    .addNode("style_edit", styleEditNode)
     // Terminal nodes
     .addNode("end_text_only", async (state: ChatGraphStateType) => state)
     .addNode("end_with_error", async (state: ChatGraphStateType) => state)

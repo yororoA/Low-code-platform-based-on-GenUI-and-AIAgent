@@ -14,7 +14,7 @@ export type SSEEvent =
   | { event: "error"; data: { message: string } }
   | { event: "done"; data: { threadId: string; checkpointId?: string; result?: string } }
   | { event: "workflow_status"; data: WorkflowStageInfo }
-  | { event: "heartbeat"; data: {} };
+  | { event: "heartbeat"; data: Record<string, never> };
 
 const encoder = new TextEncoder();
 
@@ -26,7 +26,6 @@ export function encodeSSE(event: SSEEvent): Uint8Array {
 export function stateToSSEEvents(
   nodeName: string,
   state: Partial<ChatGraphStateType>,
-  threadId: string,
 ): SSEEvent[] {
   const events: SSEEvent[] = [];
   const timestamp = Date.now();

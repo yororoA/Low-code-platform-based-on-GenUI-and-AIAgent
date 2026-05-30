@@ -58,17 +58,25 @@ export async function POST(req: Request) {
 
   // Select graph based on request type
   const resolvedRequestType = requestType || "chat";
-  let compiledGraph: ReturnType<typeof compileChatGraph>;
+  type CompiledGraphLike = {
+    stream: (
+      input: Partial<ChatGraphStateType>,
+      options: unknown,
+    ) => Promise<AsyncIterable<Record<string, Partial<ChatGraphStateType>>>>;
+    getState: (options: unknown) => Promise<{ values: ChatGraphStateType }>;
+  };
+
+  let compiledGraph: CompiledGraphLike;
 
   switch (resolvedRequestType) {
     case "interaction":
-      compiledGraph = compileInteractionGraph() as ReturnType<typeof compileChatGraph>;
+      compiledGraph = compileInteractionGraph() as unknown as CompiledGraphLike;
       break;
     case "style-edit":
-      compiledGraph = compileStyleEditGraph() as ReturnType<typeof compileChatGraph>;
+      compiledGraph = compileStyleEditGraph() as unknown as CompiledGraphLike;
       break;
     default:
-      compiledGraph = compileChatGraph();
+      compiledGraph = compileChatGraph() as unknown as CompiledGraphLike;
   }
 
   // Build initial state
@@ -97,7 +105,7 @@ export async function POST(req: Request) {
 
       // Heartbeat
       const heartbeatInterval = setInterval(() => {
-        sendEvent({ event: "heartbeat", data: {} });
+        sendEvent({ event: "heartbeat", data: {} as Record<string, never> });
       }, 15000);
 
       try {
@@ -117,7 +125,6 @@ export async function POST(req: Request) {
             const events = stateToSSEEvents(
               nodeName,
               partialState as Partial<ChatGraphStateType>,
-              threadId,
             );
 
             for (const event of events) {

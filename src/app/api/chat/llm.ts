@@ -33,16 +33,15 @@ export function createChatModel(options?: {
   const modelName = options?.modelName || defaultModelMap[provider] || "gpt-4o";
 
   // All providers use OpenAI-compatible API via ChatOpenAI
-  // This supports OpenAI, DeepSeek, Qwen, ZAI, MiniMax, etc.
   const resolvedBaseUrl = baseUrl || providerBaseUrlMap[provider] || undefined;
 
   return new ChatOpenAI({
     modelName,
     temperature,
-    openAIApiKey: apiKey,
-    configuration: resolvedBaseUrl
-      ? { baseURL: resolvedBaseUrl }
-      : undefined,
+    configuration: {
+      ...(apiKey ? { apiKey } : {}),
+      ...(resolvedBaseUrl ? { baseURL: resolvedBaseUrl } : {}),
+    },
   });
 }
 
@@ -80,13 +79,16 @@ export function createChatModelFromConfig(config: LLMConfig): BaseChatModel {
   const modelName = config.modelName || defaultModelMap[provider] || "gpt-4o";
   const resolvedBaseUrl = config.baseUrl || providerBaseUrlMap[provider] || undefined;
 
+  // apiKey must be passed inside configuration to ensure the underlying
+  // OpenAI client receives it — openAIApiKey alone is not merged into
+  // the configuration object by @langchain/openai.
   return new ChatOpenAI({
     modelName,
     temperature,
-    openAIApiKey: apiKey,
-    configuration: resolvedBaseUrl
-      ? { baseURL: resolvedBaseUrl }
-      : undefined,
+    configuration: {
+      apiKey,
+      ...(resolvedBaseUrl ? { baseURL: resolvedBaseUrl } : {}),
+    },
   });
 }
 
