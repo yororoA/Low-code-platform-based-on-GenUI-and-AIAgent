@@ -1,9 +1,5 @@
 import type { StreamMessageEvent, StreamMessageResponse, AgentMessage, AgentMessagePart, ShowResponseData } from "@/types";
 
-// Re-export for local use
-type LocalAgentMessage = AgentMessage;
-type LocalShowResponseData = ShowResponseData;
-
 // ======================== Task Registry ========================
 export const TaskRegistry = new Map<string, {
   controller: AbortController;

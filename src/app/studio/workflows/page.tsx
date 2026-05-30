@@ -35,7 +35,7 @@ const WorkflowsHome = () => {
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(true);
   const [projects, setProjects] = useState<WorkflowProjectSummary[]>([]);
-  const { loadAllFromDB, deleteFromDB } = useWorkflowStore();
+  const { loadAllFromDB, deleteFromDB, duplicateToDB } = useWorkflowStore();
 
   useEffect(() => {
     const loadProjects = async () => {
@@ -62,9 +62,20 @@ const WorkflowsHome = () => {
     setProjects(prev => prev.filter(p => p.id !== id));
   };
 
-  const handleDuplicateProject = (id: string, e: React.MouseEvent) => {
+  const handleDuplicateProject = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    console.log('Duplicate project:', id);
+    const newId = await duplicateToDB(id);
+    if (newId) {
+      const source = projects.find(p => p.id === id);
+      if (source) {
+        const newProject: WorkflowProjectSummary = {
+          id: newId,
+          topic: source.topic + ' (副本)',
+          timestamp: new Date(),
+        };
+        setProjects(prev => [newProject, ...prev]);
+      }
+    }
   };
 
   const formatDate = (date: Date) => {
@@ -81,18 +92,18 @@ const WorkflowsHome = () => {
       <div className="p-8 max-w-7xl mx-auto space-y-8">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight">Workflows</h1>
-            <p className="text-muted-foreground mt-1">Manage and create your automated business logic pipelines.</p>
+            <h1 className="text-3xl font-bold tracking-tight">工作流</h1>
+            <p className="text-muted-foreground mt-1">管理和创建你的自动化业务流程管线</p>
           </div>
           <Tooltip>
             <TooltipTrigger asChild>
               <Button onClick={handleNewProject} className="gap-2">
                 <PlusIcon className="w-4 h-4" />
-                New Project
+                新建项目
               </Button>
             </TooltipTrigger>
             <TooltipContent>
-              <p>Create a new workflow project</p>
+              <p>创建新的工作流项目</p>
             </TooltipContent>
           </Tooltip>
         </div>
@@ -103,15 +114,15 @@ const WorkflowsHome = () => {
               <EmptyMedia variant="icon">
                 <LayoutGridIcon className="h-6 w-6" />
               </EmptyMedia>
-              <EmptyTitle>No workflows yet</EmptyTitle>
+              <EmptyTitle>暂无工作流</EmptyTitle>
               <EmptyDescription>
-                Get started by creating your first workflow project. Automate your business processes with ease.
+                创建你的第一个工作流项目，轻松实现业务流程自动化
               </EmptyDescription>
             </EmptyHeader>
             <EmptyContent>
               <Button onClick={handleNewProject} className="gap-2">
                 <PlusIcon className="w-4 h-4" />
-                Create Your First Workflow
+                创建首个工作流
               </Button>
             </EmptyContent>
           </Empty>
@@ -159,11 +170,11 @@ const WorkflowsHome = () => {
                           <DropdownMenuContent align="end">
                             <DropdownMenuItem onClick={() => handleOpenProject(project.id)}>
                               <EditIcon className="mr-2 h-4 w-4" />
-                              Edit
+                              编辑
                             </DropdownMenuItem>
                             <DropdownMenuItem onClick={(e) => handleDuplicateProject(project.id, e)}>
                               <CopyIcon className="mr-2 h-4 w-4" />
-                              Duplicate
+                              复制
                             </DropdownMenuItem>
                             <DropdownMenuSeparator />
                             <DropdownMenuItem 
@@ -171,31 +182,31 @@ const WorkflowsHome = () => {
                               onClick={(e) => handleDeleteProject(project.id, e)}
                             >
                               <TrashIcon className="mr-2 h-4 w-4" />
-                              Delete
+                              删除
                             </DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </div>
                     </div>
                     <CardDescription className="line-clamp-2 mt-2">
-                      Workflow project with {project.id}
+                      工作流项目
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
                     <div className="flex items-center text-xs text-muted-foreground gap-1">
                       <ClockIcon className="w-3 h-3" />
-                      <span>Last modified: {formatDate(project.timestamp)}</span>
+                      <span>最后修改：{formatDate(project.timestamp)}</span>
                     </div>
                   </CardContent>
                   <CardFooter className="pt-0 flex justify-end">
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <Button variant="ghost" size="sm" className="opacity-0 group-hover:opacity-100 transition-opacity">
-                          Open Editor →
+                          打开编辑器 →
                         </Button>
                       </TooltipTrigger>
                       <TooltipContent>
-                        <p>Open workflow editor</p>
+                        <p>打开工作流编辑器</p>
                       </TooltipContent>
                     </Tooltip>
                   </CardFooter>
@@ -210,8 +221,8 @@ const WorkflowsHome = () => {
               <div className="bg-muted rounded-full p-3 mb-4">
                 <LayoutGridIcon className="w-6 h-6 text-muted-foreground" />
               </div>
-              <p className="text-sm font-medium text-muted-foreground">Or start from scratch</p>
-              <Button variant="link" size="sm" className="mt-1">Create new workflow</Button>
+              <p className="text-sm font-medium text-muted-foreground">或从零开始</p>
+              <Button variant="link" size="sm" className="mt-1">创建工作流</Button>
             </Card>
           </div>
         )}

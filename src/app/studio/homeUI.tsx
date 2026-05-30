@@ -8,8 +8,7 @@ import {
   WorkflowIcon, 
   ArrowRightIcon,
   ZapIcon,
-  LayersIcon,
-  CodeIcon
+  LayersIcon
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -29,13 +28,6 @@ const FEATURES = [
     description: '可视化拖拽编辑器，轻松构建复杂的业务流程和自动化任务',
     color: 'text-purple-500',
     bgColor: 'bg-purple-500/10',
-  },
-  {
-    icon: CodeIcon,
-    title: '代码生成',
-    description: '自动生成高质量的前端代码，支持多种框架和组件库',
-    color: 'text-green-500',
-    bgColor: 'bg-green-500/10',
   },
 ]
 
@@ -65,7 +57,7 @@ export default function HomeUI() {
         <div className="text-center space-y-4 py-8">
           <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-primary/10 text-primary text-sm font-medium">
             <SparklesIcon className="w-4 h-4" />
-            <span>AI-Powered Development Platform</span>
+            <span>AI 驱动的开发平台</span>
           </div>
           
           <h1 className="text-5xl font-bold tracking-tight">
@@ -156,14 +148,12 @@ export default function HomeUI() {
               <div className="flex-1">
                 <h3 className="text-2xl font-semibold mb-2">探索更多功能</h3>
                 <p className="text-muted-foreground mb-4">
-                  GenUI Studio 提供了丰富的功能来加速你的开发流程。从 AI 对话生成 UI 到可视化工作流编排，一切尽在掌握。
+                  GenUI Studio 提供丰富的功能来加速你的开发流程。从 AI 对话生成 UI 到可视化工作流编排，一切尽在掌握。
                 </p>
                 <div className="flex flex-wrap gap-2">
-                  <Badge variant="secondary">React Flow</Badge>
-                  <Badge variant="secondary">AI Agent</Badge>
+                  <Badge variant="secondary">可视化编辑</Badge>
+                  <Badge variant="secondary">智能体</Badge>
                   <Badge variant="secondary">实时预览</Badge>
-                  <Badge variant="secondary">代码导出</Badge>
-                  <Badge variant="secondary">团队协作</Badge>
                 </div>
               </div>
             </div>

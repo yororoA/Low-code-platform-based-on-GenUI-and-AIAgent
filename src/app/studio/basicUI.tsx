@@ -15,6 +15,7 @@ import type { AgentMessage } from "@/types"
 import { DBManager } from "@/lib/dbtest"
 import { getShowResponsePayload, strToHexStr, dispatchEvent, generateHexId } from "@/lib/utils"
 import { useSearchParams, useRouter } from "next/navigation"
+import Link from "next/link"
 import { DataItem, DataItemSummary } from "@/types";
 import { useChatStreamingStore } from "@/store/chatStreamingStore";
 import { useShallow } from "zustand/shallow"
@@ -71,12 +72,12 @@ function extractStructureAndStyleFromParts(message: AgentMessage): {
 
 function getStageLabel(stage: string): string {
   switch (stage) {
-    case "ADMIN": return "Thinking for response..."
-    case "STRUCTURE": return "Structure designing..."
-    case "ALIGNMENT": return "Checking alignment..."
-    case "STYLE": return "Style designing..."
-    case "INTERACTION": return "Defining interactions..."
-    case "PAGES": return "Defining pages..."
+    case "ADMIN": return "思考中..."
+    case "STRUCTURE": return "结构设计中..."
+    case "ALIGNMENT": return "对齐检查中..."
+    case "STYLE": return "样式设计中..."
+    case "INTERACTION": return "交互定义中..."
+    case "PAGES": return "页面定义中..."
     default: return `${stage}...`
   }
 }
@@ -115,8 +116,6 @@ type TimelineRoundItem = {
 export default function BasicUI() {
   const router = useRouter();
   const [input, setInput] = useState<string>("");
-  const isNew = useRef<boolean|null>(null);
-  const pendingJumpPromptIdRef = useRef<string | null>(null);
   const thisDetailRef = useRef<{ id: string; topic: string; timestamp: Date }>({
     id: "",
     topic: "New Conversation",
@@ -124,6 +123,19 @@ export default function BasicUI() {
   });
   const CACHE_DEBOUNCE_TIMEOUT = 1000;
   const [activePromptId, setActivePromptId] = useState<string>("");
+  const [apiKeyConfigured] = useState<boolean>(() => {
+    try {
+      const config = localStorage.getItem("genui-llm-config");
+      if (config) {
+        const parsed = JSON.parse(config);
+        return !!parsed.apiKey;
+      }
+      return false;
+    } catch {
+      return false;
+    }
+  });
+  const [errorMessage, setErrorMessage] = useState<string>("");
   const [roundTimeMap, setRoundTimeMap] = useState<Record<string, string>>({});
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
 
@@ -223,19 +235,8 @@ export default function BasicUI() {
   useEffect(() => {
     if (!currentTask) return;
     if (currentTask.status !== "canceled" && currentTask.status !== "completed") return;
-
     terminateTask(currentMessageTaskId);
-
-    const pendingPromptId = pendingJumpPromptIdRef.current;
-    if (!pendingPromptId || pendingPromptId !== activePromptId) return;
-
-    const jumpTimeout = setTimeout(() => {
-      router.push(`/studio/prompts?id=${pendingPromptId}`);
-    }, CACHE_DEBOUNCE_TIMEOUT + 150);
-
-    pendingJumpPromptIdRef.current = null;
-    return () => clearTimeout(jumpTimeout);
-  }, [currentTask, terminateTask, currentMessageTaskId, router, activePromptId]);
+  }, [currentTask, terminateTask, currentMessageTaskId]);
 
   // 初始化获取历史数据
   const searchParams = useSearchParams();
@@ -269,7 +270,6 @@ export default function BasicUI() {
     }
   }, [searchParams, onlineStatusToggle, initPromptData]);
 
-  // 非 worker 模式下的页面内持久化逻辑 (fallback)
   useEffect(() => {
     if (normalizedMessages.length === 0) return
     const updateTimer = setTimeout(async () => {
@@ -283,32 +283,24 @@ export default function BasicUI() {
           break;
         }
       }
-      d.topic = extractedTopic;
+      if (extractedTopic) d.topic = extractedTopic;
       if (d.id) {
         try {
           await DBManager.execute({
             operationType: "update",
             data: { ...d, messages: normalizedMessages },
           });
-          if (typeof isNew.current === "boolean") {
-            if (!isNew.current) dispatchEvent<DataItemSummary>("updateConversation", d);
-            if (isNew.current) {
-              const pendingId = pendingJumpPromptIdRef.current;
-              if (pendingId && pendingId === d.id) {
-                pendingJumpPromptIdRef.current = null;
-                router.push(`/studio/prompts?id=${d.id}`);
-              }
-            }
-          }
+          dispatchEvent<DataItemSummary>("updateConversation", d);
         } catch (error) {
           console.error("DB Update Error: ", error)
+          setErrorMessage("对话数据保存失败，请检查网络或刷新页面重试。")
         }
       }
     }, CACHE_DEBOUNCE_TIMEOUT);
     return () => {
       clearTimeout(updateTimer);
     }
-  }, [normalizedMessages, isNew, router]);
+  }, [normalizedMessages, router]);
 
   // 会话切换(页面卸载)
   useEffect(() => {
@@ -319,6 +311,12 @@ export default function BasicUI() {
     }
   }, [onlineStatusToggle, currentMessageTaskId]);
 
+  useEffect(() => {
+    if (!errorMessage) return;
+    const timer = setTimeout(() => setErrorMessage(""), 3000);
+    return () => clearTimeout(timer);
+  }, [errorMessage]);
+
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -326,16 +324,19 @@ export default function BasicUI() {
     if (!text) return;
 
     setInput("");
-    isNew.current = !thisDetailRef.current.id;
-    if (isNew.current) {
+    const isNewConversation = !thisDetailRef.current.id;
+    let currentPromptId = thisDetailRef.current.id;
+
+    if (isNewConversation) {
       const newId = strToHexStr(`${text}${Date.now().toString()}${Math.ceil(Math.random() * 1e6).toString()}`);
       thisDetailRef.current.id = newId;
       thisDetailRef.current.timestamp = new Date();
+      currentPromptId = newId;
       setActivePromptId(newId);
-      pendingJumpPromptIdRef.current = newId;
       dispatchEvent<DataItemSummary>("newConversation", thisDetailRef.current);
+      router.push(`/studio/prompts?id=${newId}`);
     }
-    const currentPromptId = thisDetailRef.current.id;
+
     setActivePromptId(currentPromptId);
     const userMessage: AgentMessage = {
       role: "user",
@@ -354,12 +355,19 @@ export default function BasicUI() {
   }
 
   const handleStop = async () => {
-    const taskIdForCurrentPrompt = useChatStreamingStore.getState().promptToTaskMap.get(thisDetailRef.current.id);
+    const taskIdForCurrentPrompt = useChatStreamingStore.getState().promptToTaskMap.get(activePromptId);
     if (taskIdForCurrentPrompt) cancel(taskIdForCurrentPrompt);
   }
 
   const handleInputChange = (event: ChangeEvent<HTMLTextAreaElement>) => {
     setInput(event.target.value)
+  }
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Enter" && !e.shiftKey && canSend) {
+      e.preventDefault();
+      e.currentTarget.form?.requestSubmit();
+    }
   }
 
   const isStreaming = currentTask && (currentTask.status === "streaming" || currentTask.status === 'submitted');
@@ -425,9 +433,7 @@ export default function BasicUI() {
             infos.push(nextInfo)
             stageIndexByKey.set(key, nextInfoIndex)
             activeStageIndex = nextInfoIndex
-            if (!seenStage.has(key)) {
-              seenStage.add(key)
-            }
+            seenStage.add(key)
           } else {
             if (activeStageIndex != null && infos[activeStageIndex]?.type === "stage") {
               const stageInfo = infos[activeStageIndex]
@@ -491,8 +497,17 @@ export default function BasicUI() {
 
       if (message.role !== "assistant") continue
 
-      const displayInfos = getDisplayText(message)
-      const previewPayload = getPreviewPayload(message)
+      const displayInfos = getAssistantInfos(message)
+      const previewPayload = (() => {
+        if (isStreaming) return null
+        if (message.role !== "assistant") return null
+        const payload = getShowResponsePayload(message) as { topic?: string } | undefined
+        const topic = payload?.topic?.trim()
+        if (!topic) return null
+        const { uiTree, styles, interactions, pages } = extractStructureAndStyleFromParts(message)
+        if (uiTree === null) return null
+        return { topic, uiTree, styles, interactions, pages }
+      })()
       const assistantPayload = getShowResponsePayload(message) as { topic?: string } | undefined
       const assistantTopic = assistantPayload?.topic?.trim()
       const roundId = `round-${message.id}-${index}`
@@ -633,7 +648,25 @@ export default function BasicUI() {
           <CardDescription>输入需求并实时接收 Agent 流式输出。</CardDescription>
         </CardHeader>
 
+        {!apiKeyConfigured && (
+          <div className="mx-4 rounded-md border border-amber-300 bg-amber-50 dark:border-amber-700 dark:bg-amber-950 px-4 py-3 flex items-center justify-between">
+            <span className="text-sm text-amber-800 dark:text-amber-200">
+              尚未配置 API Key，请前往设置页面配置模型厂商和 API Key 后方可使用。
+            </span>
+            <Link href="/studio/settings">
+              <Button variant="outline" size="sm" className="border-amber-400 text-amber-800 hover:bg-amber-100 dark:border-amber-600 dark:text-amber-200 dark:hover:bg-amber-900">
+                前往设置
+              </Button>
+            </Link>
+          </div>
+        )}
+
         <CardContent className="flex-1 min-h-0 p-4 pt-0 overflow-hidden">
+          {errorMessage && (
+            <div className="mb-2 rounded-md border border-red-300 bg-red-50 dark:border-red-700 dark:bg-red-950 px-4 py-2 text-sm text-red-800 dark:text-red-200">
+              {errorMessage}
+            </div>
+          )}
           <div ref={messagesContainerRef} className="h-full min-h-0 rounded-md border bg-muted/20 overflow-hidden">
             <ScrollArea className="h-full min-h-0 overscroll-contain">
               <div className="space-y-3 p-3">
@@ -729,20 +762,22 @@ export default function BasicUI() {
               name="prompt"
               value={input}
               onChange={handleInputChange}
+              onKeyDown={handleKeyDown}
               placeholder="例如：生成一个电商后台仪表盘，包含图表、筛选和表格"
               className="min-h-24 flex-1 rounded-md border bg-background px-3 py-2 text-sm outline-none ring-offset-background focus-visible:ring-2 focus-visible:ring-ring"
             />
 
             {isStreaming ? (
               <Button type="button" variant="outline" onClick={handleStop}>
-                Stop
+                停止
               </Button>
             ) : (
               <Button type="submit" disabled={!canSend}>
-                Send
+                发送
               </Button>
             )}
           </form>
+          <span className="text-xs text-muted-foreground">Enter 发送，Shift+Enter 换行</span>
         </CardFooter>
       </Card>
     </div>

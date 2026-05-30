@@ -41,7 +41,9 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useParams, useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { useWorkflowStore } from '@/store/workflowStore';
+import { getLlmConfigHeaders } from '@/lib/llmConfig';
 import { HistoryOperationType, WorkflowNodeType, WorkflowNodeData, WorkflowRunPayload, AgentType } from '@/types';
 import {
   WorkflowNodeActionsContext,
@@ -57,6 +59,7 @@ import {
   TEMP_SOURCE_HANDLE_ID,
   TEMP_TARGET_HANDLE_ID,
 } from '@/components/workflow/WorkflowNodes';
+import { Copy, Check, ChevronDown, ChevronUp } from 'lucide-react';
 
 type AddNodeDraft = {
   label: string;
@@ -68,29 +71,6 @@ type GraphSnapshot = {
   nodes: Node[];
   edges: Edge[];
 };
-
-// Helper: Get LLM config headers from localStorage
-function getLlmConfigHeaders(): Record<string, string> {
-  const headers: Record<string, string> = {};
-  try {
-    const stored = localStorage.getItem("genui-llm-config");
-    if (stored) {
-      const config = JSON.parse(stored) as {
-        provider?: string;
-        apiKey?: string;
-        baseUrl?: string;
-        modelName?: string;
-      };
-      if (config.provider) headers["X-LLM-Provider"] = config.provider;
-      if (config.apiKey) headers["X-LLM-Api-Key"] = config.apiKey;
-      if (config.baseUrl) headers["X-LLM-Base-Url"] = config.baseUrl;
-      if (config.modelName) headers["X-LLM-Model"] = config.modelName;
-    }
-  } catch {
-    // ignore
-  }
-  return headers;
-}
 
 const EDGE_INSERT_DISTANCE_THRESHOLD = 36;
 
@@ -411,6 +391,8 @@ const ProjectPage = () => {
   const [focusedNodeId, setFocusedNodeId] = useState<string | null>(null);
   const [runStatus, setRunStatus] = useState<string>('');
   const [runResult, setRunResult] = useState<string>('');
+  const [resultExpanded, setResultExpanded] = useState(true);
+  const [copied, setCopied] = useState(false);
 
   const nodesRef = useRef(nodes);
   const edgesRef = useRef(edges);
@@ -422,9 +404,24 @@ const ProjectPage = () => {
     snapshot: GraphSnapshot;
   } | null>(null);
   const initializedProjectIdRef = useRef<string | null>(null);
+  const [apiKeyConfigured, setApiKeyConfigured] = useState<boolean>(true);
 
   useEffect(() => { nodesRef.current = nodes; }, [nodes]);
   useEffect(() => { edgesRef.current = edges; }, [edges]);
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem('genui-llm-config');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        setApiKeyConfigured(!!parsed.apiKey);
+      } else {
+        setApiKeyConfigured(false);
+      }
+    } catch {
+      setApiKeyConfigured(false);
+    }
+  }, []);
 
   useEffect(() => {
     if (projectId) initProject(projectId);
@@ -716,7 +713,7 @@ const ProjectPage = () => {
       edges: templateGraph.edges,
     }), {
       operationType: 'nodes_added',
-      description: 'Template Imported (Design-Review-Build Loop)',
+      description: '模板已导入：设计-审查-构建循环',
       affectedIds: templateGraph.nodes.map((n) => n.id),
     });
     setRunStatus('模板已导入：设计-审查-构建循环');
@@ -1174,9 +1171,9 @@ const ProjectPage = () => {
       <div className='h-12 border-b bg-background flex items-center px-4 gap-2 shrink-0'>
         <div className='flex items-center gap-2'>
           <Button variant="ghost" size="sm" onClick={handleBack}>
-            ← Back
+            ← 返回
           </Button>
-          <span className='text-sm font-medium'>{currentProject?.topic || 'Unnamed Project'}</span>
+          <span className='text-sm font-medium'>{currentProject?.topic || '未命名项目'}</span>
         </div>
         <div className='flex items-center gap-3 ml-auto'>
           {!!runStatus && (
@@ -1191,6 +1188,15 @@ const ProjectPage = () => {
               ▶ 运行
             </Button>
           )}
+          {!apiKeyConfigured && (
+            <Link
+              href="/studio/settings"
+              className="inline-flex items-center gap-1 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-2 py-1 hover:bg-amber-100 transition-colors"
+            >
+              <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
+              未配置 API Key
+            </Link>
+          )}
           <div className="flex items-center space-x-2">
             <Checkbox
               id="auto-save"
@@ -1201,7 +1207,7 @@ const ProjectPage = () => {
               htmlFor="auto-save"
               className="text-xs font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
             >
-              Auto Save
+              自动保存
             </label>
           </div>
           <DropdownMenu>
@@ -1215,10 +1221,10 @@ const ProjectPage = () => {
             </DropdownMenuContent>
           </DropdownMenu>
           <Button variant="ghost" size="sm" onClick={OpenRenameDialog}>
-            Rename
+            重命名
           </Button>
           <Button variant="ghost" size="sm" onClick={() => saveToDB()}>
-            Save to Local DB
+            保存到本地
           </Button>
           <Button
             variant="ghost"
@@ -1226,7 +1232,7 @@ const ProjectPage = () => {
             onClick={Back}
             disabled={currentHistoryIndexLocal < 0}
           >
-            Undo
+            撤销
           </Button>
           <Button
             variant="ghost"
@@ -1234,7 +1240,7 @@ const ProjectPage = () => {
             onClick={Forward}
             disabled={currentHistoryIndexLocal >= maxHistoryIndex}
           >
-            Redo
+            重做
           </Button>
         </div>
       </div>
@@ -1286,8 +1292,8 @@ const ProjectPage = () => {
                 </ContextMenuSubContent>
               </ContextMenuSub>
               <ContextMenuSeparator />
-              <ContextMenuItem onClick={Back} disabled={currentHistoryIndexLocal < 0}>Back</ContextMenuItem>
-              <ContextMenuItem onClick={Forward} disabled={currentHistoryIndexLocal >= maxHistoryIndex}>Forward</ContextMenuItem>
+              <ContextMenuItem onClick={Back} disabled={currentHistoryIndexLocal < 0}>返回</ContextMenuItem>
+              <ContextMenuItem onClick={Forward} disabled={currentHistoryIndexLocal >= maxHistoryIndex}>前进</ContextMenuItem>
             </ContextMenuContent>
           </ContextMenu>
         </WorkflowNodeActionsContext.Provider>
@@ -1295,9 +1301,30 @@ const ProjectPage = () => {
 
       {!!runResult && (
         <div className="border-t bg-background p-3">
-          <div className="text-xs font-medium text-muted-foreground mb-2">运行结果</div>
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-medium text-muted-foreground">运行结果</span>
+            <div className="flex items-center gap-1">
+              <button
+                className="inline-flex items-center justify-center h-6 w-6 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                onClick={() => setResultExpanded(prev => !prev)}
+              >
+                {resultExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+              </button>
+              <button
+                className="inline-flex items-center gap-1 h-6 px-2 rounded text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                onClick={() => {
+                  navigator.clipboard.writeText(runResult);
+                  setCopied(true);
+                  setTimeout(() => setCopied(false), 1500);
+                }}
+              >
+                {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+                {copied ? '已复制' : '复制'}
+              </button>
+            </div>
+          </div>
           <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-md border bg-muted/40 p-3 text-xs leading-5">
-            {runResult}
+            {resultExpanded ? runResult : (runResult.length > 100 ? runResult.slice(0, 100) + '...' : runResult)}
           </pre>
         </div>
       )}
