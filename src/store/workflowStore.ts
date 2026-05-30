@@ -33,6 +33,7 @@ interface WorkflowProjectState {
   loadFromDB: (projectId: string) => Promise<WorkflowProject | null>;
   loadAllFromDB: () => Promise<WorkflowProjectSummary[]>;
   deleteFromDB: (projectId: string) => Promise<void>;
+  duplicateToDB: (sourceId: string) => Promise<string | null>;
   goToHistoryIndex: (targetIndex: number) => void;
 }
 
@@ -310,6 +311,8 @@ export const useWorkflowStore = create<WorkflowProjectState>((set, get) => ({
   forward: () => {
     const { historyForwardStack, currentProject, currentHistoryIndex } = get();
     if (!historyForwardStack.length || !currentProject) return;
+    const maxIndex = (currentProject.historyOperations?.length ?? 0) - 1;
+    if (currentHistoryIndex >= maxIndex) return;
 
     const next = historyForwardStack[0];
     const currentSnapshot: GraphSnapshot = {
@@ -403,6 +406,26 @@ export const useWorkflowStore = create<WorkflowProjectState>((set, get) => ({
 
   deleteFromDB: async (projectId: string) => {
     await deleteWorkflowFromDB(projectId);
+  },
+
+  duplicateToDB: async (sourceId: string) => {
+    const sourceProject = await loadWorkflowFromDB(sourceId);
+    if (!sourceProject) {
+      return null;
+    }
+    const newId = crypto.randomUUID();
+    const newProject: WorkflowProject = {
+      ...sourceProject,
+      id: newId,
+      topic: sourceProject.topic + ' (副本)',
+      timestamp: new Date(),
+      nodes: structuredClone(sourceProject.nodes),
+      edges: structuredClone(sourceProject.edges),
+      historyOperations: structuredClone(sourceProject.historyOperations),
+      historySnapshots: sourceProject.historySnapshots ? structuredClone(sourceProject.historySnapshots) : undefined,
+    };
+    await saveWorkflowToDB(newProject);
+    return newId;
   },
 
   goToHistoryIndex: (targetIndex: number) => {

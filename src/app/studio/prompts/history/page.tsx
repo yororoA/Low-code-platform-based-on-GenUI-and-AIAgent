@@ -26,6 +26,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Badge } from "@/components/ui/badge"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import {
   Tooltip,
   TooltipContent,
@@ -47,10 +49,15 @@ import {
   CalendarIcon,
   MessageSquareIcon,
   EditIcon,
+  SearchIcon,
 } from "lucide-react"
+import type { DataItem } from "@/types"
 
 export default function HistoryPage() {
   const details = React.useContext(ChatDetailsContext)
+  const [renameTargetId, setRenameTargetId] = React.useState<string | null>(null)
+  const [renameValue, setRenameValue] = React.useState("")
+  const [searchQuery, setSearchQuery] = React.useState("")
 
   const handleDelete = React.useCallback(async (id: string) => {
     try {
@@ -60,6 +67,21 @@ export default function HistoryPage() {
       console.error(error)
     }
   }, [])
+
+  const handleRename = React.useCallback(async () => {
+    if (!renameTargetId || !renameValue.trim()) return
+    try {
+      const existing = await DBManager.execute({ operationType: "get", id: renameTargetId }) as DataItem | undefined
+      if (existing) {
+        await DBManager.execute({ operationType: "update", data: { ...existing, topic: renameValue, timestamp: new Date() } })
+      }
+      window.dispatchEvent(new CustomEvent("updateConversation", { detail: { id: renameTargetId, topic: renameValue } }))
+      setRenameTargetId(null)
+      setRenameValue("")
+    } catch (error) {
+      console.error(error)
+    }
+  }, [renameTargetId, renameValue])
 
   const formatDate = (timestamp: Date) => {
     const date = new Date(timestamp)
@@ -79,11 +101,22 @@ export default function HistoryPage() {
   }
 
   return (
+    <>
     <ScrollArea className="h-full [&>div[data-slot=scroll-area-viewport]>div]:[scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
       <div className="p-8 max-w-6xl mx-auto">
         <div className="mb-8">
           <h1 className="text-3xl font-bold tracking-tight mb-2">历史记录</h1>
           <p className="text-muted-foreground">管理你生成过的对话主题</p>
+        </div>
+
+        <div className="relative mb-6">
+          <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <Input
+            placeholder="搜索对话..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="pl-9"
+          />
         </div>
 
         {details.length === 0 ? (
@@ -107,7 +140,9 @@ export default function HistoryPage() {
           </Empty>
         ) : (
           <div className="grid gap-4">
-            {details.map((detail) => (
+            {details
+              .filter((detail) => detail.topic.toLowerCase().includes(searchQuery.toLowerCase()))
+              .map((detail) => (
               <Card 
                 key={detail.id} 
                 className="group hover:shadow-md transition-all duration-200 hover:border-primary/30"
@@ -166,6 +201,17 @@ export default function HistoryPage() {
                               继续对话
                             </Link>
                           </DropdownMenuItem>
+                          <DropdownMenuItem
+                            className="flex items-center"
+                            onSelect={(e) => {
+                              e.preventDefault()
+                              setRenameTargetId(detail.id)
+                              setRenameValue(detail.topic)
+                            }}
+                          >
+                            <EditIcon className="mr-2 h-4 w-4" />
+                            重命名
+                          </DropdownMenuItem>
                           <DropdownMenuSeparator />
                           <AlertDialog>
                             <AlertDialogTrigger asChild>
@@ -199,9 +245,37 @@ export default function HistoryPage() {
                 </CardContent>
               </Card>
             ))}
+            {details.filter((detail) => detail.topic.toLowerCase().includes(searchQuery.toLowerCase())).length === 0 && searchQuery && (
+              <div className="text-center py-12 text-muted-foreground">
+                没有找到匹配的对话
+              </div>
+            )}
           </div>
         )}
       </div>
     </ScrollArea>
+      <AlertDialog open={renameTargetId !== null} onOpenChange={(open) => { if (!open) { setRenameTargetId(null); setRenameValue("") } }}>
+        <AlertDialogContent size="sm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>重命名对话</AlertDialogTitle>
+          </AlertDialogHeader>
+          <div className="py-2">
+            <Label htmlFor="rename-input" className="sr-only">对话名称</Label>
+            <Input
+              id="rename-input"
+              value={renameValue}
+              onChange={(e) => setRenameValue(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") handleRename() }}
+              placeholder="输入新的对话名称"
+            />
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => { setRenameTargetId(null); setRenameValue("") }}>取消</AlertDialogCancel>
+            <AlertDialogAction onClick={handleRename}>确认</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   )
 }
+
