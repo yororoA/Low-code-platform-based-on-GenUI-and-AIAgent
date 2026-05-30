@@ -3,7 +3,9 @@ import { DataItemSummary, ExecuteOptions } from "@/types";
 // 使用类封装以维持数据库连接状态，或使用外部变量
 export class DBManager {
   private static db: IDBDatabase | null = null;
-  private static DB_NAME = 'test-db';
+  private static DB_NAME = 'genui-studio-db';
+  private static OLD_DB_NAME = 'test-db';
+  private static OLD_STORE_NAME = 'test-store';
   private static getIndexedDB(): IDBFactory {
     const indexedDBRef = globalThis.indexedDB;
     if (!indexedDBRef) {
@@ -54,6 +56,12 @@ export class DBManager {
       request.onsuccess = async () => {
         this.db = request.result;
 
+        try {
+          await this.migrateFromOldDB(this.db);
+        } catch (e) {
+          console.error('数据迁移失败:', e);
+        }
+
         // 兼容历史版本：如果数据库已存在但目标表不存在，自动触发一次升级创建表
         if (targetStore && !this.db.objectStoreNames.contains(targetStore) && !forceUpgrade) {
           this.db.close();
@@ -75,11 +83,58 @@ export class DBManager {
     });
   }
 
+  private static migrateFromOldDB(newDB: IDBDatabase): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const req = this.getIndexedDB().open(this.OLD_DB_NAME);
+      req.onsuccess = () => {
+        const oldDB = req.result;
+        if (!oldDB.objectStoreNames.contains(this.OLD_STORE_NAME)) {
+          oldDB.close();
+          this.getIndexedDB().deleteDatabase(this.OLD_DB_NAME);
+          resolve();
+          return;
+        }
+        const tx = oldDB.transaction(this.OLD_STORE_NAME, 'readonly');
+        const store = tx.objectStore(this.OLD_STORE_NAME);
+        const getAllReq = store.getAll();
+        getAllReq.onsuccess = () => {
+          const data = getAllReq.result;
+          oldDB.close();
+          if (data.length === 0) {
+            this.getIndexedDB().deleteDatabase(this.OLD_DB_NAME);
+            resolve();
+            return;
+          }
+          if (!newDB.objectStoreNames.contains('conversations')) {
+            this.getIndexedDB().deleteDatabase(this.OLD_DB_NAME);
+            resolve();
+            return;
+          }
+          const writeTx = newDB.transaction('conversations', 'readwrite');
+          const writeStore = writeTx.objectStore('conversations');
+          for (const item of data) {
+            writeStore.put(item);
+          }
+          writeTx.oncomplete = () => {
+            this.getIndexedDB().deleteDatabase(this.OLD_DB_NAME);
+            resolve();
+          };
+          writeTx.onerror = () => reject(writeTx.error);
+        };
+        getAllReq.onerror = () => {
+          oldDB.close();
+          reject(getAllReq.error);
+        };
+      };
+      req.onerror = () => resolve();
+    });
+  }
+
   // 对外暴露的统一操作接口
   static async execute(options: ExecuteOptions) {
     const {
       operationType,
-      store_name = 'test-store',
+      store_name = 'conversations',
       data, id, indexName, indexValue,
     } = options;
 
@@ -120,7 +175,6 @@ export class DBManager {
         case 'delete': request = store.delete(id!); break;
         case 'add': request = store.add(data!); break;
         case 'update': request = store.put(data!); break;
-        case 'delete': request = store.delete(id!); break;
         case 'get': request = store.get(id!); break;
         case 'getAllIds': request = store.getAllKeys(); break;
         case 'getByIndex': request = store.index(indexName!).get(indexValue!); break;
@@ -146,9 +200,9 @@ export class DBManager {
         case 'getSummary': {
           const index = store.index(indexName!);
           const results: DataItemSummary[] = [];
-          const request = index.openCursor();
+          const cursorReq = index.openCursor();
           return new Promise((resolve, reject) => {
-            request.onsuccess = (event) => {
+            cursorReq.onsuccess = (event) => {
               const cursor = (event.target as IDBRequest<IDBCursor>).result as IDBCursorWithValue;
               if (cursor) {
                 // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -159,8 +213,8 @@ export class DBManager {
                 resolve(results.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime()));
               }
             }
-            request.onerror = () => {
-              reject(request.error);
+            cursorReq.onerror = () => {
+              reject(cursorReq.error);
             }
           });
         }
@@ -177,6 +231,7 @@ export class DBManager {
 
     } catch (error) {
       console.error(`操作 ${operationType} 失败:`, error);
+      throw error;
     }
   }
 }
