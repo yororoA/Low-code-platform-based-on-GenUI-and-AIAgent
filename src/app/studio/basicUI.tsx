@@ -88,6 +88,7 @@ type DisplayInfo =
   | { type: "tool"; text: string }
   | { type: "text"; text: string }
   | { type: "node-tracking"; node: string }
+  | { type: "error"; message: string }
 
 type StagePreviewPayload = {
   topic: string
@@ -123,21 +124,25 @@ export default function BasicUI() {
   });
   const CACHE_DEBOUNCE_TIMEOUT = 1000;
   const [activePromptId, setActivePromptId] = useState<string>("");
-  const [apiKeyConfigured] = useState<boolean>(() => {
+  const [apiKeyConfigured, setApiKeyConfigured] = useState<boolean>(false);
+  const [errorMessage, setErrorMessage] = useState<string>("");
+  const [roundTimeMap, setRoundTimeMap] = useState<Record<string, string>>({});
+  const messagesContainerRef = useRef<HTMLDivElement | null>(null);
+  const stageStartMapRef = useRef<Map<string, number>>(new Map());
+  const [stageElapsed, setStageElapsed] = useState<number>(0);
+  const [activeStageKey, setActiveStageKey] = useState<string>("");
+
+  useEffect(() => {
     try {
       const config = localStorage.getItem("genui-llm-config");
       if (config) {
         const parsed = JSON.parse(config);
-        return !!parsed.apiKey;
+        setApiKeyConfigured(!!parsed.apiKey);
       }
-      return false;
     } catch {
-      return false;
+      // ignore
     }
-  });
-  const [errorMessage, setErrorMessage] = useState<string>("");
-  const [roundTimeMap, setRoundTimeMap] = useState<Record<string, string>>({});
-  const messagesContainerRef = useRef<HTMLDivElement | null>(null);
+  }, []);
 
   const currentMessageTaskId = useChatStreamingStore(
     (state) => (activePromptId ? state.promptToTaskMap.get(activePromptId) ?? "" : "")
@@ -373,6 +378,40 @@ export default function BasicUI() {
   const isStreaming = currentTask && (currentTask.status === "streaming" || currentTask.status === 'submitted');
   const canSend = input.trim().length > 0 && !isStreaming;
 
+  // 追踪当前阶段变化并更新 elapsed time
+  useEffect(() => {
+    if (!isStreaming) {
+      setActiveStageKey("");
+      setStageElapsed(0);
+      return;
+    }
+
+    const lastAssistant = [...normalizedMessages].reverse().find(m => m.role === "assistant");
+    const lastStagePart = lastAssistant?.parts
+      ?.filter(p => p.type === "stage-info")
+      .pop();
+
+    const currentKey = lastStagePart?.type === "stage-info" ? `${lastStagePart.stage}|${lastStagePart.message}` : "";
+    if (currentKey && currentKey !== activeStageKey) {
+      if (!stageStartMapRef.current.has(currentKey)) {
+        stageStartMapRef.current.set(currentKey, Date.now());
+      }
+      setActiveStageKey(currentKey);
+      setStageElapsed(Math.floor((Date.now() - (stageStartMapRef.current.get(currentKey)!)) / 1000));
+    }
+
+    const timer = setInterval(() => {
+      if (activeStageKey) {
+        const start = stageStartMapRef.current.get(activeStageKey);
+        if (start) {
+          setStageElapsed(Math.floor((Date.now() - start) / 1000));
+        }
+      }
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [isStreaming, normalizedMessages, activeStageKey]);
+
   const getMessageText = (message: AgentMessage) =>
     message.parts
       ?.map((part) => (part.type === "text" ? part.text : ""))
@@ -409,6 +448,9 @@ export default function BasicUI() {
         }
       } else if (part.type === "node-start") {
         infos.push({ type: "node-tracking", node: part.node });
+        activeStageIndex = null;
+      } else if (part.type === "error") {
+        infos.push({ type: "error", message: part.message });
         activeStageIndex = null;
       } else if (part.type === "text") {
         const lines = part.text
@@ -548,6 +590,13 @@ export default function BasicUI() {
             label: `Node: ${info.node}`,
             targetId: infoTargetId,
             type: "node-tracking",
+          })
+        } else if (info.type === "error") {
+          children.push({
+            id: `${roundId}-error-${infoIndex}`,
+            label: `错误: ${info.message.slice(0, 80)}${info.message.length > 80 ? "..." : ""}`,
+            targetId: infoTargetId,
+            type: "text",
           })
         }
       }
@@ -690,13 +739,19 @@ export default function BasicUI() {
                         <div className="max-w-[80%] space-y-2">
                           {displayInfos.map((info, idx) => {
                             if (info.type === "stage") {
+                              const stageKey = `${info.stage}|${info.text}`;
+                              const isActiveStage = stageKey === activeStageKey && stageElapsed > 0 && isStreaming;
                               return (
                                 <div
                                   key={`${message.id}-info-${idx}`}
                                   id={`studio-msg-${message.id}-${index}-info-${idx}`}
-                                  className="px-3 py-1 text-xs text-muted-foreground/60 italic"
+                                  className="px-3 py-1 text-xs text-muted-foreground/60 italic flex items-center gap-1.5"
                                 >
+                                  <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
                                   {getStageLabel(info.stage)}
+                                  {isActiveStage && (
+                                    <span className="text-muted-foreground/40">· {stageElapsed}s</span>
+                                  )}
                                 </div>
                               )
                             }
@@ -710,6 +765,18 @@ export default function BasicUI() {
                                 >
                                   <span className="inline-block w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
                                   Node: {info.node}
+                                </div>
+                              )
+                            }
+
+                            if (info.type === "error") {
+                              return (
+                                <div
+                                  key={`${message.id}-error-${idx}`}
+                                  id={`studio-msg-${message.id}-${index}-info-${idx}`}
+                                  className="rounded-lg border border-red-300 bg-red-50 dark:border-red-700 dark:bg-red-950 px-3 py-2 text-sm text-red-800 dark:text-red-200"
+                                >
+                                  {info.message}
                                 </div>
                               )
                             }
@@ -749,6 +816,14 @@ export default function BasicUI() {
                       </div>
                     )
                   })
+                )}
+                {isStreaming && currentTask?.status === "submitted" && (
+                  <div className="flex justify-start">
+                    <div className="px-3 py-2 text-sm text-muted-foreground/70 italic flex items-center gap-2">
+                      <span className="inline-block w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
+                      正在连接...
+                    </div>
+                  </div>
                 )}
               </div>
             </ScrollArea>
