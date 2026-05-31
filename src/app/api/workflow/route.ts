@@ -30,6 +30,8 @@ export async function POST(req: Request) {
 
   const stream = new ReadableStream({
     async start(controller) {
+      let errorEmitted = false;
+
       const sendEvent = (event: SSEEvent) => {
         if (closed) return;
         try {
@@ -50,6 +52,7 @@ export async function POST(req: Request) {
           (n) => normalizeNodeType(n.type) === "input",
         );
         if (!inputNode) {
+          errorEmitted = true;
           sendEvent({ event: "error", data: { message: "未找到输入节点" } });
           sendEvent({ event: "done", data: { threadId: "" } });
           controller.close();
@@ -115,7 +118,10 @@ export async function POST(req: Request) {
 
             // Send error event if any
             if (state.error) {
-              sendEvent({ event: "error", data: { message: state.error } });
+              if (!errorEmitted) {
+                errorEmitted = true;
+                sendEvent({ event: "error", data: { message: state.error } });
+              }
             }
           }
         }
@@ -140,7 +146,10 @@ export async function POST(req: Request) {
 
         // Send error if any
         if (finalValues.error) {
-          sendEvent({ event: "error", data: { message: finalValues.error } });
+          if (!errorEmitted) {
+            errorEmitted = true;
+            sendEvent({ event: "error", data: { message: finalValues.error } });
+          }
         }
 
         // Send done event
@@ -152,12 +161,14 @@ export async function POST(req: Request) {
           },
         });
       } catch (error) {
-        sendEvent({
-          event: "error",
-          data: {
-            message: error instanceof Error ? error.message : "未知错误",
-          },
-        });
+        if (!errorEmitted) {
+          sendEvent({
+            event: "error",
+            data: {
+              message: error instanceof Error ? error.message : "未知错误",
+            },
+          });
+        }
         sendEvent({ event: "done", data: { threadId: "" } });
       } finally {
         clearInterval(heartbeatInterval);
