@@ -185,6 +185,33 @@ function extractLastUserMessage(messages: BaseMessage[]): string {
 }
 
 // ======================== Admin Node ========================
+const ADMIN_MAX_RETRIES = 2;
+
+function validateAdminOutput(raw: unknown): AdminToolOutput | null {
+  if (!raw || typeof raw !== "object") return null;
+  const obj = raw as Record<string, unknown>;
+  if (typeof obj.text !== "string") return null;
+  if (typeof obj.necessary !== "boolean") return null;
+  if (typeof obj.uiDescription !== "string") return null;
+  if (!Array.isArray(obj.uiNeeds)) return null;
+  return {
+    text: obj.text,
+    necessary: obj.necessary,
+    uiDescription: obj.uiDescription,
+    uiNeeds: obj.uiNeeds.filter((n: unknown) => typeof n === "string"),
+  };
+}
+
+function buildFallbackAdminOutput(raw: unknown): AdminToolOutput {
+  const obj = (raw && typeof raw === "object") ? raw as Record<string, unknown> : {};
+  return {
+    text: typeof obj.text === "string" ? obj.text : "I've processed your request.",
+    necessary: false,
+    uiDescription: "",
+    uiNeeds: [],
+  };
+}
+
 export async function adminNode(state: ChatGraphStateType): Promise<Partial<ChatGraphStateType>> {
   const stageInfo: StageInfoEntry[] = [
     { stage: "ADMIN", message: "Thinking for response...", timestamp: Date.now() },
@@ -193,29 +220,68 @@ export async function adminNode(state: ChatGraphStateType): Promise<Partial<Chat
   const model = createStructuredModelFromState(adminOutputSchema, state.llmConfig, { temperature: 0.7 });
   const systemMsg = new SystemMessage(textAgentInstructions);
 
-  try {
-    const response = await model.invoke([systemMsg, ...state.messages]);
-    const output = response as unknown as AdminToolOutput;
+  let output: AdminToolOutput | null = null;
+  let lastError: unknown = null;
 
-    // Validate and normalize uiNeeds
-    let { validNeeds: normalizedUiNeeds, droppedNeeds } = normalizeUiNeedsAgainstMeta(output.uiNeeds || []);
+  for (let attempt = 0; attempt <= ADMIN_MAX_RETRIES; attempt++) {
+    try {
+      const response = await model.invoke([systemMsg, ...state.messages]);
+      const validated = validateAdminOutput(response);
+      if (validated) {
+        output = validated;
+        break;
+      }
+      const fallback = buildFallbackAdminOutput(response);
+      if (fallback.text) {
+        output = fallback;
+        stageInfo.push({
+          stage: "ADMIN",
+          message: `Structured output validation failed on attempt ${attempt + 1}, recovered partial response.`,
+          timestamp: Date.now(),
+        });
+        break;
+      }
+    } catch (err) {
+      lastError = err;
+      if (attempt < ADMIN_MAX_RETRIES) {
+        stageInfo.push({
+          stage: "ADMIN",
+          message: `Attempt ${attempt + 1} failed, retrying...`,
+          timestamp: Date.now(),
+        });
+      }
+    }
+  }
 
-    // Retry once if there are dropped needs
-    if (output.necessary && droppedNeeds.length > 0) {
-      stageInfo.push({
-        stage: "ADMIN",
-        message: `Found unsupported uiNeeds: ${droppedNeeds.join(", ")}. Retrying for strict supported-component output...`,
-        timestamp: Date.now(),
-      });
+  if (!output) {
+    const rawMsg = lastError instanceof Error ? lastError.message : "unknown error";
+    return {
+      error: `Admin agent failed after ${ADMIN_MAX_RETRIES + 1} attempts: ${rawMsg}`,
+      stageInfo,
+    };
+  }
 
-      const supportedNames = Object.keys(componentsMetaByName).join(", ");
-      const retryConstraint = new SystemMessage(
-        `STRICT RETRY FIX FOR uiNeeds:\n- Your previous uiNeeds included unsupported names: ${droppedNeeds.join(", ")}.\n- Re-run selection and output uiNeeds using ONLY exact names from supported components.\n- Supported component names (exact): ${supportedNames}`,
-      );
+  // Validate and normalize uiNeeds
+  let { validNeeds: normalizedUiNeeds, droppedNeeds } = normalizeUiNeedsAgainstMeta(output.uiNeeds || []);
 
+  // Retry once if there are dropped needs
+  if (output.necessary && droppedNeeds.length > 0) {
+    stageInfo.push({
+      stage: "ADMIN",
+      message: `Found unsupported uiNeeds: ${droppedNeeds.join(", ")}. Retrying for strict supported-component output...`,
+      timestamp: Date.now(),
+    });
+
+    const supportedNames = Object.keys(componentsMetaByName).join(", ");
+    const retryConstraint = new SystemMessage(
+      `STRICT RETRY FIX FOR uiNeeds:\n- Your previous uiNeeds included unsupported names: ${droppedNeeds.join(", ")}.\n- Re-run selection and output uiNeeds using ONLY exact names from supported components.\n- Supported component names (exact): ${supportedNames}`,
+    );
+
+    try {
       const retryResponse = await model.invoke([systemMsg, ...state.messages, retryConstraint]);
-      const retryOutput = retryResponse as unknown as AdminToolOutput;
-      if (retryOutput?.uiNeeds) {
+      const retryValidated = validateAdminOutput(retryResponse);
+      const retryOutput = retryValidated ?? buildFallbackAdminOutput(retryResponse);
+      if (retryOutput.uiNeeds) {
         const retryNormalized = normalizeUiNeedsAgainstMeta(retryOutput.uiNeeds);
         if (retryNormalized.validNeeds.length > 0) {
           output.uiNeeds = retryOutput.uiNeeds;
@@ -223,44 +289,80 @@ export async function adminNode(state: ChatGraphStateType): Promise<Partial<Chat
           droppedNeeds = retryNormalized.droppedNeeds;
         }
       }
+    } catch {
+      // Retry for uiNeeds is best-effort, keep original output
     }
-
-    if (droppedNeeds.length > 0) {
-      stageInfo.push({
-        stage: "ADMIN",
-        message: `Dropped unsupported uiNeeds after validation: ${droppedNeeds.join(", ")}.`,
-        timestamp: Date.now(),
-      });
-    }
-
-    if (output.necessary && normalizedUiNeeds.length > 0) {
-      stageInfo.push({
-        stage: "ADMIN",
-        message: `UI is necessary with needs: ${normalizedUiNeeds.join(", ")}`,
-        timestamp: Date.now(),
-      });
-    } else if (output.necessary && normalizedUiNeeds.length === 0) {
-      stageInfo.push({
-        stage: "ADMIN",
-        message: "UI was requested but no supported uiNeeds remained after validation. Skipping structure/style stages.",
-        timestamp: Date.now(),
-      });
-    }
-
-    return {
-      adminOutput: output,
-      normalizedUiNeeds,
-      stageInfo,
-    };
-  } catch (error) {
-    return {
-      error: `Admin agent failed: ${error instanceof Error ? error.message : "unknown error"}`,
-      stageInfo,
-    };
   }
+
+  if (droppedNeeds.length > 0) {
+    stageInfo.push({
+      stage: "ADMIN",
+      message: `Dropped unsupported uiNeeds after validation: ${droppedNeeds.join(", ")}.`,
+      timestamp: Date.now(),
+    });
+  }
+
+  if (output.necessary && normalizedUiNeeds.length > 0) {
+    stageInfo.push({
+      stage: "ADMIN",
+      message: `UI is necessary with needs: ${normalizedUiNeeds.join(", ")}`,
+      timestamp: Date.now(),
+    });
+  } else if (output.necessary && normalizedUiNeeds.length === 0) {
+    stageInfo.push({
+      stage: "ADMIN",
+      message: "UI was requested but no supported uiNeeds remained after validation. Skipping structure/style stages.",
+      timestamp: Date.now(),
+    });
+  }
+
+  return {
+    adminOutput: output,
+    normalizedUiNeeds,
+    stageInfo,
+  };
 }
 
 // ======================== Structure Node ========================
+const NODE_MAX_RETRIES = 1;
+
+async function invokeWithRetry<T>(
+  model: ReturnType<typeof createStructuredModelFromState>,
+  messages: Parameters<ReturnType<typeof createStructuredModelFromState>["invoke"]>[0],
+  validate: (raw: unknown) => T | null,
+  buildFallback: (raw: unknown) => T | null,
+  stageInfo: StageInfoEntry[],
+  nodeName: string,
+): Promise<T> {
+  let lastError: unknown = null;
+  for (let attempt = 0; attempt <= NODE_MAX_RETRIES; attempt++) {
+    try {
+      const response = await model.invoke(messages);
+      const validated = validate(response);
+      if (validated) return validated;
+      const fallback = buildFallback(response);
+      if (fallback) {
+        stageInfo.push({
+          stage: nodeName,
+          message: `Structured output validation failed on attempt ${attempt + 1}, recovered partial response.`,
+          timestamp: Date.now(),
+        });
+        return fallback;
+      }
+    } catch (err) {
+      lastError = err;
+      if (attempt < NODE_MAX_RETRIES) {
+        stageInfo.push({
+          stage: nodeName,
+          message: `Attempt ${attempt + 1} failed, retrying...`,
+          timestamp: Date.now(),
+        });
+      }
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error(`${nodeName} agent failed after ${NODE_MAX_RETRIES + 1} attempts`);
+}
+
 export async function structureNode(state: ChatGraphStateType): Promise<Partial<ChatGraphStateType>> {
   const attempt = state.structureAttempt + 1;
   const MAX_ATTEMPTS = 10;
@@ -304,11 +406,26 @@ ${state.alignmentOutput?.retryPrompt || "Please generate a valid structure."}`;
   );
 
   try {
-    const response = await model.invoke([
-      systemMsg,
-      new HumanMessage(structurePrompt),
-    ]);
-    const output = response as unknown as StructureOutput;
+    const output = await invokeWithRetry<StructureOutput>(
+      model,
+      [systemMsg, new HumanMessage(structurePrompt)],
+      (raw) => {
+        if (!raw || typeof raw !== "object") return null;
+        const obj = raw as Record<string, unknown>;
+        if (typeof obj.uiTree !== "string" || !obj.uiTree) return null;
+        return { uiTree: obj.uiTree, styleSummary: typeof obj.styleSummary === "string" ? obj.styleSummary : "" } as StructureOutput;
+      },
+      (raw) => {
+        if (!raw || typeof raw !== "object") return null;
+        const obj = raw as Record<string, unknown>;
+        if (typeof obj.uiTree === "string" && obj.uiTree) {
+          return { uiTree: obj.uiTree, styleSummary: typeof obj.styleSummary === "string" ? obj.styleSummary : "" } as StructureOutput;
+        }
+        return null;
+      },
+      stageInfo,
+      "STRUCTURE",
+    );
 
     return {
       structureOutput: output,
@@ -425,11 +542,19 @@ export async function styleNode(state: ChatGraphStateType): Promise<Partial<Chat
   );
 
   try {
-    const response = await model.invoke([
-      systemMsg,
-      new HumanMessage("Design the interface style based on the provided UI tree."),
-    ]);
-    const output = response as unknown as StyleOutput;
+    const output = await invokeWithRetry<StyleOutput>(
+      model,
+      [systemMsg, new HumanMessage("Design the interface style based on the provided UI tree.")],
+      (raw) => {
+        if (!raw || typeof raw !== "object") return null;
+        const obj = raw as Record<string, unknown>;
+        if (!Array.isArray(obj.styles)) return null;
+        return { styles: obj.styles } as StyleOutput;
+      },
+      () => null,
+      stageInfo,
+      "STYLE",
+    );
 
     return {
       styleOutput: output,
@@ -468,22 +593,50 @@ export async function interactionNode(state: ChatGraphStateType): Promise<Partia
   );
 
   try {
-    const response = await model.invoke([
-      systemMsg,
-      new HumanMessage(`Generate UI content for the "${payload.type}" interaction: ${payload.description}`),
-    ]);
-    const output = response as unknown as InteractionOutput;
+    const output = await invokeWithRetry<InteractionOutput>(
+      model,
+      [systemMsg, new HumanMessage(`Generate UI content for the "${payload.type}" interaction: ${payload.description}`)],
+      (raw) => {
+        if (!raw || typeof raw !== "object") return null;
+        const obj = raw as Record<string, unknown>;
+        if (typeof obj.uiTree !== "string" || !obj.uiTree) return null;
+        return { uiTree: obj.uiTree, styleSummary: typeof obj.styleSummary === "string" ? obj.styleSummary : "" } as InteractionOutput;
+      },
+      (raw) => {
+        if (!raw || typeof raw !== "object") return null;
+        const obj = raw as Record<string, unknown>;
+        if (typeof obj.uiTree === "string" && obj.uiTree) {
+          return { uiTree: obj.uiTree, styleSummary: typeof obj.styleSummary === "string" ? obj.styleSummary : "" } as InteractionOutput;
+        }
+        return null;
+      },
+      stageInfo,
+      "INTERACTION",
+    );
 
-    // Also generate styles for the interaction output
     const styleModel = createStructuredModelFromState(styleOutputSchema, state.llmConfig, { temperature: 0.7 });
     const styleSystemMsg = new SystemMessage(
       `${interfaceStylingAgentInstructions}\n\n- The UI tree provided:\n${output.uiTree || "None"}\n\n- The style summary provided:\n${output.styleSummary || "None"}`,
     );
-    const styleResponse = await styleModel.invoke([
-      styleSystemMsg,
-      new HumanMessage("Design the interface style for the interaction result."),
-    ]);
-    const styleOutput = styleResponse as unknown as StyleOutput;
+
+    let styleOutput: StyleOutput;
+    try {
+      styleOutput = await invokeWithRetry<StyleOutput>(
+        styleModel,
+        [styleSystemMsg, new HumanMessage("Design the interface style for the interaction result.")],
+        (raw) => {
+          if (!raw || typeof raw !== "object") return null;
+          const obj = raw as Record<string, unknown>;
+          if (!Array.isArray(obj.styles)) return null;
+          return { styles: obj.styles } as StyleOutput;
+        },
+        () => null,
+        stageInfo,
+        "INTERACTION_STYLE",
+      );
+    } catch {
+      styleOutput = { styles: [] };
+    }
 
     return {
       interactionOutput: output,
@@ -541,11 +694,19 @@ Rules:
   );
 
   try {
-    const response = await model.invoke([
-      systemMsg,
-      new HumanMessage(`Apply the following style edit: ${payload.editRequest}`),
-    ]);
-    const output = response as unknown as import("./state").StyleEditOutput;
+    const output = await invokeWithRetry<import("./state").StyleEditOutput>(
+      model,
+      [systemMsg, new HumanMessage(`Apply the following style edit: ${payload.editRequest}`)],
+      (raw) => {
+        if (!raw || typeof raw !== "object") return null;
+        const obj = raw as Record<string, unknown>;
+        if (!Array.isArray(obj.styleEdits)) return null;
+        return { styleEdits: obj.styleEdits } as import("./state").StyleEditOutput;
+      },
+      () => null,
+      stageInfo,
+      "STYLE_EDIT",
+    );
 
     return {
       styleEditOutput: output,
