@@ -93,18 +93,57 @@ export function createChatModelFromConfig(config: LLMConfig): BaseChatModel {
 }
 
 // ======================== Structured Output Model ========================
+// NOTE: withStructuredOutput only supports Zod v1/v2. Since this project uses
+// Zod v4, we implement structured output manually by prompting the LLM to
+// return JSON and validating with the provided Zod schema.
+
+export interface StructuredModelLike {
+  invoke(messages: unknown[]): Promise<unknown>;
+}
+
+function buildStructuredModel(
+  rawModel: ReturnType<typeof createChatModel>,
+  schema: import("zod").ZodType<unknown>,
+): StructuredModelLike {
+  const jsonInstructions = `\n\nIMPORTANT: You MUST respond with a single valid JSON object that matches this schema. Do NOT include any text before or after the JSON. Do NOT wrap the JSON in markdown code blocks. Just output raw JSON.`;
+
+  return {
+    async invoke(messages: unknown[]) {
+      const augmented = [...(messages as import("@langchain/core/messages").BaseMessage[])];
+      const lastIdx = augmented.length - 1;
+      if (lastIdx >= 0) {
+        const last = augmented[lastIdx];
+        const content = typeof last.content === "string" ? last.content : JSON.stringify(last.content);
+        const HumanMessage = (await import("@langchain/core/messages")).HumanMessage;
+        augmented[lastIdx] = new HumanMessage(content + jsonInstructions);
+      }
+
+      const response = await rawModel.invoke(augmented);
+      const content = typeof response.content === "string"
+        ? response.content
+        : JSON.stringify(response.content);
+
+      const jsonMatch = content.match(/```(?:json)?\s*([\s\S]*?)```/) || [null, content];
+      const jsonStr = (jsonMatch[1] || content).trim();
+
+      const parsed = JSON.parse(jsonStr);
+      return schema.parse(parsed);
+    },
+  };
+}
+
 export function createStructuredModel<T extends Record<string, unknown>>(
   schema: import("zod").ZodType<T>,
   options?: { modelName?: string; temperature?: number },
 ) {
-  return createChatModel(options).withStructuredOutput(schema);
+  return buildStructuredModel(createChatModel(options), schema);
 }
 
 export function createStructuredModelFromConfig<T extends Record<string, unknown>>(
   schema: import("zod").ZodType<T>,
   config: LLMConfig,
 ) {
-  return createChatModelFromConfig(config).withStructuredOutput(schema);
+  return buildStructuredModel(createChatModelFromConfig(config), schema);
 }
 
 // ======================== Streaming Model ========================
@@ -134,7 +173,7 @@ export function createStructuredModelFromState<T extends Record<string, unknown>
   schema: import("zod").ZodType<T>,
   llmConfig: LLMConfig | null | undefined,
   options?: { temperature?: number; modelName?: string },
-) {
+): StructuredModelLike {
   if (llmConfig?.apiKey) {
     return createStructuredModelFromConfig(schema, { ...llmConfig, ...options });
   }
