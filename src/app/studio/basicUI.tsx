@@ -1,6 +1,6 @@
 "use client"
 
-import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react"
+import { ChangeEvent, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -114,6 +114,25 @@ type TimelineRoundItem = {
   children: TimelineChildItem[]
 }
 
+function useLocalStorageField(key: string, field: string): boolean {
+  const subscribe = useCallback((cb: () => void) => {
+    const handler = (e: StorageEvent) => { if (e.key === key) cb(); };
+    window.addEventListener("storage", handler);
+    return () => window.removeEventListener("storage", handler);
+  }, [key]);
+
+  const getSnapshot = useCallback(() => {
+    try {
+      const raw = localStorage.getItem(key);
+      return raw ? !!(JSON.parse(raw)[field]) : false;
+    } catch {
+      return false;
+    }
+  }, [key, field]);
+
+  return useSyncExternalStore(subscribe, getSnapshot, () => false);
+}
+
 export default function BasicUI() {
   const router = useRouter();
   const [input, setInput] = useState<string>("");
@@ -124,25 +143,13 @@ export default function BasicUI() {
   });
   const CACHE_DEBOUNCE_TIMEOUT = 1000;
   const [activePromptId, setActivePromptId] = useState<string>("");
-  const [apiKeyConfigured, setApiKeyConfigured] = useState<boolean>(false);
+  const apiKeyConfigured = useLocalStorageField("genui-llm-config", "apiKey");
   const [errorMessage, setErrorMessage] = useState<string>("");
   const [roundTimeMap, setRoundTimeMap] = useState<Record<string, string>>({});
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
   const stageStartMapRef = useRef<Map<string, number>>(new Map());
   const [stageElapsed, setStageElapsed] = useState<number>(0);
   const [activeStageKey, setActiveStageKey] = useState<string>("");
-
-  useEffect(() => {
-    try {
-      const config = localStorage.getItem("genui-llm-config");
-      if (config) {
-        const parsed = JSON.parse(config);
-        setApiKeyConfigured(!!parsed.apiKey);
-      }
-    } catch {
-      // ignore
-    }
-  }, []);
 
   const currentMessageTaskId = useChatStreamingStore(
     (state) => (activePromptId ? state.promptToTaskMap.get(activePromptId) ?? "" : "")
@@ -323,7 +330,7 @@ export default function BasicUI() {
   }, [errorMessage]);
 
 
-  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const text = input.trim();
     if (!text) return;
@@ -380,37 +387,36 @@ export default function BasicUI() {
 
   // 追踪当前阶段变化并更新 elapsed time
   useEffect(() => {
-    if (!isStreaming) {
-      setActiveStageKey("");
-      setStageElapsed(0);
-      return;
-    }
-
-    const lastAssistant = [...normalizedMessages].reverse().find(m => m.role === "assistant");
-    const lastStagePart = lastAssistant?.parts
-      ?.filter(p => p.type === "stage-info")
-      .pop();
-
-    const currentKey = lastStagePart?.type === "stage-info" ? `${lastStagePart.stage}|${lastStagePart.message}` : "";
-    if (currentKey && currentKey !== activeStageKey) {
-      if (!stageStartMapRef.current.has(currentKey)) {
-        stageStartMapRef.current.set(currentKey, Date.now());
-      }
-      setActiveStageKey(currentKey);
-      setStageElapsed(Math.floor((Date.now() - (stageStartMapRef.current.get(currentKey)!)) / 1000));
-    }
+    if (!isStreaming) return;
 
     const timer = setInterval(() => {
-      if (activeStageKey) {
-        const start = stageStartMapRef.current.get(activeStageKey);
-        if (start) {
-          setStageElapsed(Math.floor((Date.now() - start) / 1000));
+      const lastAssistant = [...normalizedMessages].reverse().find(m => m.role === "assistant");
+      const lastStagePart = lastAssistant?.parts?.filter(p => p.type === "stage-info").pop();
+      const currentKey = lastStagePart?.type === "stage-info" ? `${lastStagePart.stage}|${lastStagePart.message}` : "";
+
+      setActiveStageKey(prev => {
+        const key = currentKey || prev;
+        if (key && key !== prev) {
+          if (!stageStartMapRef.current.has(key)) {
+            stageStartMapRef.current.set(key, Date.now());
+          }
         }
-      }
+        return key || prev;
+      });
+
+      setStageElapsed(() => {
+        const key = currentKey;
+        const start = key ? stageStartMapRef.current.get(key) : undefined;
+        return start ? Math.floor((Date.now() - start) / 1000) : 0;
+      });
     }, 1000);
 
-    return () => clearInterval(timer);
-  }, [isStreaming, normalizedMessages, activeStageKey]);
+    return () => {
+      clearInterval(timer);
+      setActiveStageKey(prev => (prev !== "" ? "" : prev));
+      setStageElapsed(prev => (prev !== 0 ? 0 : prev));
+    };
+  }, [isStreaming, normalizedMessages]);
 
   const getMessageText = (message: AgentMessage) =>
     message.parts
