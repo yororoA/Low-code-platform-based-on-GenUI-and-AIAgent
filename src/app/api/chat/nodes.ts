@@ -1,4 +1,4 @@
-import { HumanMessage, SystemMessage, type BaseMessage } from "@langchain/core/messages";
+import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { z } from "zod";
 import { componentsMetaByName } from "@/components/components-meta";
 import { createStructuredModelFromState } from "./llm";
@@ -167,22 +167,7 @@ function normalizeUiNeedsAgainstMeta(uiNeeds: string[]): {
   return { validNeeds, droppedNeeds };
 }
 
-function extractLastUserMessage(messages: BaseMessage[]): string {
-  for (let i = messages.length - 1; i >= 0; i--) {
-    if (messages[i] instanceof HumanMessage) {
-      const content = messages[i].content;
-      if (typeof content === "string") return content;
-      if (Array.isArray(content)) {
-        const textParts = content
-          .filter((c): c is { type: "text"; text: string } => typeof c === "object" && c !== null && "type" in c && (c as { type: string }).type === "text")
-          .map((c) => c.text);
-        if (textParts.length > 0) return textParts.join("\n");
-      }
-      return JSON.stringify(content);
-    }
-  }
-  return "";
-}
+
 
 // ======================== Admin Node ========================
 const ADMIN_MAX_RETRIES = 2;
