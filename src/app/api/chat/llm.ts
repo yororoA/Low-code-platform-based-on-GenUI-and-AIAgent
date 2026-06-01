@@ -101,11 +101,49 @@ export interface StructuredModelLike {
   invoke(messages: unknown[]): Promise<unknown>;
 }
 
+function generateSchemaDescription(schema: import("zod").ZodType<unknown>): string {
+  try {
+    const def = (schema as unknown as Record<string, unknown>)._def || (schema as unknown as Record<string, unknown>).source;
+    if (def) {
+      return JSON.stringify(def, null, 2);
+    }
+  } catch {
+    // fallback: use schema description
+  }
+  try {
+    return (schema as unknown as Record<string, unknown>).description as string || "";
+  } catch {
+    return "";
+  }
+}
+
+function extractJsonFromContent(content: string): string | null {
+  const trimmed = content.trim();
+
+  const codeBlockMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (codeBlockMatch) {
+    return codeBlockMatch[1].trim();
+  }
+
+  const jsonStart = trimmed.indexOf("{");
+  const jsonEnd = trimmed.lastIndexOf("}");
+  if (jsonStart !== -1 && jsonEnd > jsonStart) {
+    return trimmed.slice(jsonStart, jsonEnd + 1);
+  }
+
+  return null;
+}
+
 function buildStructuredModel(
   rawModel: ReturnType<typeof createChatModel>,
   schema: import("zod").ZodType<unknown>,
 ): StructuredModelLike {
-  const jsonInstructions = `\n\nIMPORTANT: You MUST respond with a single valid JSON object that matches this schema. Do NOT include any text before or after the JSON. Do NOT wrap the JSON in markdown code blocks. Just output raw JSON.`;
+  const schemaDesc = generateSchemaDescription(schema);
+  const schemaHint = schemaDesc
+    ? `\n\nThe expected JSON schema is:\n${schemaDesc}`
+    : "";
+
+  const jsonInstructions = `\n\nIMPORTANT: You MUST respond with a single valid JSON object. Do NOT include any text before or after the JSON. Do NOT wrap the JSON in markdown code blocks. Just output raw JSON.${schemaHint}`;
 
   return {
     async invoke(messages: unknown[]) {
@@ -123,11 +161,28 @@ function buildStructuredModel(
         ? response.content
         : JSON.stringify(response.content);
 
-      const jsonMatch = content.match(/```(?:json)?\s*([\s\S]*?)```/) || [null, content];
-      const jsonStr = (jsonMatch[1] || content).trim();
+      const jsonStr = extractJsonFromContent(content);
+      if (!jsonStr) {
+        const parsed = { _rawResponse: content };
+        try {
+          return schema.parse(parsed);
+        } catch {
+          return parsed;
+        }
+      }
 
-      const parsed = JSON.parse(jsonStr);
-      return schema.parse(parsed);
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(jsonStr);
+      } catch {
+        parsed = { _rawResponse: content, _rawJson: jsonStr };
+      }
+
+      try {
+        return schema.parse(parsed);
+      } catch {
+        return parsed;
+      }
     },
   };
 }
