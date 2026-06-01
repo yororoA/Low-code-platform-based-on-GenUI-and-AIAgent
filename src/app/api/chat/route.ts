@@ -64,10 +64,6 @@ export async function POST(req: Request) {
       input: Partial<ChatGraphStateType>,
       options: unknown,
     ) => Promise<AsyncIterable<Record<string, Partial<ChatGraphStateType>>>>;
-    streamEvents: (
-      input: Partial<ChatGraphStateType>,
-      options: unknown,
-    ) => Promise<AsyncIterable<Record<string, unknown>>>;
     getState: (options: unknown) => Promise<{ values: ChatGraphStateType }>;
   };
 
@@ -120,48 +116,10 @@ export async function POST(req: Request) {
           data: { stage: "ADMIN", message: "Thinking for response...", timestamp: Date.now() },
         });
 
-        // Stream graph execution with parallel LLM progress events
         const graphStream = await compiledGraph.stream(initialState, {
           configurable: { thread_id: threadId },
           streamMode: "updates",
         });
-
-        const eventsStream = await compiledGraph.streamEvents(initialState, {
-          version: 2,
-          configurable: { thread_id: threadId },
-        });
-
-        const NODE_LABELS: Record<string, string> = {
-          admin: "ADMIN",
-          structure: "STRUCTURE",
-          alignment: "ALIGNMENT",
-          style: "STYLE",
-          interaction: "INTERACTION",
-          style_edit: "STYLE_EDIT",
-        };
-
-        // Process LLM events in parallel (non-blocking)
-        const eventsDone = (async () => {
-          try {
-            for await (const event of eventsStream) {
-              if (closed) break;
-              if (event.event === "on_chat_model_start") {
-                const meta = (event.data as Record<string, unknown> | undefined) ?? {};
-                const metadata = (meta.metadata ?? {}) as Record<string, unknown>;
-                const graphNode = metadata.langgraph_node as string | undefined;
-                const stageName = graphNode ? (NODE_LABELS[graphNode] ?? graphNode.toUpperCase()) : undefined;
-                if (stageName) {
-                  sendEvent({
-                    event: "stage_info",
-                    data: { stage: stageName, message: "正在调用模型思考中...", timestamp: Date.now() },
-                  });
-                }
-              }
-            }
-          } catch {
-            // streamEvents errors are non-fatal, main stream handles errors
-          }
-        })();
 
         for await (const update of graphStream) {
           if (closed) break;
@@ -183,9 +141,6 @@ export async function POST(req: Request) {
             }
           }
         }
-
-        // Wait for events stream to finish
-        await eventsDone.catch(() => undefined);
 
         // Get final state for done event
         const finalState = await compiledGraph.getState({
